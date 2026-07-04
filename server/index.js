@@ -1,30 +1,35 @@
 import express from "express";
 import { checkDatabase, pool } from "./db.js";
+import { validateProfileWithCobol } from "./profileValidator.js";
 
 const app = express();
 const port = Number(process.env.SERVER_PORT || 3001);
+const elderlyTable = process.env.ELDERLY_TABLE || "elderly";
 
 app.use(express.json());
 
 const elderlyColumns = `
-  id,
+  elderly_id AS id,
   name,
   age,
   gender,
   phone,
-  medical_condition AS medicalCondition,
-  emergency_contact AS emergencyContact,
-  status,
-  avatar,
-  dob,
+  medical_conditions AS medicalCondition,
+  emergency_name AS emergencyContact,
+  CASE elderly_status
+    WHEN 'active' THEN 'Active'
+    ELSE 'Inactive'
+  END AS status,
+  '' AS avatar,
+  DATE_FORMAT(birthdate, '%Y-%m-%d') AS dob,
   address,
   blood_type AS bloodType,
   allergies,
-  doctor_name AS doctorName,
-  relationship,
+  '' AS doctorName,
+  '' AS relationship,
   emergency_phone AS emergencyPhone,
-  admission_date AS admissionDate,
-  notes
+  DATE_FORMAT(enroll_date, '%Y-%m-%d %H:%i:%s') AS admissionDate,
+  '' AS notes
 `;
 
 const nurseColumns = `
@@ -54,8 +59,16 @@ app.get("/api/health", async (_req, res) => {
 
 app.get("/api/profiles", async (_req, res) => {
   try {
-    const [elderly] = await pool.query(`SELECT ${elderlyColumns} FROM elderly_profiles ORDER BY id`);
-    const [nurses] = await pool.query(`SELECT ${nurseColumns} FROM nurse_profiles ORDER BY id`);
+    const [elderly] = await pool.query(`SELECT ${elderlyColumns} FROM ${elderlyTable} ORDER BY elderly_id`);
+    let nurses = [];
+
+    try {
+      const [nurseRows] = await pool.query(`SELECT ${nurseColumns} FROM nurse_profiles ORDER BY id`);
+      nurses = nurseRows;
+    } catch (error) {
+      if (error.code !== "ER_NO_SUCH_TABLE") throw error;
+      console.warn("nurse_profiles table not found. Returning elderly profiles only.");
+    }
 
     res.json({ elderly, nurses });
   } catch (error) {
@@ -63,35 +76,155 @@ app.get("/api/profiles", async (_req, res) => {
   }
 });
 
+app.post("/api/auth/admin-login", async (req, res) => {
+  const login = String(req.body.login || "").trim();
+  const password = String(req.body.password || "");
+
+  if (!login || !password) {
+    res.status(400).json({ error: "Username/email and password are required." });
+    return;
+  }
+
+  try {
+    const [rows] = await pool.query(
+      `SELECT admin_id, username, password, name, email, admin_status
+       FROM admin
+       WHERE username = :login OR email = :login
+       LIMIT 1`,
+      { login }
+    );
+
+    const admin = rows[0];
+
+    if (!admin || admin.password !== password) {
+      res.status(401).json({ error: "Incorrect admin username/email or password." });
+      return;
+    }
+
+    if (admin.admin_status && admin.admin_status !== "active") {
+      res.status(403).json({ error: "This admin account is suspended." });
+      return;
+    }
+
+    res.json({
+      role: "admin",
+      id: admin.admin_id,
+      username: admin.username,
+      name: admin.name,
+      email: admin.email,
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to sign in admin.", details: error.message });
+  }
+});
+
+async function nextProfileId(table, prefix) {
+  const [rows] = await pool.query(`SELECT id FROM ${table} ORDER BY id DESC LIMIT 1`);
+  const lastId = rows[0]?.id || `${prefix}-0000`;
+  const nextNumber = Number(String(lastId).replace(`${prefix}-`, "")) + 1;
+  return `${prefix}-${String(nextNumber).padStart(4, "0")}`;
+}
+
+app.post("/api/elderly", async (req, res) => {
+  const profile = { ...req.body, type: "elderly" };
+  const validation = await validateProfileWithCobol(profile);
+
+  if (!validation.valid) {
+    res.status(422).json(validation);
+    return;
+  }
+
+  try {
+    const data = {
+      name: String(profile.name || "").trim(),
+      age: Number(profile.age),
+      gender: String(profile.gender || "").toLowerCase(),
+      birthdate: profile.birthdate || null,
+      address: profile.address || "",
+      phone: profile.phone || "",
+      medicalCondition: profile.medicalCondition || "",
+      allergies: profile.allergies || "",
+      bloodType: profile.bloodType || "",
+      emergencyName: profile.emergencyName || "",
+      emergencyPhone: profile.emergencyPhone || "",
+    };
+
+    const [result] = await pool.query(
+      `INSERT INTO ${elderlyTable} (
+        name, age, gender, birthdate, address, phone, medical_conditions,
+        allergies, blood_type, emergency_name, emergency_phone
+      ) VALUES (
+        :name, :age, :gender, :birthdate, :address, :phone,
+        :medicalCondition, :allergies, :bloodType, :emergencyName,
+        :emergencyPhone
+      )`,
+      data
+    );
+
+    const [rows] = await pool.query(`SELECT ${elderlyColumns} FROM ${elderlyTable} WHERE elderly_id = ?`, [
+      result.insertId,
+    ]);
+    res.status(201).json(rows[0]);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to create elderly profile", details: error.message });
+  }
+});
+
 app.put("/api/elderly/:id", async (req, res) => {
   const { id } = req.params;
   const profile = req.body;
+  const validation = await validateProfileWithCobol({
+    ...profile,
+    type: "elderly",
+    birthdate: profile.dob || profile.birthdate || "",
+    emergencyName: profile.emergencyContact || profile.emergencyName || "",
+    elderlyStatus: profile.status === "Inactive" ? "passed away" : "active",
+    username: "",
+    password: "",
+    confirmPassword: "",
+  });
+
+  if (!validation.valid) {
+    res.status(422).json(validation);
+    return;
+  }
 
   try {
+    const data = {
+      id,
+      name: String(profile.name || "").trim(),
+      age: Number(profile.age) || 0,
+      gender: String(profile.gender || "").toLowerCase(),
+      phone: profile.phone || "",
+      medicalCondition: profile.medicalCondition || "",
+      emergencyName: profile.emergencyContact || profile.emergencyName || "",
+      birthdate: profile.dob || profile.birthdate || null,
+      address: profile.address || "",
+      bloodType: profile.bloodType || "",
+      allergies: profile.allergies || "",
+      emergencyPhone: profile.emergencyPhone || "",
+      elderlyStatus: profile.status === "Inactive" ? "passed away" : "active",
+    };
+
     await pool.query(
-      `UPDATE elderly_profiles
+      `UPDATE ${elderlyTable}
        SET name = :name,
            age = :age,
            gender = :gender,
            phone = :phone,
-           medical_condition = :medicalCondition,
-           emergency_contact = :emergencyContact,
-           status = :status,
-           avatar = :avatar,
-           dob = :dob,
+           medical_conditions = :medicalCondition,
+           emergency_name = :emergencyName,
+           birthdate = :birthdate,
            address = :address,
            blood_type = :bloodType,
            allergies = :allergies,
-           doctor_name = :doctorName,
-           relationship = :relationship,
            emergency_phone = :emergencyPhone,
-           admission_date = :admissionDate,
-           notes = :notes
-       WHERE id = :id`,
-      { ...profile, id, age: Number(profile.age) || 0 }
+           elderly_status = :elderlyStatus
+       WHERE elderly_id = :id`,
+      data
     );
 
-    const [rows] = await pool.query(`SELECT ${elderlyColumns} FROM elderly_profiles WHERE id = ?`, [id]);
+    const [rows] = await pool.query(`SELECT ${elderlyColumns} FROM ${elderlyTable} WHERE elderly_id = ?`, [id]);
     res.json(rows[0]);
   } catch (error) {
     res.status(500).json({ error: "Failed to update elderly profile", details: error.message });
@@ -100,10 +233,55 @@ app.put("/api/elderly/:id", async (req, res) => {
 
 app.delete("/api/elderly/:id", async (req, res) => {
   try {
-    await pool.query("DELETE FROM elderly_profiles WHERE id = ?", [req.params.id]);
+    await pool.query(`DELETE FROM ${elderlyTable} WHERE elderly_id = ?`, [req.params.id]);
     res.status(204).end();
   } catch (error) {
     res.status(500).json({ error: "Failed to delete elderly profile", details: error.message });
+  }
+});
+
+app.post("/api/nurses", async (req, res) => {
+  const profile = { ...req.body, type: "nurse" };
+  const validation = await validateProfileWithCobol(profile);
+
+  if (!validation.valid) {
+    res.status(422).json(validation);
+    return;
+  }
+
+  try {
+    const id = await nextProfileId("nurse_profiles", "NRS");
+    const data = {
+      id,
+      name: String(profile.name || "").trim(),
+      age: Number(profile.age),
+      gender: profile.gender,
+      phone: profile.phone || "",
+      email: profile.email || "",
+      position: profile.position || "",
+      hireDate: profile.hireDate || "",
+      status: profile.nurseStatus === "On Leave" ? "On Leave" : "Active",
+      avatar: profile.avatar || "https://i.pravatar.cc/40?img=49",
+      assignedElders: Number(profile.assignedElders) || 0,
+      workArea: profile.workArea || "",
+      nurseStatus: profile.nurseStatus || "Active",
+    };
+
+    await pool.query(
+      `INSERT INTO nurse_profiles (
+        id, name, age, gender, phone, email, position, hire_date, status,
+        avatar, assigned_elders, work_area, nurse_status
+      ) VALUES (
+        :id, :name, :age, :gender, :phone, :email, :position, :hireDate,
+        :status, :avatar, :assignedElders, :workArea, :nurseStatus
+      )`,
+      data
+    );
+
+    const [rows] = await pool.query(`SELECT ${nurseColumns} FROM nurse_profiles WHERE id = ?`, [id]);
+    res.status(201).json(rows[0]);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to create nurse profile", details: error.message });
   }
 });
 

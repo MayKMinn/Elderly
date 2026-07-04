@@ -21,17 +21,20 @@ import {
   User,
   Save,
 } from "lucide-react";
-import { elderlyData, nurseData } from "./data";
+import { nurseData } from "./data";
 import type { ElderlyProfile, NurseProfile } from "./data";
 import { AddProfileForm } from "./AddProfileForm";
 import { DeleteModal } from "./DeleteModal";
 import {
+  createElderlyProfile,
+  createNurseProfile,
   deleteElderlyProfile,
   deleteNurseProfile,
   getProfiles,
   updateElderlyProfile,
   updateNurseProfile,
 } from "../api/profiles";
+import type { NewProfilePayload, ValidationErrors } from "../api/profiles";
 
 type ProfileTab = "elderly" | "nurse";
 
@@ -50,16 +53,117 @@ type Modal =
   | { type: "addForm"; formType: "elderly" | "nurse" }
   | null;
 
+function validateElderlyBirthdate(value: string) {
+  if (!value) return undefined;
+
+  const birthdate = new Date(`${value}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (Number.isNaN(birthdate.getTime())) return "Enter a valid birthdate.";
+  if (birthdate > today) return "Birthdate cannot be in the future.";
+
+  let age = today.getFullYear() - birthdate.getFullYear();
+  const hasHadBirthday =
+    today.getMonth() > birthdate.getMonth() ||
+    (today.getMonth() === birthdate.getMonth() && today.getDate() >= birthdate.getDate());
+
+  if (!hasHadBirthday) age -= 1;
+
+  if (age < 50 || age > 120) return "Birthdate must make age between 50 and 120.";
+
+  return undefined;
+}
+
+function validateElderlyProfile(profile: ElderlyProfile): ValidationErrors {
+  const errors: ValidationErrors = {};
+  const name = profile.name;
+  const age = Number(profile.age);
+
+  if (!name.trim()) errors.name = "Full name is required.";
+  else if (name.trim().length > 10) errors.name = "Full name must be 10 characters or fewer.";
+  else if (name.startsWith(" ")) errors.name = "Full name cannot start with a space.";
+  else if (name.includes("  ")) errors.name = "Full name cannot contain double spaces.";
+  else if (!/[A-Za-z]/.test(name)) errors.name = "Full name must contain at least one letter.";
+
+  if (!Number.isInteger(age)) errors.age = "Age must be a whole number.";
+  else if (age < 50 || age > 120) errors.age = "Elderly age must be between 50 and 120.";
+
+  if (!profile.gender) errors.gender = "Gender is required.";
+  if (!profile.phone.trim()) errors.phone = "Phone is required.";
+  else if (!/^09-\d{10}$/.test(profile.phone.trim())) errors.phone = "Phone must use format 09-##########.";
+
+  const birthdateError = validateElderlyBirthdate(profile.dob);
+  if (birthdateError) errors.dob = birthdateError;
+
+  if (!profile.address.trim()) errors.address = "Address is required.";
+  else if (profile.address.trim().length > 500) errors.address = "Address must be 500 characters or fewer.";
+
+  if (!profile.medicalCondition.trim()) errors.medicalCondition = "Medical conditions are required.";
+  else if (profile.medicalCondition.trim().length > 500) {
+    errors.medicalCondition = "Medical conditions must be 500 characters or fewer.";
+  }
+
+  if (!profile.allergies.trim()) errors.allergies = "Allergies are required.";
+  else if (profile.allergies.trim().length > 300) errors.allergies = "Allergies must be 300 characters or fewer.";
+
+  if (!profile.bloodType.trim()) errors.bloodType = "Blood type is required.";
+  else if (!/^(A|B|AB|O)[+-]$/i.test(profile.bloodType.trim())) {
+    errors.bloodType = "Blood type must be A+, A-, B+, B-, AB+, AB-, O+, or O-.";
+  }
+
+  if (!profile.emergencyContact.trim()) errors.emergencyContact = "Emergency contact name is required.";
+  else if (profile.emergencyContact.trim().length > 100) {
+    errors.emergencyContact = "Emergency contact name must be 100 characters or fewer.";
+  } else if (!/[A-Za-z]/.test(profile.emergencyContact)) {
+    errors.emergencyContact = "Emergency contact name must contain at least one letter.";
+  }
+
+  if (!profile.emergencyPhone.trim()) errors.emergencyPhone = "Emergency phone is required.";
+  else if (!/^09-\d{10}$/.test(profile.emergencyPhone.trim())) {
+    errors.emergencyPhone = "Emergency phone must use format 09-##########.";
+  }
+
+  return errors;
+}
+
+function getBirthdateLimits() {
+  const today = new Date();
+  const minDate = new Date(today);
+  const maxDate = new Date(today);
+  minDate.setFullYear(today.getFullYear() - 120);
+  maxDate.setFullYear(today.getFullYear() - 50);
+
+  return {
+    min: formatDateInput(minDate),
+    max: formatDateInput(maxDate),
+  };
+}
+
+function formatDateInput(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function toDateInputValue(value: string) {
+  if (!value) return "";
+  const match = value.match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : "";
+}
+
 export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) {
-  const useApi = import.meta.env.VITE_USE_API === "true";
+  const useApi = import.meta.env.VITE_USE_API !== "false";
   const [modal, setModal] = useState<Modal>(null);
-  const [elderlyList, setElderlyList] = useState<ElderlyProfile[]>(elderlyData);
+  const [elderlyList, setElderlyList] = useState<ElderlyProfile[]>([]);
   const [nurseList, setNurseList] = useState<NurseProfile[]>(nurseData);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [selectedRow, setSelectedRow] = useState<string | null>(null);
   const [loading, setLoading] = useState(useApi);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const perPage = 8;
 
@@ -77,7 +181,8 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
       })
       .catch((err) => {
         if (ignore) return;
-        setError("Could not connect to MySQL API. Showing sample data.");
+        setElderlyList([]);
+        setError("Could not connect to MySQL API. No elderly profiles loaded.");
         console.error(err);
       })
       .finally(() => {
@@ -88,6 +193,16 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
       ignore = true;
     };
   }, [useApi]);
+
+  useEffect(() => {
+    if (!successMessage) return;
+
+    const timer = window.setTimeout(() => {
+      setSuccessMessage(null);
+    }, 4000);
+
+    return () => window.clearTimeout(timer);
+  }, [successMessage]);
 
   const filteredElderly = elderlyList.filter(
     (e) =>
@@ -109,10 +224,14 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
   const nursePages = Math.ceil(filteredNurse.length / perPage);
   const pagedNurse = filteredNurse.slice((page - 1) * perPage, page * perPage);
 
-  const handleSaveEdit = async (updated: ElderlyProfile) => {
+  const handleSaveEdit = async (updated: ElderlyProfile): Promise<ValidationErrors | void> => {
+    const validationErrors = validateElderlyProfile(updated);
+    if (Object.keys(validationErrors).length > 0) return validationErrors;
+
     if (!useApi) {
       setElderlyList((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
       setModal(null);
+      setSuccessMessage("Elderly profile updated successfully.");
       return;
     }
 
@@ -121,7 +240,16 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
       setElderlyList((prev) => prev.map((e) => (e.id === saved.id ? saved : e)));
       setModal(null);
       setError(null);
+      setSuccessMessage("Elderly profile updated successfully.");
     } catch (err) {
+      const apiValidationErrors = parseApiValidationErrors(err);
+      if (apiValidationErrors) {
+        return {
+          ...apiValidationErrors,
+          dob: apiValidationErrors.birthdate || apiValidationErrors.dob,
+          emergencyContact: apiValidationErrors.emergencyName || apiValidationErrors.emergencyContact,
+        };
+      }
       setError("Failed to save changes to MySQL.");
       console.error(err);
     }
@@ -189,13 +317,175 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
     }
   };
 
+  const validateNewProfile = (profile: NewProfilePayload): ValidationErrors => {
+    const errors: ValidationErrors = {};
+    const name = profile.name;
+    const age = Number(profile.age);
+
+    if (!name.trim()) errors.name = "Full name is required.";
+    else if (name.trim().length > 10) errors.name = "Full name must be 10 characters or fewer.";
+    else if (name.startsWith(" ")) errors.name = "Full name cannot start with a space.";
+    else if (name.includes("  ")) errors.name = "Full name cannot contain double spaces.";
+    else if (!/[A-Za-z]/.test(name)) errors.name = "Full name must contain at least one letter.";
+
+    if (!profile.age.trim()) errors.age = "Age is required.";
+    else if (!Number.isInteger(age)) errors.age = "Age must be a whole number.";
+    else if (profile.type === "nurse" && (age < 18 || age > 80)) {
+      errors.age = "Caregiver age must be between 18 and 80.";
+    } else if (profile.type === "elderly" && (age < 50 || age > 120)) {
+      errors.age = "Elderly age must be between 50 and 120.";
+    }
+
+    if (!profile.gender) errors.gender = "Gender is required.";
+    if (!profile.phone.trim()) errors.phone = "Phone is required.";
+    else if (!/^09-\d{10}$/.test(profile.phone.trim())) {
+      errors.phone = "Phone must use format 09-##########.";
+    }
+    if (
+      profile.email.trim() &&
+      !/^[A-Za-z][A-Za-z0-9]*@[A-Za-z]+\.[A-Za-z]{2,}$/.test(profile.email.trim())
+    ) {
+      errors.email = "Email must be like name@gmail.com with one @ and one dot.";
+    }
+
+    if (profile.type === "elderly") {
+      if (!profile.address.trim()) errors.address = "Address is required.";
+      if (profile.address.trim().length > 500) errors.address = "Address must be 500 characters or fewer.";
+      const birthdateError = validateElderlyBirthdate(profile.birthdate);
+      if (birthdateError) errors.birthdate = birthdateError;
+      if (!profile.medicalCondition.trim()) errors.medicalCondition = "Medical conditions are required.";
+      else if (profile.medicalCondition.trim().length > 500) {
+        errors.medicalCondition = "Medical conditions must be 500 characters or fewer.";
+      }
+      if (!profile.allergies.trim()) errors.allergies = "Allergies are required.";
+      else if (profile.allergies.trim().length > 300) errors.allergies = "Allergies must be 300 characters or fewer.";
+      if (!profile.bloodType.trim()) errors.bloodType = "Blood type is required.";
+      else if (profile.bloodType.trim().length > 10) errors.bloodType = "Blood type must be 10 characters or fewer.";
+      else if (!/^(A|B|AB|O)[+-]$/i.test(profile.bloodType.trim())) {
+        errors.bloodType = "Blood type must be A+, A-, B+, B-, AB+, AB-, O+, or O-.";
+      }
+      if (!profile.emergencyName.trim()) errors.emergencyName = "Emergency contact name is required.";
+      else if (profile.emergencyName.trim().length > 100) {
+        errors.emergencyName = "Emergency contact name must be 100 characters or fewer.";
+      } else if (!/[A-Za-z]/.test(profile.emergencyName)) {
+        errors.emergencyName = "Emergency contact name must contain at least one letter.";
+      }
+      if (!profile.emergencyPhone.trim()) errors.emergencyPhone = "Emergency phone is required.";
+      else if (!/^09-\d{10}$/.test(profile.emergencyPhone.trim())) {
+        errors.emergencyPhone = "Emergency phone must use format 09-##########.";
+      }
+    } else {
+      if (!profile.position) errors.position = "Position is required.";
+      if (!profile.workArea) errors.workArea = "Work area is required.";
+      if (!profile.hireDate.trim()) errors.hireDate = "Hire date is required.";
+      if (!profile.nurseStatus) errors.nurseStatus = "Nurse status is required.";
+    }
+
+    if (profile.username.trim() && profile.username.trim().length < 4) {
+      errors.username = "Username must be at least 4 characters.";
+    }
+    if (profile.password.trim() && profile.password.trim().length < 8) {
+      errors.password = "Password must be at least 8 characters.";
+    }
+    if (profile.password !== profile.confirmPassword) {
+      errors.confirmPassword = "Passwords must match.";
+    }
+
+    return errors;
+  };
+
+  const parseApiValidationErrors = (err: unknown): ValidationErrors | null => {
+    if (!(err instanceof Error)) return null;
+
+    try {
+      const parsed = JSON.parse(err.message);
+      return parsed?.errors || null;
+    } catch {
+      return null;
+    }
+  };
+
+  const handleAddProfile = async (profile: NewProfilePayload): Promise<ValidationErrors | void> => {
+    if (!useApi) {
+      const validationErrors = validateNewProfile(profile);
+      if (Object.keys(validationErrors).length > 0) return validationErrors;
+
+      if (profile.type === "elderly") {
+        const created: ElderlyProfile = {
+          id: `ELD-${String(elderlyList.length + 1).padStart(4, "0")}`,
+          name: profile.name.trim(),
+          age: Number(profile.age),
+          gender: profile.gender,
+          phone: profile.phone,
+          medicalCondition: profile.medicalCondition,
+          emergencyContact: profile.emergencyName,
+          status: "Active",
+          avatar: "https://i.pravatar.cc/40?img=47",
+          dob: profile.birthdate,
+          address: profile.address,
+          bloodType: profile.bloodType,
+          allergies: profile.allergies,
+          doctorName: "",
+          relationship: "",
+          emergencyPhone: profile.emergencyPhone,
+          admissionDate: new Date().toLocaleDateString(),
+          notes: "",
+        };
+        setElderlyList((prev) => [created, ...prev]);
+        setSuccessMessage("Elderly profile added successfully.");
+      } else {
+        const created: NurseProfile = {
+          id: `NRS-${String(nurseList.length + 1).padStart(4, "0")}`,
+          name: profile.name.trim(),
+          age: Number(profile.age),
+          gender: profile.gender,
+          phone: profile.phone,
+          email: profile.email,
+          position: profile.position,
+          hireDate: profile.hireDate,
+          status: profile.nurseStatus === "On Leave" ? "On Leave" : "Active",
+          avatar: "https://i.pravatar.cc/40?img=49",
+          assignedElders: 0,
+          workArea: profile.workArea,
+          nurseStatus: profile.nurseStatus,
+        };
+        setNurseList((prev) => [created, ...prev]);
+        setSuccessMessage("Caregiver profile added successfully.");
+      }
+
+      setModal(null);
+      return;
+    }
+
+    try {
+      if (profile.type === "elderly") {
+        const created = await createElderlyProfile(profile);
+        setElderlyList((prev) => [created, ...prev]);
+        setSuccessMessage("Elderly profile added successfully.");
+      } else {
+        const created = await createNurseProfile(profile);
+        setNurseList((prev) => [created, ...prev]);
+        setSuccessMessage("Caregiver profile added successfully.");
+      }
+
+      setError(null);
+      setModal(null);
+    } catch (err) {
+      const validationErrors = parseApiValidationErrors(err);
+      if (validationErrors) return validationErrors;
+
+      setError("Failed to create profile.");
+      console.error(err);
+    }
+  };
+
   // Show AddProfileForm
   if (modal?.type === "addForm") {
     return (
       <AddProfileForm
         type={modal.formType}
         onBack={() => setModal(null)}
-        onSave={() => setModal(null)}
+        onSave={handleAddProfile}
       />
     );
   }
@@ -244,6 +534,26 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
             }}
           >
             {loading ? "Loading profiles from MySQL..." : error}
+          </div>
+        )}
+
+        {successMessage && (
+          <div
+            className="mb-4 flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-xs"
+            style={{
+              backgroundColor: "#f0fdf4",
+              borderColor: "#bbf7d0",
+              color: "#15803d",
+            }}
+          >
+            <span>{successMessage}</span>
+            <button
+              onClick={() => setSuccessMessage(null)}
+              className="rounded px-2 py-0.5 hover:bg-green-100"
+              style={{ color: "#166534" }}
+            >
+              Close
+            </button>
           </div>
         )}
 
@@ -851,11 +1161,33 @@ function EditPanel({
 }: {
   profile: ElderlyProfile;
   onClose: () => void;
-  onSave: (p: ElderlyProfile) => void;
+  onSave: (p: ElderlyProfile) => Promise<ValidationErrors | void> | ValidationErrors | void;
 }) {
-  const [form, setForm] = useState({ ...profile });
-  const update = (field: keyof ElderlyProfile, value: string) =>
+  const [form, setForm] = useState({ ...profile, dob: toDateInputValue(profile.dob) });
+  const [errors, setErrors] = useState<ValidationErrors>({});
+  const [saving, setSaving] = useState(false);
+  const birthdateLimits = getBirthdateLimits();
+
+  const update = (field: keyof ElderlyProfile, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const validationErrors = await onSave({ ...form, age: Number(form.age) || 0 });
+      if (validationErrors && Object.keys(validationErrors).length > 0) {
+        setErrors(validationErrors);
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div
@@ -877,32 +1209,45 @@ function EditPanel({
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
           <EditSection title="Personal Information">
             <EditRow2>
-              <EditField label="Full Name" value={form.name} onChange={(v) => update("name", v)} />
-              <EditField label="Age" value={String(form.age)} onChange={(v) => update("age" as any, v)} />
+              <EditField label="Full Name" value={form.name} error={errors.name} onChange={(v) => update("name", v)} />
+              <EditField label="Age" type="number" value={String(form.age)} error={errors.age} onChange={(v) => update("age" as any, v)} />
             </EditRow2>
             <EditRow2>
-              <EditSelect label="Gender" value={form.gender} options={["Male", "Female", "Other"]} onChange={(v) => update("gender", v)} />
-              <EditField label="Date of Birth" value={form.dob} onChange={(v) => update("dob", v)} />
+              <EditSelect label="Gender" value={form.gender} options={["male", "female", "other"]} error={errors.gender} onChange={(v) => update("gender", v)} />
+              <EditField
+                label="Birthdate"
+                type="date"
+                value={form.dob}
+                min={birthdateLimits.min}
+                max={birthdateLimits.max}
+                blockTyping
+                error={errors.dob}
+                onChange={(v) => update("dob", v)}
+              />
             </EditRow2>
-            <EditField label="Phone" value={form.phone} onChange={(v) => update("phone", v)} />
-            <EditField label="Address" value={form.address} onChange={(v) => update("address", v)} />
+            <EditField label="Phone" value={form.phone} placeholder="09-1234567890" error={errors.phone} onChange={(v) => update("phone", v)} />
+            <EditField label="Address" value={form.address} error={errors.address} onChange={(v) => update("address", v)} />
           </EditSection>
 
           <EditSection title="Medical Information">
-            <EditField label="Medical Condition" value={form.medicalCondition} onChange={(v) => update("medicalCondition", v)} />
+            <EditField label="Medical Condition" value={form.medicalCondition} error={errors.medicalCondition} onChange={(v) => update("medicalCondition", v)} />
             <EditRow2>
-              <EditField label="Blood Type" value={form.bloodType} onChange={(v) => update("bloodType", v)} />
-              <EditField label="Allergies" value={form.allergies} onChange={(v) => update("allergies", v)} />
+              <EditSelect
+                label="Blood Type"
+                value={form.bloodType}
+                options={["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"]}
+                error={errors.bloodType}
+                onChange={(v) => update("bloodType", v)}
+              />
+              <EditField label="Allergies" value={form.allergies} error={errors.allergies} onChange={(v) => update("allergies", v)} />
             </EditRow2>
-            <EditField label="Doctor Name" value={form.doctorName} onChange={(v) => update("doctorName", v)} />
           </EditSection>
 
           <EditSection title="Emergency Contact">
             <EditRow2>
-              <EditField label="Contact Name" value={form.emergencyContact} onChange={(v) => update("emergencyContact", v)} />
-              <EditField label="Relationship" value={form.relationship} onChange={(v) => update("relationship", v)} />
+              <EditField label="Emergency Name" value={form.emergencyContact} error={errors.emergencyContact} onChange={(v) => update("emergencyContact", v)} />
+              <EditField label="Emergency Phone" value={form.emergencyPhone} placeholder="09-1234567890" error={errors.emergencyPhone} onChange={(v) => update("emergencyPhone", v)} />
             </EditRow2>
-            <EditField label="Emergency Phone" value={form.emergencyPhone} onChange={(v) => update("emergencyPhone", v)} />
           </EditSection>
 
           <EditSection title="Status">
@@ -915,11 +1260,12 @@ function EditPanel({
             Cancel
           </button>
           <button
-            onClick={() => onSave(form)}
+            onClick={handleSave}
+            disabled={saving}
             className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm text-white hover:opacity-90"
-            style={{ backgroundColor: "#2563eb" }}
+            style={{ backgroundColor: "#2563eb", opacity: saving ? 0.7 : 1 }}
           >
-            <Save size={14} /> Save Changes
+            <Save size={14} /> {saving ? "Saving..." : "Save Changes"}
           </button>
         </div>
       </div>
@@ -1098,24 +1444,63 @@ function EditRow2({ children }: { children: React.ReactNode }) {
   return <div className="grid grid-cols-2 gap-3">{children}</div>;
 }
 
-function EditField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+function EditField({
+  label,
+  value,
+  onChange,
+  error,
+  type = "text",
+  min,
+  max,
+  placeholder,
+  blockTyping = false,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  error?: string;
+  type?: string;
+  min?: string;
+  max?: string;
+  placeholder?: string;
+  blockTyping?: boolean;
+}) {
   return (
     <div>
       <label className="text-xs block mb-1" style={{ color: "#6b7a99" }}>{label}</label>
       <input
-        type="text"
+        type={type}
         value={value}
+        min={min}
+        max={max}
+        placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
         className="w-full px-3 py-1.5 rounded-lg border text-xs outline-none"
-        style={{ borderColor: "rgba(0,0,0,0.12)", backgroundColor: "#f8fafc", color: "#1a2b42" }}
+        style={{ borderColor: error ? "#ef4444" : "rgba(0,0,0,0.12)", backgroundColor: "#f8fafc", color: "#1a2b42" }}
+        onKeyDown={(e) => {
+          if (blockTyping && e.key !== "Tab") e.preventDefault();
+        }}
         onFocus={(e) => (e.target.style.borderColor = "#2563eb")}
-        onBlur={(e) => (e.target.style.borderColor = "rgba(0,0,0,0.12)")}
+        onBlur={(e) => (e.target.style.borderColor = error ? "#ef4444" : "rgba(0,0,0,0.12)")}
       />
+      {error && <p className="mt-1 text-xs" style={{ color: "#ef4444" }}>{error}</p>}
     </div>
   );
 }
 
-function EditSelect({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (v: string) => void }) {
+function EditSelect({
+  label,
+  value,
+  options,
+  onChange,
+  error,
+}: {
+  label: string;
+  value: string;
+  options: string[];
+  onChange: (v: string) => void;
+  error?: string;
+}) {
   return (
     <div>
       <label className="text-xs block mb-1" style={{ color: "#6b7a99" }}>{label}</label>
@@ -1123,10 +1508,11 @@ function EditSelect({ label, value, options, onChange }: { label: string; value:
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="w-full px-3 py-1.5 rounded-lg border text-xs outline-none"
-        style={{ borderColor: "rgba(0,0,0,0.12)", backgroundColor: "#f8fafc", color: "#1a2b42" }}
+        style={{ borderColor: error ? "#ef4444" : "rgba(0,0,0,0.12)", backgroundColor: "#f8fafc", color: "#1a2b42" }}
       >
         {options.map((o) => <option key={o} value={o}>{o}</option>)}
       </select>
+      {error && <p className="mt-1 text-xs" style={{ color: "#ef4444" }}>{error}</p>}
     </div>
   );
 }

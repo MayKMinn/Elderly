@@ -21,9 +21,35 @@ interface AdminPortalProps {
   onSignOut?: () => void;
 }
 
+const adminPageStorageKey = "eldercare.admin.currentPage";
+const adminProfileTabStorageKey = "eldercare.admin.profileTab";
+
+const pages: Page[] = ["dashboard", "manage-profiles", "schedules", "medications", "reports", "settings"];
+const profileTabs: ProfileTab[] = ["elderly", "nurse"];
+
+function readSavedPage() {
+  const saved = localStorage.getItem(adminPageStorageKey);
+  return pages.includes(saved as Page) ? (saved as Page) : "dashboard";
+}
+
+function readSavedProfileTab() {
+  const saved = localStorage.getItem(adminProfileTabStorageKey);
+  return profileTabs.includes(saved as ProfileTab) ? (saved as ProfileTab) : "elderly";
+}
+
 export function AdminPortal({ onSignOut }: AdminPortalProps) {
-  const [currentPage, setCurrentPage] = useState<Page>("dashboard");
-  const [profileTab, setProfileTab] = useState<ProfileTab>("elderly");
+  const [currentPage, setCurrentPageState] = useState<Page>(readSavedPage);
+  const [profileTab, setProfileTabState] = useState<ProfileTab>(readSavedProfileTab);
+
+  function setCurrentPage(page: Page) {
+    localStorage.setItem(adminPageStorageKey, page);
+    setCurrentPageState(page);
+  }
+
+  function setProfileTab(tab: ProfileTab) {
+    localStorage.setItem(adminProfileTabStorageKey, tab);
+    setProfileTabState(tab);
+  }
 
   const pageTitle: Record<Page, string> = {
     dashboard: "Admin Dashboard",

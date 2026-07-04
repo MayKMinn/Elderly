@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import { AlertCircle, Eye, EyeOff, Heart, LogIn } from "lucide-react";
 import { AdminPortal } from "./admin/AdminPortal";
 import { NursePortal } from "./nurse/NursePortal";
+import { signInAdmin } from "./api/auth";
 
 type Portal = "admin" | "nurse";
 
@@ -16,18 +17,46 @@ const demoNurses = [
   { name: "Thomas Wright", email: "thomas@eldercare.com", password: "nurse123" },
 ];
 
+const sessionStorageKey = "eldercare.session";
+
+function readSavedSession(): Session {
+  try {
+    const saved = localStorage.getItem(sessionStorageKey);
+    if (!saved) return null;
+
+    const parsed = JSON.parse(saved) as Session;
+    if (parsed?.role === "admin" || parsed?.role === "nurse") {
+      return parsed;
+    }
+  } catch {
+    localStorage.removeItem(sessionStorageKey);
+  }
+
+  return null;
+}
+
 export default function App() {
-  const [session, setSession] = useState<Session>(null);
+  const [session, setSession] = useState<Session>(readSavedSession);
+
+  function handleSignIn(nextSession: Exclude<Session, null>) {
+    localStorage.setItem(sessionStorageKey, JSON.stringify(nextSession));
+    setSession(nextSession);
+  }
+
+  function handleSignOut() {
+    localStorage.removeItem(sessionStorageKey);
+    setSession(null);
+  }
 
   if (!session) {
-    return <SignInScreen onSignIn={setSession} />;
+    return <SignInScreen onSignIn={handleSignIn} />;
   }
 
   if (session.role === "admin") {
-    return <AdminPortal onSignOut={() => setSession(null)} />;
+    return <AdminPortal onSignOut={handleSignOut} />;
   }
 
-  return <NursePortal nurseName={session.name} onSignOut={() => setSession(null)} />;
+  return <NursePortal nurseName={session.name} onSignOut={handleSignOut} />;
 }
 
 function SignInScreen({ onSignIn }: { onSignIn: (session: Exclude<Session, null>) => void }) {
@@ -36,39 +65,52 @@ function SignInScreen({ onSignIn }: { onSignIn: (session: Exclude<Session, null>
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const inputCls =
     "w-full px-4 py-3 text-sm bg-input-background border border-border rounded-xl outline-none focus:ring-2 focus:ring-primary/40 transition-all placeholder:text-muted-foreground";
 
   const demoText =
     portal === "admin"
-      ? { email: "admin@eldercare.com", password: "admin123" }
+      ? { email: "Use admin username or email from MySQL", password: "database password" }
       : { email: "patricia@eldercare.com", password: "nurse123" };
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError("");
+    setLoading(true);
 
-    if (portal === "admin") {
-      if (email.toLowerCase() === "admin@eldercare.com" && password === "admin123") {
-        onSignIn({ role: "admin", name: "Admin User" });
+    try {
+      if (portal === "admin") {
+        const admin = await signInAdmin(email, password);
+        onSignIn({ role: "admin", name: admin.name });
         return;
       }
 
-      setError("Incorrect admin email or password.");
-      return;
+      const nurse = demoNurses.find(
+        (item) => item.email.toLowerCase() === email.toLowerCase() && item.password === password
+      );
+
+      if (!nurse) {
+        setError("Incorrect nurse email or password.");
+        return;
+      }
+
+      onSignIn({ role: "nurse", name: nurse.name });
+    } catch (err) {
+      if (err instanceof Error) {
+        try {
+          const parsed = JSON.parse(err.message);
+          setError(parsed.error || "Sign in failed.");
+        } catch {
+          setError("Sign in failed. Please check the backend server.");
+        }
+      } else {
+        setError("Sign in failed.");
+      }
+    } finally {
+      setLoading(false);
     }
-
-    const nurse = demoNurses.find(
-      (item) => item.email.toLowerCase() === email.toLowerCase() && item.password === password
-    );
-
-    if (!nurse) {
-      setError("Incorrect nurse email or password.");
-      return;
-    }
-
-    onSignIn({ role: "nurse", name: nurse.name });
   }
 
   function switchPortal(nextPortal: Portal) {
@@ -125,11 +167,13 @@ function SignInScreen({ onSignIn }: { onSignIn: (session: Exclude<Session, null>
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-semibold text-foreground mb-1.5">Email Address</label>
+                <label className="block text-sm font-semibold text-foreground mb-1.5">
+                  {portal === "admin" ? "Username or Email" : "Email Address"}
+                </label>
                 <input
-                  type="email"
+                  type={portal === "admin" ? "text" : "email"}
                   className={inputCls}
-                  placeholder={portal === "admin" ? "admin@eldercare.com" : "you@eldercare.com"}
+                  placeholder={portal === "admin" ? "admin username or email" : "you@eldercare.com"}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
@@ -156,8 +200,12 @@ function SignInScreen({ onSignIn }: { onSignIn: (session: Exclude<Session, null>
                   </button>
                 </div>
               </div>
-              <button type="submit" className="w-full bg-primary text-primary-foreground py-3 rounded-xl font-semibold hover:opacity-90 transition-opacity flex items-center justify-center gap-2 mt-2">
-                <LogIn size={16} /> Sign In
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-primary text-primary-foreground py-3 rounded-xl font-semibold hover:opacity-90 transition-opacity flex items-center justify-center gap-2 mt-2 disabled:opacity-70"
+              >
+                <LogIn size={16} /> {loading ? "Signing In..." : "Sign In"}
               </button>
               <p className="text-xs text-center text-muted-foreground pt-1">
                 Demo: <span className="font-mono text-foreground">{demoText.email}</span> / <span className="font-mono text-foreground">{demoText.password}</span>
