@@ -4,7 +4,17 @@ export type AdminSession = {
   username: string;
   name: string;
   email: string | null;
+  avatar?: string;
   loginHistoryId: number;
+};
+
+export type AdminProfile = {
+  id: number;
+  username: string;
+  name: string;
+  email: string | null;
+  avatar: string;
+  status: string;
 };
 
 export type AdminLoginHistoryItem = {
@@ -43,6 +53,17 @@ export function signInAdmin(login: string, password: string) {
 
 export function getAdminLoginHistory() {
   return request<AdminLoginHistoryResponse>("/api/admin/login-history");
+}
+
+export function getAdminProfile(username: string) {
+  return request<AdminProfile>(`/api/admin/profile?username=${encodeURIComponent(username)}`);
+}
+
+export function updateAdminAvatar(id: number, avatar: string) {
+  return request<AdminProfile>(`/api/admin/profile/${id}/avatar`, {
+    method: "PUT",
+    body: JSON.stringify({ avatar }),
+  });
 }
 
 export function signOutAdmin(loginHistoryId: number | undefined, username: string | undefined) {

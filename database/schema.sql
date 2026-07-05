@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS admin (
   password VARCHAR(120) NOT NULL,
   name VARCHAR(120) NOT NULL,
   email VARCHAR(160) UNIQUE,
+  avatar MEDIUMTEXT,
   admin_status ENUM('active', 'suspended') NOT NULL DEFAULT 'active'
 );
 
@@ -59,6 +60,25 @@ CREATE TABLE IF NOT EXISTS admin_login_history (
   CONSTRAINT fk_admin_login_history_admin
     FOREIGN KEY (admin_id) REFERENCES admin(admin_id)
     ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS medication_assignments (
+  assignment_id INT AUTO_INCREMENT PRIMARY KEY,
+  elderly_id VARCHAR(40) NOT NULL,
+  elderly_name VARCHAR(120) NOT NULL,
+  nurse_name VARCHAR(120) NOT NULL,
+  medication_name VARCHAR(160) NOT NULL,
+  dosage VARCHAR(80) NOT NULL,
+  instructions VARCHAR(500) NOT NULL,
+  scheduled_time VARCHAR(20) NOT NULL,
+  scheduled_date DATE NOT NULL,
+  compliance_status ENUM('Pending', 'Taken', 'Missed', 'Due Soon') NOT NULL DEFAULT 'Pending',
+  notes TEXT,
+  report_notes TEXT,
+  reported_at TIMESTAMP NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_medication_assignments_elderly_id (elderly_id),
+  INDEX idx_medication_assignments_scheduled_date (scheduled_date)
 );
 
 INSERT INTO elderly_profiles (

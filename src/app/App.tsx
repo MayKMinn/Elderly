@@ -8,7 +8,7 @@ import { signInAdmin, signOutAdmin } from "./api/auth";
 type Portal = "admin" | "nurse";
 
 type Session =
-  | { role: "admin"; name: string; username?: string; signedInAt?: string; loginHistoryId?: number }
+  | { role: "admin"; id?: number; name: string; username?: string; email?: string | null; avatar?: string; signedInAt?: string; loginHistoryId?: number }
   | { role: "nurse"; name: string }
   | null;
 
@@ -64,6 +64,13 @@ export default function App() {
     return (
       <AdminPortal
         adminName={session.username || session.name}
+        adminProfile={{
+          id: session.id,
+          name: session.name,
+          username: session.username,
+          email: session.email,
+          avatar: session.avatar,
+        }}
         signedInAt={session.signedInAt}
         onSignOut={handleSignOut}
       />
@@ -99,8 +106,11 @@ function SignInScreen({ onSignIn }: { onSignIn: (session: Exclude<Session, null>
         const admin = await signInAdmin(email, password);
         onSignIn({
           role: "admin",
+          id: admin.id,
           name: admin.name,
           username: admin.username,
+          email: admin.email,
+          avatar: admin.avatar,
           signedInAt: new Date().toISOString(),
           loginHistoryId: admin.loginHistoryId,
         });

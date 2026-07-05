@@ -1,10 +1,12 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Activity, Pill, Stethoscope, Heart, Clock, Check, X, ChevronLeft,
   ChevronRight, Bell, AlertCircle, CheckCircle, Users, Calendar,
   LogOut, LayoutDashboard, Phone, AlertTriangle, Eye, EyeOff,
   LogIn
 } from "lucide-react";
+import { getMedicationAssignments, updateMedicationAssignmentStatus } from "../api/medications";
+import type { MedicationAssignment } from "../api/medications";
 
 // ── Auth types & store ─────────────────────────────────────────────────────
 
@@ -673,12 +675,53 @@ export function NursePortal({ nurseName = "Nurse", onSignOut }: NursePortalProps
   const [page, setPage] = useState<Page>("schedule");
   const [collapsed, setCollapsed] = useState(false);
   const [checks, setChecks] = useState<CheckEntry[]>(makeChecks);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [medicationAssignments, setMedicationAssignments] = useState<MedicationAssignment[]>([]);
+  const [notificationMessage, setNotificationMessage] = useState("");
 
   const totalChecks = checks.length;
   const doneChecks = checks.filter((c) => c.done).length;
   const morningPending = checks.filter((c) => c.slot === "morning" && !c.done).length;
   const eveningPending = checks.filter((c) => c.slot === "evening" && !c.done).length;
   const criticalCount = RESIDENTS.filter((r) => r.status === "critical").length;
+  const medicationNotificationCount = medicationAssignments.filter((item) =>
+    item.complianceStatus === "Pending" || item.complianceStatus === "Due Soon"
+  ).length;
+
+  useEffect(() => {
+    let ignore = false;
+
+    const loadMedicationAssignments = () => {
+      getMedicationAssignments(nurseName)
+        .then(({ medications }) => {
+          if (!ignore) setMedicationAssignments(medications);
+        })
+        .catch((error) => {
+          console.error("Failed to load medication notifications.", error);
+        });
+    };
+
+    loadMedicationAssignments();
+    const interval = window.setInterval(loadMedicationAssignments, 15000);
+
+    return () => {
+      ignore = true;
+      window.clearInterval(interval);
+    };
+  }, [nurseName]);
+
+  async function reportMedicationStatus(id: number, complianceStatus: "Taken" | "Missed") {
+    setNotificationMessage("");
+
+    try {
+      const updated = await updateMedicationAssignmentStatus(id, complianceStatus);
+      setMedicationAssignments((prev) => prev.map((item) => (item.id === id ? updated : item)));
+      setNotificationMessage(`Medication marked as ${complianceStatus}.`);
+    } catch (error) {
+      setNotificationMessage("Failed to update medication status.");
+      console.error(error);
+    }
+  }
 
   const nav: { id: Page; label: string; icon: React.ElementType }[] = [
     { id: "overview",  label: "Overview",    icon: LayoutDashboard },
@@ -784,10 +827,82 @@ export function NursePortal({ nurseName = "Nurse", onSignOut }: NursePortalProps
             <div className="hidden md:flex items-center gap-1.5 text-xs text-muted-foreground bg-muted px-3 py-1.5 rounded-full">
               <Clock size={11} /> Mon, June 16, 2026
             </div>
-            <button className="relative p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted">
-              <Bell size={15} />
-              {morningPending > 0 && <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />}
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => setNotificationsOpen((open) => !open)}
+                className="relative p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted"
+                title="Medication notifications"
+              >
+                <Bell size={15} />
+                {medicationNotificationCount > 0 && (
+                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] text-white">
+                    {medicationNotificationCount}
+                  </span>
+                )}
+              </button>
+
+              {notificationsOpen && (
+                <div className="absolute right-0 top-full z-50 mt-2 w-80 overflow-hidden rounded-xl border bg-white shadow-xl" style={{ borderColor: "rgba(0,0,0,0.08)" }}>
+                  <div className="border-b px-4 py-3" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
+                    <div className="text-sm" style={{ color: "#1a2b42", fontWeight: 700 }}>Medication notifications</div>
+                    <div className="text-xs" style={{ color: "#6b7a99" }}>Assignments from admin</div>
+                  </div>
+                  {notificationMessage && (
+                    <div className="mx-3 mt-3 rounded-lg px-3 py-2 text-xs" style={{
+                      backgroundColor: notificationMessage.startsWith("Failed") ? "#fee2e2" : "#dcfce7",
+                      color: notificationMessage.startsWith("Failed") ? "#dc2626" : "#15803d",
+                    }}>
+                      {notificationMessage}
+                    </div>
+                  )}
+                  <div className="max-h-80 overflow-y-auto p-2">
+                    {medicationAssignments.length === 0 ? (
+                      <div className="px-3 py-6 text-center text-xs" style={{ color: "#6b7a99" }}>
+                        No medication assignments for {nurseName}.
+                      </div>
+                    ) : (
+                      medicationAssignments.map((item) => (
+                        <div key={item.id} className="rounded-lg border p-3 mb-2" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <div className="text-xs" style={{ color: "#1a2b42", fontWeight: 700 }}>{item.medicationName}</div>
+                              <div className="text-xs" style={{ color: "#6b7a99" }}>{item.elderlyName} · {item.dosage}</div>
+                              <div className="text-xs" style={{ color: "#6b7a99" }}>{item.scheduledDate} at {item.scheduledTime}</div>
+                            </div>
+                            <span className="rounded-full px-2 py-0.5 text-[10px]" style={{
+                              backgroundColor: item.complianceStatus === "Taken" ? "#dcfce7" : item.complianceStatus === "Missed" ? "#fee2e2" : "#fef3c7",
+                              color: item.complianceStatus === "Taken" ? "#15803d" : item.complianceStatus === "Missed" ? "#dc2626" : "#d97706",
+                              fontWeight: 700,
+                            }}>
+                              {item.complianceStatus}
+                            </span>
+                          </div>
+                          <div className="mt-2 text-xs" style={{ color: "#1a2b42" }}>{item.instructions}</div>
+                          {(item.complianceStatus === "Pending" || item.complianceStatus === "Due Soon") && (
+                            <div className="mt-3 grid grid-cols-2 gap-2">
+                              <button
+                                onClick={() => reportMedicationStatus(item.id, "Taken")}
+                                className="rounded-lg border px-2 py-1.5 text-xs font-semibold hover:bg-emerald-50"
+                                style={{ borderColor: "#bbf7d0", color: "#15803d" }}
+                              >
+                                Given
+                              </button>
+                              <button
+                                onClick={() => reportMedicationStatus(item.id, "Missed")}
+                                className="rounded-lg border px-2 py-1.5 text-xs font-semibold hover:bg-red-50"
+                                style={{ borderColor: "#fecaca", color: "#dc2626" }}
+                              >
+                                Missed
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
             <div className="flex items-center gap-2 cursor-pointer pl-1">
               <div
                 className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs flex-shrink-0 border-2"

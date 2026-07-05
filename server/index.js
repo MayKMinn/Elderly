@@ -24,6 +24,51 @@ async function ensureElderlyAvatarColumn() {
   }
 }
 
+async function ensureMedicationAssignmentsTable() {
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS medication_assignments (
+      assignment_id INT AUTO_INCREMENT PRIMARY KEY,
+      elderly_id VARCHAR(40) NOT NULL,
+      elderly_name VARCHAR(120) NOT NULL,
+      nurse_name VARCHAR(120) NOT NULL,
+      medication_name VARCHAR(160) NOT NULL,
+      dosage VARCHAR(80) NOT NULL,
+      instructions VARCHAR(500) NOT NULL,
+      scheduled_time VARCHAR(20) NOT NULL,
+      scheduled_date DATE NOT NULL,
+      compliance_status ENUM('Pending', 'Taken', 'Missed', 'Due Soon') NOT NULL DEFAULT 'Pending',
+      notes TEXT,
+      report_notes TEXT,
+      reported_at TIMESTAMP NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_medication_assignments_elderly_id (elderly_id),
+      INDEX idx_medication_assignments_scheduled_date (scheduled_date)
+    )`
+  );
+
+  try {
+    await pool.query("ALTER TABLE medication_assignments ADD COLUMN report_notes TEXT NULL");
+  } catch (error) {
+    if (error.code !== "ER_DUP_FIELDNAME") throw error;
+  }
+
+  try {
+    await pool.query("ALTER TABLE medication_assignments ADD COLUMN reported_at TIMESTAMP NULL");
+  } catch (error) {
+    if (error.code !== "ER_DUP_FIELDNAME") throw error;
+  }
+}
+
+async function ensureAdminProfileColumns() {
+  try {
+    await pool.query("ALTER TABLE admin ADD COLUMN avatar MEDIUMTEXT NULL");
+  } catch (error) {
+    if (error.code !== "ER_DUP_FIELDNAME") throw error;
+  }
+
+  await pool.query("ALTER TABLE admin MODIFY COLUMN avatar MEDIUMTEXT NULL");
+}
+
 const elderlyColumns = `
   elderly_id AS id,
   name,
@@ -161,7 +206,7 @@ app.post("/api/auth/admin-login", async (req, res) => {
 
   try {
     const [rows] = await pool.query(
-      `SELECT admin_id, username, password, name, email, admin_status
+      `SELECT admin_id, username, password, name, email, avatar, admin_status
        FROM admin
        WHERE username = :login OR email = :login
        LIMIT 1`,
@@ -199,10 +244,87 @@ app.post("/api/auth/admin-login", async (req, res) => {
       username: admin.username,
       name: admin.name,
       email: admin.email,
+      avatar: admin.avatar || "",
       loginHistoryId: loginHistory.insertId,
     });
   } catch (error) {
     res.status(500).json({ error: "Failed to sign in admin.", details: error.message });
+  }
+});
+
+app.get("/api/admin/profile", async (req, res) => {
+  const username = String(req.query.username || "").trim();
+
+  if (!username) {
+    res.status(400).json({ error: "Username is required." });
+    return;
+  }
+
+  try {
+    const [rows] = await pool.query(
+      `SELECT
+         admin_id AS id,
+         username,
+         name,
+         email,
+         COALESCE(avatar, '') AS avatar,
+         admin_status AS status
+       FROM admin
+       WHERE username = :username OR email = :username OR name = :username
+       LIMIT 1`,
+      { username }
+    );
+
+    if (!rows[0]) {
+      res.status(404).json({ error: "Admin profile not found." });
+      return;
+    }
+
+    res.json(rows[0]);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to load admin profile.", details: error.message });
+  }
+});
+
+app.put("/api/admin/profile/:id/avatar", async (req, res) => {
+  const id = Number(req.params.id);
+  const avatar = String(req.body.avatar || "");
+
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Valid admin id is required." });
+    return;
+  }
+
+  try {
+    await pool.query(
+      `UPDATE admin
+       SET avatar = :avatar
+       WHERE admin_id = :id`,
+      { id, avatar }
+    );
+
+    const [rows] = await pool.query(
+      `SELECT
+         admin_id AS id,
+         username,
+         name,
+         email,
+         COALESCE(avatar, '') AS avatar,
+         admin_status AS status
+       FROM admin
+       WHERE admin_id = :id
+       LIMIT 1`,
+      { id }
+    );
+
+    if (!rows[0]) {
+      res.status(404).json({ error: "Admin profile not found." });
+      return;
+    }
+
+    res.json(rows[0]);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to update admin photo.", details: error.message });
   }
 });
 
@@ -353,6 +475,158 @@ app.delete("/api/elderly/:id", async (req, res) => {
   }
 });
 
+const medicationAssignmentColumns = `
+  assignment_id AS id,
+  elderly_id AS elderlyId,
+  elderly_name AS elderlyName,
+  nurse_name AS nurseName,
+  medication_name AS medicationName,
+  dosage,
+  instructions,
+  scheduled_time AS scheduledTime,
+  DATE_FORMAT(scheduled_date, '%Y-%m-%d') AS scheduledDate,
+  compliance_status AS complianceStatus,
+  notes,
+  report_notes AS reportNotes,
+  DATE_FORMAT(reported_at, '%Y-%m-%d %H:%i:%s') AS reportedAt,
+  DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS createdAt
+`;
+
+app.get("/api/medications", async (req, res) => {
+  const nurseName = String(req.query.nurseName || "").trim();
+
+  try {
+    const params = {};
+    let where = "";
+
+    if (nurseName) {
+      params.nurseName = nurseName;
+      where = "WHERE LOWER(nurse_name) = LOWER(:nurseName)";
+    }
+
+    const [medications] = await pool.query(
+      `SELECT ${medicationAssignmentColumns}
+       FROM medication_assignments
+       ${where}
+       ORDER BY scheduled_date ASC, assignment_id DESC
+       LIMIT 100`,
+      params
+    );
+
+    res.json({ medications });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to load medication assignments.", details: error.message });
+  }
+});
+
+app.post("/api/medications", async (req, res) => {
+  const payload = req.body;
+  const scheduledDate = String(payload.scheduledDate || "").trim();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const selectedDate = scheduledDate ? new Date(`${scheduledDate}T00:00:00`) : null;
+
+  const errors = {};
+
+  if (!String(payload.elderlyId || "").trim()) errors.elderlyId = "Select an elderly profile.";
+  if (!String(payload.nurseName || "").trim()) errors.nurseName = "Assign caregiver or nurse is required.";
+  if (!String(payload.medicationName || "").trim()) errors.medicationName = "Medicine name is required.";
+  if (!String(payload.dosage || "").trim()) errors.dosage = "Dosage is required.";
+  if (!String(payload.instructions || "").trim()) errors.instructions = "Quantity or dosage instruction is required.";
+  if (!String(payload.scheduledTime || "").trim()) errors.scheduledTime = "Schedule time is required.";
+  if (!scheduledDate) {
+    errors.scheduledDate = "Date is required.";
+  } else if (!selectedDate || Number.isNaN(selectedDate.getTime())) {
+    errors.scheduledDate = "Enter a valid date.";
+  } else if (selectedDate < today) {
+    errors.scheduledDate = "Date cannot be in the past.";
+  }
+
+  if (Object.keys(errors).length > 0) {
+    res.status(422).json({ valid: false, errors });
+    return;
+  }
+
+  try {
+    const data = {
+      elderlyId: String(payload.elderlyId).trim(),
+      elderlyName: String(payload.elderlyName || "").trim(),
+      nurseName: String(payload.nurseName).trim(),
+      medicationName: String(payload.medicationName).trim(),
+      dosage: String(payload.dosage).trim(),
+      instructions: String(payload.instructions).trim(),
+      scheduledTime: String(payload.scheduledTime).trim(),
+      scheduledDate,
+      complianceStatus: ["Pending", "Taken", "Missed", "Due Soon"].includes(payload.complianceStatus)
+        ? payload.complianceStatus
+        : "Pending",
+      notes: String(payload.notes || "").trim(),
+    };
+
+    const [result] = await pool.query(
+      `INSERT INTO medication_assignments (
+        elderly_id, elderly_name, nurse_name, medication_name, dosage,
+        instructions, scheduled_time, scheduled_date, compliance_status, notes
+      ) VALUES (
+        :elderlyId, :elderlyName, :nurseName, :medicationName, :dosage,
+        :instructions, :scheduledTime, :scheduledDate, :complianceStatus, :notes
+      )`,
+      data
+    );
+
+    res.status(201).json({
+      id: result.insertId,
+      ...data,
+      createdAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to assign medication.", details: error.message });
+  }
+});
+
+app.patch("/api/medications/:id/status", async (req, res) => {
+  const id = Number(req.params.id);
+  const complianceStatus = String(req.body.complianceStatus || "").trim();
+  const notes = String(req.body.notes || "").trim();
+
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Valid medication assignment id is required." });
+    return;
+  }
+
+  if (!["Pending", "Taken", "Missed", "Due Soon"].includes(complianceStatus)) {
+    res.status(422).json({ error: "Valid compliance status is required." });
+    return;
+  }
+
+  try {
+    await pool.query(
+      `UPDATE medication_assignments
+       SET compliance_status = :complianceStatus,
+           report_notes = :notes,
+           reported_at = CURRENT_TIMESTAMP
+       WHERE assignment_id = :id`,
+      { id, complianceStatus, notes }
+    );
+
+    const [rows] = await pool.query(
+      `SELECT ${medicationAssignmentColumns}
+       FROM medication_assignments
+       WHERE assignment_id = ?`,
+      [id]
+    );
+
+    if (!rows[0]) {
+      res.status(404).json({ error: "Medication assignment not found." });
+      return;
+    }
+
+    res.json(rows[0]);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to update medication status.", details: error.message });
+  }
+});
+
 app.post("/api/nurses", async (req, res) => {
   const profile = { ...req.body, type: "nurse" };
   const validation = await validateProfileWithCobol(profile);
@@ -446,6 +720,8 @@ app.listen(port, async () => {
   try {
     await checkDatabase();
     await ensureElderlyAvatarColumn();
+    await ensureAdminProfileColumns();
+    await ensureMedicationAssignmentsTable();
     console.log(`API server running at http://localhost:${port}`);
   } catch (error) {
     console.error("API server started, but MySQL connection failed:");

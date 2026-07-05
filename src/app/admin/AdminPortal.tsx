@@ -21,6 +21,12 @@ type ProfileTab = "elderly" | "nurse";
 
 interface AdminPortalProps {
   adminName: string;
+  adminProfile?: {
+    id?: number;
+    name: string;
+    username?: string;
+    email?: string | null;
+  };
   signedInAt?: string;
   onSignOut?: () => void;
 }
@@ -41,7 +47,7 @@ function readSavedProfileTab() {
   return profileTabs.includes(saved as ProfileTab) ? (saved as ProfileTab) : "elderly";
 }
 
-export function AdminPortal({ adminName, signedInAt, onSignOut }: AdminPortalProps) {
+export function AdminPortal({ adminName, adminProfile, signedInAt, onSignOut }: AdminPortalProps) {
   const [currentPage, setCurrentPageState] = useState<Page>(readSavedPage);
   const [profileTab, setProfileTabState] = useState<ProfileTab>(readSavedProfileTab);
 
@@ -93,6 +99,9 @@ export function AdminPortal({ adminName, signedInAt, onSignOut }: AdminPortalPro
         <TopBar
           title={pageTitle[currentPage]}
           adminName={adminName}
+          adminProfile={adminProfile}
+          signedInAt={signedInAt}
+          onSignOut={onSignOut}
           subtitle={
             currentPage === "schedules" || currentPage === "medications" || currentPage === "reports"
               ? undefined
