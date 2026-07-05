@@ -11,6 +11,7 @@ export type NewProfilePayload = {
   age: string;
   gender: string;
   phone: string;
+  avatar: string;
   email: string;
   birthdate: string;
   address: string;
@@ -19,6 +20,7 @@ export type NewProfilePayload = {
   allergies: string;
   emergencyName: string;
   emergencyPhone: string;
+  emergencyAddress: string;
   elderlyStatus: string;
   enrollDate: string;
   doctorName: string;
@@ -94,4 +96,8 @@ export function deleteNurseProfile(id: string) {
   return request<void>(`/api/nurses/${id}`, {
     method: "DELETE",
   });
+}
+
+export function searchElderlyProfiles(name: string) {
+  return request<{ elderly: ElderlyProfile[] }>(`/api/elderly/search?name=${encodeURIComponent(name)}`);
 }

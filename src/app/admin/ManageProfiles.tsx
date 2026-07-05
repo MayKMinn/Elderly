@@ -6,6 +6,7 @@ import {
   Eye,
   Pencil,
   Trash2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Users,
@@ -19,11 +20,13 @@ import {
   Heart,
   AlertTriangle,
   User,
+  ImagePlus,
   Save,
 } from "lucide-react";
 import { nurseData } from "./data";
 import type { ElderlyProfile, NurseProfile } from "./data";
-import { AddProfileForm } from "./AddProfileForm";
+import { AddElderlyProfileForm } from "./AddElderlyProfileForm";
+import { AddNurseProfileForm } from "./AddNurseProfileForm";
 import { DeleteModal } from "./DeleteModal";
 import {
   createElderlyProfile,
@@ -91,7 +94,7 @@ function validateElderlyProfile(profile: ElderlyProfile): ValidationErrors {
 
   if (!profile.gender) errors.gender = "Gender is required.";
   if (!profile.phone.trim()) errors.phone = "Phone is required.";
-  else if (!/^09-\d{10}$/.test(profile.phone.trim())) errors.phone = "Phone must use format 09-##########.";
+  else if (!/^09-\d{9}$/.test(profile.phone.trim())) errors.phone = "Phone must use format 09-#########.";
 
   const birthdateError = validateElderlyBirthdate(profile.dob);
   if (birthdateError) errors.dob = birthdateError;
@@ -120,8 +123,13 @@ function validateElderlyProfile(profile: ElderlyProfile): ValidationErrors {
   }
 
   if (!profile.emergencyPhone.trim()) errors.emergencyPhone = "Emergency phone is required.";
-  else if (!/^09-\d{10}$/.test(profile.emergencyPhone.trim())) {
-    errors.emergencyPhone = "Emergency phone must use format 09-##########.";
+  else if (!/^09-\d{9}$/.test(profile.emergencyPhone.trim())) {
+    errors.emergencyPhone = "Emergency phone must use format 09-#########.";
+  }
+  const emergencyAddress = String(profile.emergencyAddress || "");
+  if (!emergencyAddress.trim()) errors.emergencyAddress = "Emergency address is required.";
+  else if (emergencyAddress.trim().length > 500) {
+    errors.emergencyAddress = "Emergency address must be 500 characters or fewer.";
   }
 
   return errors;
@@ -153,11 +161,35 @@ function toDateInputValue(value: string) {
   return match ? match[1] : "";
 }
 
+function parseRegistrationDate(value: string) {
+  if (!value) return null;
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  return parsed;
+}
+
+function countRegistrationsThisWeek<T>(profiles: T[], getDate: (profile: T) => string) {
+  const today = new Date();
+  const startOfWeek = new Date(today);
+  startOfWeek.setHours(0, 0, 0, 0);
+  startOfWeek.setDate(today.getDate() - today.getDay());
+
+  const endOfWeek = new Date(startOfWeek);
+  endOfWeek.setDate(startOfWeek.getDate() + 7);
+
+  return profiles.filter((profile) => {
+    const registeredAt = parseRegistrationDate(getDate(profile));
+    return registeredAt ? registeredAt >= startOfWeek && registeredAt < endOfWeek : false;
+  }).length;
+}
+
 export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) {
   const useApi = import.meta.env.VITE_USE_API !== "false";
   const [modal, setModal] = useState<Modal>(null);
   const [elderlyList, setElderlyList] = useState<ElderlyProfile[]>([]);
-  const [nurseList, setNurseList] = useState<NurseProfile[]>(nurseData);
+  const [nurseList, setNurseList] = useState<NurseProfile[]>(useApi ? [] : nurseData);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [selectedRow, setSelectedRow] = useState<string | null>(null);
@@ -338,8 +370,8 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
 
     if (!profile.gender) errors.gender = "Gender is required.";
     if (!profile.phone.trim()) errors.phone = "Phone is required.";
-    else if (!/^09-\d{10}$/.test(profile.phone.trim())) {
-      errors.phone = "Phone must use format 09-##########.";
+    else if (!/^09-\d{9}$/.test(profile.phone.trim())) {
+      errors.phone = "Phone must use format 09-#########.";
     }
     if (
       profile.email.trim() &&
@@ -371,8 +403,12 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
         errors.emergencyName = "Emergency contact name must contain at least one letter.";
       }
       if (!profile.emergencyPhone.trim()) errors.emergencyPhone = "Emergency phone is required.";
-      else if (!/^09-\d{10}$/.test(profile.emergencyPhone.trim())) {
-        errors.emergencyPhone = "Emergency phone must use format 09-##########.";
+      else if (!/^09-\d{9}$/.test(profile.emergencyPhone.trim())) {
+        errors.emergencyPhone = "Emergency phone must use format 09-#########.";
+      }
+      if (!profile.emergencyAddress.trim()) errors.emergencyAddress = "Emergency address is required.";
+      else if (profile.emergencyAddress.trim().length > 500) {
+        errors.emergencyAddress = "Emergency address must be 500 characters or fewer.";
       }
     } else {
       if (!profile.position) errors.position = "Position is required.";
@@ -419,8 +455,9 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
           phone: profile.phone,
           medicalCondition: profile.medicalCondition,
           emergencyContact: profile.emergencyName,
+          emergencyAddress: profile.emergencyAddress,
           status: "Active",
-          avatar: "https://i.pravatar.cc/40?img=47",
+          avatar: profile.avatar || `https://i.pravatar.cc/40?u=${encodeURIComponent(profile.name.trim())}`,
           dob: profile.birthdate,
           address: profile.address,
           bloodType: profile.bloodType,
@@ -479,29 +516,37 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
     }
   };
 
-  // Show AddProfileForm
+  // Show add profile form
   if (modal?.type === "addForm") {
-    return (
-      <AddProfileForm
-        type={modal.formType}
-        onBack={() => setModal(null)}
-        onSave={handleAddProfile}
-      />
-    );
+    const sharedProps = {
+      onBack: () => setModal(null),
+      onSave: handleAddProfile,
+    };
+
+    return modal.formType === "elderly"
+      ? <AddElderlyProfileForm {...sharedProps} />
+      : <AddNurseProfileForm {...sharedProps} />;
   }
+
+  const newElderlyRegistrations = useApi
+    ? countRegistrationsThisWeek(elderlyList, (profile) => profile.admissionDate)
+    : 0;
+  const newNurseRegistrations = useApi
+    ? countRegistrationsThisWeek(nurseList, (profile) => profile.hireDate)
+    : 0;
 
   const elderlyStats = [
     { label: "Total Elders", value: elderlyList.length, sub: "+8 this month", icon: <Users size={18} />, iconBg: "#eff6ff", iconColor: "#3b82f6" },
     { label: "Total Caregivers", value: nurseList.length, sub: "+2 this month", icon: <UserCheck size={18} />, iconBg: "#f0fdf4", iconColor: "#22c55e" },
     { label: "Active Cases", value: elderlyList.filter((e) => e.status === "Active").length, sub: "+3 this week", icon: <Activity size={18} />, iconBg: "#fff7ed", iconColor: "#f97316" },
-    { label: "New Registrations", value: 7, sub: "+1 this week", icon: <UserPlus size={18} />, iconBg: "#fdf4ff", iconColor: "#a855f7" },
+    { label: "New Registrations", value: newElderlyRegistrations, sub: "This week", icon: <UserPlus size={18} />, iconBg: "#fdf4ff", iconColor: "#a855f7" },
   ];
 
   const nurseStats = [
     { label: "Total Nurses", value: nurseList.length, sub: "+2 this month", icon: <Users size={18} />, iconBg: "#eff6ff", iconColor: "#3b82f6" },
     { label: "Total Elders", value: elderlyList.length, sub: "+8 this month", icon: <UserCheck size={18} />, iconBg: "#f0fdf4", iconColor: "#22c55e" },
     { label: "Active Nurses", value: nurseList.filter((n) => n.status === "Active").length, sub: "+3 this month", icon: <Activity size={18} />, iconBg: "#fff7ed", iconColor: "#f97316" },
-    { label: "New Registrations", value: 3, sub: "+1 this week", icon: <UserPlus size={18} />, iconBg: "#fdf4ff", iconColor: "#a855f7" },
+    { label: "New Registrations", value: newNurseRegistrations, sub: "This week", icon: <UserPlus size={18} />, iconBg: "#fdf4ff", iconColor: "#a855f7" },
   ];
 
   const stats = activeTab === "elderly" ? elderlyStats : nurseStats;
@@ -944,6 +989,7 @@ function SideProfile({
           <SideRow label="Name" value={profile.emergencyContact} />
           <SideRow label="Relationship" value={profile.relationship} />
           <SideRow label="Phone" value={profile.emergencyPhone} />
+          <SideRow label="Address" value={profile.emergencyAddress} />
         </SideSection>
 
         <button
@@ -1085,6 +1131,7 @@ function ViewModal({
             <ModalRow label="Contact Name" value={profile.emergencyContact} />
             <ModalRow label="Relationship" value={profile.relationship} />
             <ModalRow label="Phone" value={profile.emergencyPhone} />
+            <ModalRow label="Address" value={profile.emergencyAddress} />
           </ModalSection>
 
           <ModalSection title="Status Details">
@@ -1208,12 +1255,13 @@ function EditPanel({
 
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
           <EditSection title="Personal Information">
+            <EditPhotoField value={form.avatar} onChange={(v) => update("avatar", v)} />
             <EditRow2>
               <EditField label="Full Name" value={form.name} error={errors.name} onChange={(v) => update("name", v)} />
               <EditField label="Age" type="number" value={String(form.age)} error={errors.age} onChange={(v) => update("age" as any, v)} />
             </EditRow2>
             <EditRow2>
-              <EditSelect label="Gender" value={form.gender} options={["male", "female", "other"]} error={errors.gender} onChange={(v) => update("gender", v)} />
+              <EditSelect label="Gender" value={form.gender} options={["Male", "Female", "Other"]} error={errors.gender} onChange={(v) => update("gender", v)} />
               <EditField
                 label="Birthdate"
                 type="date"
@@ -1225,7 +1273,7 @@ function EditPanel({
                 onChange={(v) => update("dob", v)}
               />
             </EditRow2>
-            <EditField label="Phone" value={form.phone} placeholder="09-1234567890" error={errors.phone} onChange={(v) => update("phone", v)} />
+            <EditField label="Phone" value={form.phone} placeholder="09-123456789" error={errors.phone} onChange={(v) => update("phone", v)} />
             <EditField label="Address" value={form.address} error={errors.address} onChange={(v) => update("address", v)} />
           </EditSection>
 
@@ -1246,8 +1294,9 @@ function EditPanel({
           <EditSection title="Emergency Contact">
             <EditRow2>
               <EditField label="Emergency Name" value={form.emergencyContact} error={errors.emergencyContact} onChange={(v) => update("emergencyContact", v)} />
-              <EditField label="Emergency Phone" value={form.emergencyPhone} placeholder="09-1234567890" error={errors.emergencyPhone} onChange={(v) => update("emergencyPhone", v)} />
+              <EditField label="Emergency Phone" value={form.emergencyPhone} placeholder="09-123456789" error={errors.emergencyPhone} onChange={(v) => update("emergencyPhone", v)} />
             </EditRow2>
+            <EditField label="Emergency Address" value={form.emergencyAddress} error={errors.emergencyAddress} onChange={(v) => update("emergencyAddress", v)} />
           </EditSection>
 
           <EditSection title="Status">
@@ -1488,6 +1537,65 @@ function EditField({
   );
 }
 
+function EditPhotoField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const preview = value.trim() || "https://i.pravatar.cc/80?u=elderly-edit";
+  const handleUpload = (file?: File) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") onChange(reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div className="flex flex-col items-center gap-3 py-2">
+      <label className="text-xs block" style={{ color: "#6b7a99" }}>Profile Photo</label>
+      <div className="relative">
+        <img
+          src={preview}
+          alt=""
+          className="h-24 w-24 rounded-full border-4 object-cover shadow-sm"
+          style={{ borderColor: "#fff", boxShadow: "0 8px 24px rgba(15,23,42,0.12)" }}
+          onError={(event) => {
+            event.currentTarget.src = "https://i.pravatar.cc/80?u=elderly-edit";
+          }}
+        />
+        <label
+          className="absolute bottom-0 right-0 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-2 bg-white shadow-md transition-colors hover:bg-blue-50"
+          style={{ borderColor: "#fff", color: "#2563eb" }}
+        >
+          <ImagePlus size={16} />
+          <input
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => handleUpload(e.target.files?.[0])}
+          />
+        </label>
+      </div>
+      {value && (
+        <button
+          type="button"
+          onClick={() => onChange("")}
+          className="text-xs hover:underline"
+          style={{ color: "#dc2626" }}
+        >
+          Remove photo
+        </button>
+      )}
+    </div>
+  );
+}
+
 function EditSelect({
   label,
   value,
@@ -1504,14 +1612,21 @@ function EditSelect({
   return (
     <div>
       <label className="text-xs block mb-1" style={{ color: "#6b7a99" }}>{label}</label>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full px-3 py-1.5 rounded-lg border text-xs outline-none"
-        style={{ borderColor: error ? "#ef4444" : "rgba(0,0,0,0.12)", backgroundColor: "#f8fafc", color: "#1a2b42" }}
-      >
-        {options.map((o) => <option key={o} value={o}>{o}</option>)}
-      </select>
+      <div className="relative">
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full appearance-none rounded-lg border px-3 py-2 pr-9 text-xs outline-none transition-colors focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+          style={{ borderColor: error ? "#ef4444" : "rgba(0,0,0,0.12)", backgroundColor: "#f8fafc", color: "#1a2b42" }}
+        >
+          {options.map((o) => <option key={o} value={o}>{o}</option>)}
+        </select>
+        <ChevronDown
+          size={15}
+          className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2"
+          style={{ color: error ? "#ef4444" : "#6b7a99" }}
+        />
+      </div>
       {error && <p className="mt-1 text-xs" style={{ color: "#ef4444" }}>{error}</p>}
     </div>
   );

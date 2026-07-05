@@ -87,7 +87,7 @@
                    PERFORM ADD-NAME-SPACES
                END-IF
                MOVE 0 TO LETTER-COUNT
-          PERFORM VARYING NAME-IDX FROM 1 BY 1
+             PERFORM VARYING NAME-IDX FROM 1 BY 1
              UNTIL NAME-IDX > FUNCTION LENGTH(FUNCTION TRIM(FULL-NAME))
                    IF (FULL-NAME(NAME-IDX:1) >= "A"
                        AND FULL-NAME(NAME-IDX:1) <= "Z")
@@ -219,13 +219,13 @@
                IF FUNCTION TRIM(EMERGENCY-PHONE) = SPACES
                    PERFORM ADD-EMERGENCY-PHONE-REQUIRED
             ELSE
-             IF FUNCTION LENGTH(FUNCTION TRIM(EMERGENCY-PHONE)) NOT = 13
+             IF FUNCTION LENGTH(FUNCTION TRIM(EMERGENCY-PHONE)) NOT = 12
                        PERFORM ADD-EMERGENCY-PHONE-FORMAT
                    ELSE
                        IF EMERGENCY-PHONE(1:3) NOT = "09-"
                            PERFORM ADD-EMERGENCY-PHONE-FORMAT
                        ELSE
-               IF FUNCTION TEST-NUMVAL(EMERGENCY-PHONE(4:10)) NOT = 0
+               IF FUNCTION TEST-NUMVAL(EMERGENCY-PHONE(4:9)) NOT = 0
                                PERFORM ADD-EMERGENCY-PHONE-FORMAT
                            END-IF
                        END-IF
@@ -277,13 +277,13 @@
            STOP RUN.
 
        CHECK-PHONE-FORMAT.
-           IF FUNCTION LENGTH(FUNCTION TRIM(PHONE-TEXT)) NOT = 13
+           IF FUNCTION LENGTH(FUNCTION TRIM(PHONE-TEXT)) NOT = 12
                PERFORM ADD-PHONE-FORMAT
            ELSE
                IF PHONE-TEXT(1:3) NOT = "09-"
                    PERFORM ADD-PHONE-FORMAT
                ELSE
-                   IF FUNCTION TEST-NUMVAL(PHONE-TEXT(4:10)) NOT = 0
+                   IF FUNCTION TEST-NUMVAL(PHONE-TEXT(4:9)) NOT = 0
                        PERFORM ADD-PHONE-FORMAT
                    END-IF
                END-IF
@@ -348,6 +348,15 @@
                            END-IF
                            IF BIRTH-AGE < 50 OR BIRTH-AGE > 120
                                PERFORM ADD-BIRTHDATE-RANGE
+                           ELSE
+                               IF FUNCTION TEST-NUMVAL(FUNCTION TRIM(AGE-TEXT))
+                                   = 0
+                                   IF AGE-NUMBER >= 50 AND AGE-NUMBER <= 120
+                                       IF AGE-NUMBER NOT = BIRTH-AGE
+                                           PERFORM ADD-AGE-BIRTHDATE-MATCH
+                                       END-IF
+                                   END-IF
+                               END-IF
                            END-IF
                        END-IF
                    END-IF
@@ -391,12 +400,17 @@
                TO FIELD-ERROR.
            PERFORM APPEND-ERROR.
 
+       ADD-AGE-BIRTHDATE-MATCH.
+           MOVE '"age":"Age must match birthdate."'
+               TO FIELD-ERROR.
+           PERFORM APPEND-ERROR.
+
        ADD-GENDER-REQUIRED.
            MOVE '"gender":"Gender is required."' TO FIELD-ERROR.
            PERFORM APPEND-ERROR.
 
        ADD-PHONE-FORMAT.
-           MOVE '"phone":"Phone must use format 09-##########."'
+           MOVE '"phone":"Phone must use format 09-#########."'
                TO FIELD-ERROR.
            PERFORM APPEND-ERROR.
 
@@ -410,7 +424,7 @@
            PERFORM APPEND-ERROR.
 
        ADD-EMAIL-FORMAT.
-       MOVE '"email":"Email must be like name@gmail.com with one @ and one dot."'
+           MOVE '"email":"Use format name@gmail.com."'
                TO FIELD-ERROR.
            PERFORM APPEND-ERROR.
 
@@ -434,7 +448,7 @@
            PERFORM APPEND-ERROR.
 
        ADD-BIRTHDATE-RANGE.
-           MOVE '"birthdate":"Birthdate must make age between 50 and 120."'
+           MOVE '"birthdate":"Age from birthdate must be 50 to 120."'
                TO FIELD-ERROR.
            PERFORM APPEND-ERROR.
 
@@ -444,7 +458,7 @@
            PERFORM APPEND-ERROR.
 
        ADD-MEDICAL-LENGTH.
-           MOVE '"medicalCondition":"Medical conditions must be 500 chars or fewer."'
+           MOVE '"medicalCondition":"Must be 500 chars or fewer."'
                TO FIELD-ERROR.
            PERFORM APPEND-ERROR.
 
@@ -470,7 +484,7 @@
 
        ADD-BLOOD-FORMAT.
            MOVE 
-           '"bloodType":"Blood type must be A+, A-, B+, B-, AB+, AB-"'
+           '"bloodType":"Use A, B, AB, or O with + or -."'
                TO FIELD-ERROR.
            PERFORM APPEND-ERROR.
 
@@ -481,7 +495,7 @@
 
        ADD-EMERGENCY-NAME-LENGTH.
            MOVE 
-           '"emergencyName":"Emergency contact name must be 100 chars or fewer."'
+           '"emergencyName":"Must be 100 chars or fewer."'
                TO FIELD-ERROR.
            PERFORM APPEND-ERROR.
 
@@ -492,7 +506,7 @@
 
        ADD-EMERGENCY-PHONE-FORMAT.
            MOVE
-        '"emergencyPhone":"Emergency phone must use format 09-##########."'
+           '"emergencyPhone":"Use format 09-#########."'
                TO FIELD-ERROR.
            PERFORM APPEND-ERROR.
 

@@ -1,50 +1,114 @@
-import { Users, UserCheck, CalendarCheck, Pill, FileText, ArrowRight } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Users, UserCheck, Activity, UserPlus, CalendarCheck, Pill, FileText, ArrowRight } from "lucide-react";
+import { getProfiles } from "../api/profiles";
+import type { ElderlyProfile, NurseProfile } from "./data";
 
-type Page = "dashboard" | "manage-profiles" | "schedules" | "medications" | "reports" | "settings";
+type Page = "dashboard" | "manage-profiles" | "schedules" | "medications" | "reports" | "login-history" | "settings";
 
 interface DashboardProps {
   onNavigate: (page: Page) => void;
 }
 
+function parseDashboardDate(value: string) {
+  if (!value) return null;
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  return parsed;
+}
+
+function countThisWeek<T>(items: T[], getDate: (item: T) => string) {
+  const today = new Date();
+  const startOfWeek = new Date(today);
+  startOfWeek.setHours(0, 0, 0, 0);
+  startOfWeek.setDate(today.getDate() - today.getDay());
+
+  const endOfWeek = new Date(startOfWeek);
+  endOfWeek.setDate(startOfWeek.getDate() + 7);
+
+  return items.filter((item) => {
+    const date = parseDashboardDate(getDate(item));
+    return date ? date >= startOfWeek && date < endOfWeek : false;
+  }).length;
+}
+
 export function Dashboard({ onNavigate }: DashboardProps) {
+  const [elderlyList, setElderlyList] = useState<ElderlyProfile[]>([]);
+  const [nurseList, setNurseList] = useState<NurseProfile[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let ignore = false;
+
+    getProfiles()
+      .then((profiles) => {
+        if (ignore) return;
+        setElderlyList(profiles.elderly);
+        setNurseList(profiles.nurses);
+        setError(null);
+      })
+      .catch((err) => {
+        if (ignore) return;
+        setElderlyList([]);
+        setNurseList([]);
+        setError("Could not connect to MySQL API. Dashboard data is unavailable.");
+        console.error(err);
+      })
+      .finally(() => {
+        if (!ignore) setLoading(false);
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  const activeElderly = elderlyList.filter((profile) => profile.status === "Active").length;
+  const activeNurses = nurseList.filter((profile) => profile.status === "Active").length;
+  const newRegistrations =
+    countThisWeek(elderlyList, (profile) => profile.admissionDate) +
+    countThisWeek(nurseList, (profile) => profile.hireDate);
+
   const stats = [
     {
       label: "Total Elderly",
-      value: 128,
-      change: "+8 this month",
+      value: elderlyList.length,
+      change: "From MySQL",
       icon: <Users size={20} />,
       iconBg: "#fff7ed",
       iconColor: "#f97316",
     },
     {
       label: "Total Nurses / Caregivers",
-      value: 32,
-      change: "+2 this month",
+      value: nurseList.length,
+      change: "From MySQL",
       icon: <UserCheck size={20} />,
       iconBg: "#f0fdf4",
       iconColor: "#22c55e",
     },
     {
-      label: "Today's Visits",
-      value: 24,
-      change: "+3 from yesterday",
-      icon: <CalendarCheck size={20} />,
+      label: "Active Elderly",
+      value: activeElderly,
+      change: "From MySQL",
+      icon: <Activity size={20} />,
       iconBg: "#eff6ff",
       iconColor: "#3b82f6",
     },
     {
-      label: "Pending Medications",
-      value: 11,
-      change: "+2 from yesterday",
-      icon: <Pill size={20} />,
+      label: "Active Nurses",
+      value: activeNurses,
+      change: "From MySQL",
+      icon: <Activity size={20} />,
       iconBg: "#fdf4ff",
       iconColor: "#a855f7",
     },
     {
-      label: "Reports Generated",
-      value: 18,
-      change: "+5 this week",
-      icon: <FileText size={20} />,
+      label: "New Registrations",
+      value: newRegistrations,
+      change: "This week",
+      icon: <UserPlus size={20} />,
       iconBg: "#ecfeff",
       iconColor: "#06b6d4",
     },
@@ -88,6 +152,11 @@ export function Dashboard({ onNavigate }: DashboardProps) {
   return (
     <div className="flex-1 overflow-y-auto p-6">
       {/* Stats Row */}
+      {error && (
+        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
         {stats.map((s) => (
           <div
@@ -102,7 +171,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
               {s.icon}
             </div>
             <div className="text-2xl mb-0.5" style={{ color: "#1a2b42", fontWeight: 700 }}>
-              {s.value}
+              {loading ? "..." : s.value}
             </div>
             <div className="text-xs mb-1" style={{ color: "#1a2b42", fontWeight: 500 }}>
               {s.label}

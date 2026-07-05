@@ -1,12 +1,13 @@
 {
-  "name": "@figma/my-make-file",
+  "name": "elderease",
   "private": true,
   "version": "0.0.1",
   "type": "module",
   "scripts": {
     "build": "vite build",
-    "dev": "vite",
-    "dev:full": "concurrently \"npm run server\" \"vite\"",
+    "dev": "concurrently \"npm run server\" \"vite\"",
+    "dev:ui": "vite",
+    "dev:full": "npm run dev",
     "server": "node server/index.js"
   },
   "dependencies": {

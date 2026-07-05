@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { X } from "lucide-react";
+import { ChevronDown, ImagePlus, X } from "lucide-react";
 import type { NewProfilePayload, ValidationErrors } from "../api/profiles";
 
-interface AddProfileFormProps {
+export interface AddProfileFormBaseProps {
   type: "elderly" | "nurse";
   onBack: () => void;
   onSave: (profile: NewProfilePayload) => Promise<ValidationErrors | void> | ValidationErrors | void;
@@ -14,6 +14,7 @@ const emptyProfile: NewProfilePayload = {
   age: "",
   gender: "",
   phone: "",
+  avatar: "",
   email: "",
   birthdate: "",
   address: "",
@@ -22,6 +23,7 @@ const emptyProfile: NewProfilePayload = {
   allergies: "",
   emergencyName: "",
   emergencyPhone: "",
+  emergencyAddress: "",
   elderlyStatus: "active",
   enrollDate: "",
   doctorName: "",
@@ -35,6 +37,25 @@ const emptyProfile: NewProfilePayload = {
   nurseStatus: "",
 };
 
+function getAgeFromBirthdate(value: string) {
+  if (!value) return undefined;
+
+  const birthdate = new Date(`${value}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (Number.isNaN(birthdate.getTime()) || birthdate > today) return undefined;
+
+  let age = today.getFullYear() - birthdate.getFullYear();
+  const hasHadBirthday =
+    today.getMonth() > birthdate.getMonth() ||
+    (today.getMonth() === birthdate.getMonth() && today.getDate() >= birthdate.getDate());
+
+  if (!hasHadBirthday) age -= 1;
+
+  return age;
+}
+
 function validateElderlyBirthdate(value: string) {
   if (!value) return undefined;
 
@@ -45,14 +66,23 @@ function validateElderlyBirthdate(value: string) {
   if (Number.isNaN(birthdate.getTime())) return "Enter a valid birthdate.";
   if (birthdate > today) return "Birthdate cannot be in the future.";
 
-  let age = today.getFullYear() - birthdate.getFullYear();
-  const hasHadBirthday =
-    today.getMonth() > birthdate.getMonth() ||
-    (today.getMonth() === birthdate.getMonth() && today.getDate() >= birthdate.getDate());
-
-  if (!hasHadBirthday) age -= 1;
-
+  const age = getAgeFromBirthdate(value);
+  if (age === undefined) return "Enter a valid birthdate.";
   if (age < 50 || age > 120) return "Birthdate must make age between 50 and 120.";
+
+  return undefined;
+}
+
+function validateElderlyAgeBirthdateMatch(currentForm: NewProfilePayload) {
+  if (currentForm.type !== "elderly" || !currentForm.age.trim() || !currentForm.birthdate) {
+    return undefined;
+  }
+
+  const age = Number(currentForm.age);
+  const birthdateAge = getAgeFromBirthdate(currentForm.birthdate);
+
+  if (!Number.isInteger(age) || birthdateAge === undefined) return undefined;
+  if (age !== birthdateAge) return `Age must match birthdate. Expected age is ${birthdateAge}.`;
 
   return undefined;
 }
@@ -81,7 +111,7 @@ function getElderlyBirthdateLimits() {
   };
 }
 
-export function AddProfileForm({ type, onBack, onSave }: AddProfileFormProps) {
+export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseProps) {
   const isNurse = type === "nurse";
   const elderlyBirthdateLimits = getElderlyBirthdateLimits();
   const [form, setForm] = useState<NewProfilePayload>({ ...emptyProfile, type });
@@ -113,13 +143,14 @@ export function AddProfileForm({ type, onBack, onSave }: AddProfileFormProps) {
       if (currentForm.type === "elderly" && (age < 50 || age > 120)) {
         return "Elderly age must be between 50 and 120.";
       }
+      return validateElderlyAgeBirthdateMatch({ ...currentForm, age: value });
     }
 
     if (field === "gender" && !trimmedValue) return "Gender is required.";
 
     if (field === "phone") {
       if (!trimmedValue) return "Phone is required.";
-      if (!/^09-\d{10}$/.test(trimmedValue)) return "Phone must use format 09-##########.";
+      if (!/^09-\d{9}$/.test(trimmedValue)) return "Phone must use format 09-#########.";
     }
 
     if (field === "email" && trimmedValue) {
@@ -135,7 +166,7 @@ export function AddProfileForm({ type, onBack, onSave }: AddProfileFormProps) {
     }
 
     if (field === "birthdate" && currentForm.type === "elderly") {
-      return validateElderlyBirthdate(value);
+      return validateElderlyBirthdate(value) || validateElderlyAgeBirthdateMatch({ ...currentForm, birthdate: value });
     }
 
     if (field === "medicalCondition" && currentForm.type === "elderly") {
@@ -163,7 +194,12 @@ export function AddProfileForm({ type, onBack, onSave }: AddProfileFormProps) {
 
     if (field === "emergencyPhone" && currentForm.type === "elderly") {
       if (!trimmedValue) return "Emergency phone is required.";
-      if (!/^09-\d{10}$/.test(trimmedValue)) return "Emergency phone must use format 09-##########.";
+      if (!/^09-\d{9}$/.test(trimmedValue)) return "Emergency phone must use format 09-#########.";
+    }
+
+    if (field === "emergencyAddress" && currentForm.type === "elderly") {
+      if (!trimmedValue) return "Emergency address is required.";
+      if (trimmedValue.length > 500) return "Emergency address must be 500 characters or fewer.";
     }
 
     if (currentForm.type === "nurse") {
@@ -197,6 +233,9 @@ export function AddProfileForm({ type, onBack, onSave }: AddProfileFormProps) {
       if (error) nextErrors[field] = error;
     });
 
+    const ageBirthdateError = validateElderlyAgeBirthdateMatch(currentForm);
+    if (ageBirthdateError && !nextErrors.age) nextErrors.age = ageBirthdateError;
+
     return nextErrors;
   };
 
@@ -210,6 +249,17 @@ export function AddProfileForm({ type, onBack, onSave }: AddProfileFormProps) {
 
         if (fieldError) nextErrors[field] = fieldError;
         else delete nextErrors[field];
+
+        if (field === "age" || field === "birthdate") {
+          const ageError = validateField("age", nextForm.age, nextForm);
+          const birthdateError = validateField("birthdate", nextForm.birthdate, nextForm);
+
+          if (ageError) nextErrors.age = ageError;
+          else delete nextErrors.age;
+
+          if (birthdateError) nextErrors.birthdate = birthdateError;
+          else delete nextErrors.birthdate;
+        }
 
         if (field === "password" || field === "confirmPassword") {
           const confirmError = validateField("confirmPassword", nextForm.confirmPassword, nextForm);
@@ -247,18 +297,6 @@ export function AddProfileForm({ type, onBack, onSave }: AddProfileFormProps) {
   return (
     <div className="flex-1 overflow-y-auto p-6">
       <div className="max-w-2xl mx-auto">
-        <div className="flex items-center gap-1.5 text-xs mb-4" style={{ color: "#6b7a99" }}>
-          <button onClick={onBack} className="hover:text-blue-600 transition-colors">
-            Manage Profiles
-          </button>
-          <span>/</span>
-          <span>{isNurse ? "Caregiver Profiles" : "Elderly Profiles"}</span>
-          <span>/</span>
-          <span style={{ color: "#1a2b42", fontWeight: 500 }}>
-            Add New {isNurse ? "Caregiver" : "Elderly"} Profile
-          </span>
-        </div>
-
         <div className="bg-white rounded-2xl border p-6" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
           <h2 className="text-base mb-1" style={{ color: "#1a2b42", fontWeight: 700 }}>
             Add New {isNurse ? "Caregiver" : "Elderly"} Profile
@@ -269,6 +307,12 @@ export function AddProfileForm({ type, onBack, onSave }: AddProfileFormProps) {
 
           <FormSection title="Basic Information">
             <div className="space-y-4">
+              {!isNurse && (
+                <PhotoField
+                  value={form.avatar}
+                  onChange={(value) => setField("avatar", value)}
+                />
+              )}
               <FormRow2>
                 <FormField
                   label="Full Name *"
@@ -296,7 +340,7 @@ export function AddProfileForm({ type, onBack, onSave }: AddProfileFormProps) {
                 />
                 <FormField
                   label="Phone *"
-                  placeholder="09-1234567890"
+                  placeholder="09-123456789"
                   value={form.phone}
                   error={errors.phone}
                   onChange={(value) => setField("phone", value)}
@@ -393,9 +437,10 @@ export function AddProfileForm({ type, onBack, onSave }: AddProfileFormProps) {
                     error={errors.medicalCondition}
                     onChange={(value) => setField("medicalCondition", value)}
                   />
-                  <FormField
+                  <FormFieldSelect
                     label="Blood Type *"
-                    placeholder="e.g. A+"
+                    placeholder="Select blood type"
+                    options={["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"]}
                     value={form.bloodType}
                     error={errors.bloodType}
                     onChange={(value) => setField("bloodType", value)}
@@ -409,24 +454,38 @@ export function AddProfileForm({ type, onBack, onSave }: AddProfileFormProps) {
                     error={errors.allergies}
                     onChange={(value) => setField("allergies", value)}
                   />
-                  <FormField
-                    label="Emergency Name *"
-                    placeholder="Emergency contact"
-                    value={form.emergencyName}
-                    error={errors.emergencyName}
-                    onChange={(value) => setField("emergencyName", value)}
-                  />
                 </FormRow2>
+              </>
+            )}
+          </FormSection>
+
+          {!isNurse && (
+            <FormSection title="Emergency Contact">
+              <FormRow2>
+                <FormField
+                  label="Emergency Name *"
+                  placeholder="Emergency contact"
+                  value={form.emergencyName}
+                  error={errors.emergencyName}
+                  onChange={(value) => setField("emergencyName", value)}
+                />
                 <FormField
                   label="Emergency Phone *"
-                  placeholder="09-1234567890"
+                  placeholder="09-123456789"
                   value={form.emergencyPhone}
                   error={errors.emergencyPhone}
                   onChange={(value) => setField("emergencyPhone", value)}
                 />
-              </>
-            )}
-          </FormSection>
+              </FormRow2>
+              <FormField
+                label="Emergency Address *"
+                placeholder="Enter emergency contact address"
+                value={form.emergencyAddress}
+                error={errors.emergencyAddress}
+                onChange={(value) => setField("emergencyAddress", value)}
+              />
+            </FormSection>
+          )}
 
           {isNurse && (
             <FormSection title="Account Access">
@@ -563,6 +622,67 @@ function FormField({
   );
 }
 
+function PhotoField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const preview = value.trim() || "https://i.pravatar.cc/80?u=elderly-new";
+  const handleUpload = (file?: File) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") onChange(reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div className="flex flex-col items-center gap-3 py-2">
+      <label className="text-xs block" style={{ color: "#6b7a99" }}>
+        Profile Photo
+      </label>
+      <div className="relative">
+        <img
+          src={preview}
+          alt=""
+          className="h-24 w-24 rounded-full border-4 object-cover shadow-sm"
+          style={{ borderColor: "#fff", boxShadow: "0 8px 24px rgba(15,23,42,0.12)" }}
+          onError={(event) => {
+            event.currentTarget.src = "https://i.pravatar.cc/80?u=elderly-new";
+          }}
+        />
+        <label
+          className="absolute bottom-0 right-0 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-2 bg-white shadow-md transition-colors hover:bg-blue-50"
+          style={{ borderColor: "#fff", color: "#2563eb" }}
+        >
+          <ImagePlus size={16} />
+          <input
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(event) => handleUpload(event.target.files?.[0])}
+          />
+        </label>
+      </div>
+      {value && (
+        <button
+          type="button"
+          onClick={() => onChange("")}
+          className="text-xs hover:underline"
+          style={{ color: "#dc2626" }}
+        >
+          Remove photo
+        </button>
+      )}
+    </div>
+  );
+}
+
 function FormFieldSelect({
   label,
   placeholder,
@@ -583,25 +703,32 @@ function FormFieldSelect({
       <label className="text-xs block mb-1.5" style={{ color: "#6b7a99" }}>
         {label}
       </label>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="w-full px-3 py-2 rounded-lg border text-xs outline-none"
-        style={{
-          borderColor: error ? "#ef4444" : "rgba(0,0,0,0.12)",
-          backgroundColor: "#f8fafc",
-          color: "#6b7a99",
-        }}
-      >
-        <option value="" disabled>
-          {placeholder}
-        </option>
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option}
+      <div className="relative">
+        <select
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className="w-full appearance-none rounded-lg border px-3 py-2 pr-9 text-xs outline-none transition-colors focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+          style={{
+            borderColor: error ? "#ef4444" : "rgba(0,0,0,0.12)",
+            backgroundColor: "#f8fafc",
+            color: value ? "#1a2b42" : "#6b7a99",
+          }}
+        >
+          <option value="" disabled>
+            {placeholder}
           </option>
-        ))}
-      </select>
+          {options.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+        <ChevronDown
+          size={15}
+          className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2"
+          style={{ color: error ? "#ef4444" : "#6b7a99" }}
+        />
+      </div>
       {error && (
         <p className="text-xs mt-1" style={{ color: "#dc2626" }}>
           {error}

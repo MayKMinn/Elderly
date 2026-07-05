@@ -7,6 +7,7 @@ import {
   BarChart3,
   Settings,
   LogOut,
+  Clock,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -19,6 +20,7 @@ type Page =
   | "schedules"
   | "medications"
   | "reports"
+  | "login-history"
   | "settings";
 
 type ProfileTab = "elderly" | "nurse";
@@ -28,10 +30,32 @@ interface SidebarProps {
   profileTab: ProfileTab;
   onNavigate: (page: Page) => void;
   onProfileTabChange: (tab: ProfileTab) => void;
+  signedInAt?: string;
   onLogout?: () => void;
 }
 
-export function Sidebar({ currentPage, profileTab, onNavigate, onProfileTabChange, onLogout }: SidebarProps) {
+function formatSignedInAt(value?: string) {
+  if (!value) return "This session";
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "This session";
+
+  return parsed.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+export function Sidebar({
+  currentPage,
+  profileTab,
+  onNavigate,
+  onProfileTabChange,
+  signedInAt,
+  onLogout,
+}: SidebarProps) {
   const [profilesOpen, setProfilesOpen] = useState(true);
   const [collapsed, setCollapsed] = useState(false);
 
@@ -56,7 +80,7 @@ export function Sidebar({ currentPage, profileTab, onNavigate, onProfileTabChang
         {!collapsed && (
           <div>
             <div className="text-sm leading-tight" style={{ color: "#1a2b42", fontWeight: 700 }}>
-              ElderCare Admin
+              ElderEase Admin
             </div>
             <div className="text-xs" style={{ color: "#6b7a99" }}>
               Elderly Care Management
@@ -161,6 +185,13 @@ export function Sidebar({ currentPage, profileTab, onNavigate, onProfileTabChang
           collapsed={collapsed}
         />
         <NavItem
+          icon={<Clock size={17} />}
+          label="Login History"
+          active={currentPage === "login-history"}
+          onClick={() => onNavigate("login-history")}
+          collapsed={collapsed}
+        />
+        <NavItem
           icon={<Settings size={17} />}
           label="Settings"
           active={currentPage === "settings"}
@@ -171,6 +202,16 @@ export function Sidebar({ currentPage, profileTab, onNavigate, onProfileTabChang
 
       {/* Logout */}
       <div className="px-3 pb-4 border-t pt-3" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
+        {!collapsed && (
+          <div className="mb-2 rounded-xl px-3 py-2" style={{ backgroundColor: "#f8fafc" }}>
+            <div className="text-xs" style={{ color: "#6b7a99" }}>
+              Signed in
+            </div>
+            <div className="text-xs" style={{ color: "#1a2b42", fontWeight: 600 }}>
+              {formatSignedInAt(signedInAt)}
+            </div>
+          </div>
+        )}
         <button
           onClick={onLogout}
           className={`w-full flex items-center rounded-xl text-sm transition-all ${

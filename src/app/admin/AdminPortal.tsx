@@ -6,6 +6,7 @@ import { ManageProfiles } from "./ManageProfiles";
 import { Schedules } from "./Schedules";
 import { Medications } from "./Medications";
 import { Reports } from "./Reports";
+import { LoginHistory } from "./LoginHistory";
 
 type Page =
   | "dashboard"
@@ -13,18 +14,21 @@ type Page =
   | "schedules"
   | "medications"
   | "reports"
+  | "login-history"
   | "settings";
 
 type ProfileTab = "elderly" | "nurse";
 
 interface AdminPortalProps {
+  adminName: string;
+  signedInAt?: string;
   onSignOut?: () => void;
 }
 
-const adminPageStorageKey = "eldercare.admin.currentPage";
-const adminProfileTabStorageKey = "eldercare.admin.profileTab";
+const adminPageStorageKey = "elderease.admin.currentPage";
+const adminProfileTabStorageKey = "elderease.admin.profileTab";
 
-const pages: Page[] = ["dashboard", "manage-profiles", "schedules", "medications", "reports", "settings"];
+const pages: Page[] = ["dashboard", "manage-profiles", "schedules", "medications", "reports", "login-history", "settings"];
 const profileTabs: ProfileTab[] = ["elderly", "nurse"];
 
 function readSavedPage() {
@@ -37,7 +41,7 @@ function readSavedProfileTab() {
   return profileTabs.includes(saved as ProfileTab) ? (saved as ProfileTab) : "elderly";
 }
 
-export function AdminPortal({ onSignOut }: AdminPortalProps) {
+export function AdminPortal({ adminName, signedInAt, onSignOut }: AdminPortalProps) {
   const [currentPage, setCurrentPageState] = useState<Page>(readSavedPage);
   const [profileTab, setProfileTabState] = useState<ProfileTab>(readSavedProfileTab);
 
@@ -57,15 +61,17 @@ export function AdminPortal({ onSignOut }: AdminPortalProps) {
     schedules: "Set Up Schedules",
     medications: "Assign Medications",
     reports: "Generate Reports",
+    "login-history": "Login History",
     settings: "Settings",
   };
 
   const pageSubtitle: Record<Page, string> = {
-    dashboard: "Welcome back, Admin! Here's what's happening today.",
+    dashboard: `Welcome back, ${adminName}! Here's what's happening today.`,
     "manage-profiles": "View and manage elderly residents and caregiver profiles.",
     schedules: "Dashboard > Schedules > Set Up Schedules",
     medications: "Dashboard > Medications > Assign Medications",
     reports: "Dashboard > Reports > Generate Reports",
+    "login-history": "View admin sign-in history.",
     settings: "Configure system settings.",
   };
 
@@ -79,12 +85,14 @@ export function AdminPortal({ onSignOut }: AdminPortalProps) {
           setProfileTab(tab);
           setCurrentPage("manage-profiles");
         }}
+        signedInAt={signedInAt}
         onLogout={onSignOut}
       />
 
       <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar
           title={pageTitle[currentPage]}
+          adminName={adminName}
           subtitle={
             currentPage === "schedules" || currentPage === "medications" || currentPage === "reports"
               ? undefined
@@ -104,6 +112,7 @@ export function AdminPortal({ onSignOut }: AdminPortalProps) {
         {currentPage === "schedules" && <Schedules />}
         {currentPage === "medications" && <Medications />}
         {currentPage === "reports" && <Reports />}
+        {currentPage === "login-history" && <LoginHistory />}
         {currentPage === "settings" && (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">

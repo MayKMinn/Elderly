@@ -3,9 +3,10 @@ import { Search, ChevronDown } from "lucide-react";
 interface TopBarProps {
   title: string;
   subtitle?: string;
+  adminName: string;
 }
 
-export function TopBar({ title, subtitle }: TopBarProps) {
+export function TopBar({ title, subtitle, adminName }: TopBarProps) {
   return (
     <div
       className="flex items-center justify-between px-6 py-3 border-b bg-white flex-shrink-0"
@@ -45,16 +46,16 @@ export function TopBar({ title, subtitle }: TopBarProps) {
         <div className="flex items-center gap-2 cursor-pointer pl-1">
           <img
             src="https://i.pravatar.cc/36?img=33"
-            alt="Admin User"
+            alt={adminName}
             className="w-9 h-9 rounded-full object-cover border-2"
             style={{ borderColor: "#dbeafe" }}
           />
           <div className="hidden sm:block">
             <div className="text-xs" style={{ color: "#1a2b42", fontWeight: 600 }}>
-              Admin User
+              {adminName}
             </div>
             <div className="text-xs" style={{ color: "#6b7a99" }}>
-              Administrator
+              Admin
             </div>
           </div>
           <ChevronDown size={12} style={{ color: "#9ca3af" }} />

@@ -18,8 +18,8 @@ interface NurseAccount {
 }
 
 const SEED_NURSES: NurseAccount[] = [
-  { id: "1", fullName: "Patricia Chen", email: "patricia@eldercare.com", licenseNo: "RN-4821", password: "nurse123", joinedAt: "2024-01-10" },
-  { id: "2", fullName: "Thomas Wright", email: "thomas@eldercare.com",  licenseNo: "RN-3307", password: "nurse123", joinedAt: "2024-03-05" },
+  { id: "1", fullName: "Patricia Chen", email: "patricia@elderease.com", licenseNo: "RN-4821", password: "nurse123", joinedAt: "2024-01-10" },
+  { id: "2", fullName: "Thomas Wright", email: "thomas@elderease.com",  licenseNo: "RN-3307", password: "nurse123", joinedAt: "2024-03-05" },
 ];
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -611,7 +611,7 @@ function AuthScreen({ onAuth }: { onAuth: (name: string) => void }) {
           <div className="w-16 h-16 rounded-2xl bg-primary flex items-center justify-center mx-auto mb-4 shadow-lg shadow-primary/30">
             <Heart size={28} className="text-primary-foreground" />
           </div>
-          <h1 className="text-3xl font-bold text-foreground" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>ElderCare</h1>
+          <h1 className="text-3xl font-bold text-foreground" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>ElderEase</h1>
           <p className="text-muted-foreground mt-1 text-sm">Nurse Management Portal</p>
         </div>
 
@@ -631,7 +631,7 @@ function AuthScreen({ onAuth }: { onAuth: (name: string) => void }) {
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
                 <label className="block text-sm font-semibold text-foreground mb-1.5">Email Address</label>
-                <input type="email" className={inputCls} placeholder="you@eldercare.com" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} required />
+                <input type="email" className={inputCls} placeholder="you@elderease.com" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} required />
               </div>
               <div>
                 <label className="block text-sm font-semibold text-foreground mb-1.5">Password</label>
@@ -646,14 +646,14 @@ function AuthScreen({ onAuth }: { onAuth: (name: string) => void }) {
                 <LogIn size={16} /> Sign In
               </button>
               <p className="text-xs text-center text-muted-foreground pt-1">
-                Demo: <span className="font-mono text-foreground">patricia@eldercare.com</span> / <span className="font-mono text-foreground">nurse123</span>
+                Demo: <span className="font-mono text-foreground">patricia@elderease.com</span> / <span className="font-mono text-foreground">nurse123</span>
               </p>
             </form>
           </div>
         </div>
 
         <p className="text-center text-xs text-muted-foreground mt-5">
-          ElderCare Nurse Portal · Secure access only
+          ElderEase Nurse Portal · Secure access only
         </p>
       </div>
     </div>
@@ -708,7 +708,7 @@ export function NursePortal({ nurseName = "Nurse", onSignOut }: NursePortalProps
           </div>
           {!collapsed && (
             <div>
-              <p className="text-sm leading-tight" style={{ color: "#1a2b42", fontWeight: 700 }}>ElderCare Nurse</p>
+              <p className="text-sm leading-tight" style={{ color: "#1a2b42", fontWeight: 700 }}>ElderEase Nurse</p>
               <p className="text-xs" style={{ color: "#6b7a99" }}>Care Management Portal</p>
             </div>
           )}

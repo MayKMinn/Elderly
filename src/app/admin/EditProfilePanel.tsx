@@ -93,6 +93,11 @@ export function EditProfilePanel({ profile, onClose, onSave }: EditProfilePanelP
               value={form.emergencyPhone}
               onChange={(v) => update("emergencyPhone", v)}
             />
+            <Field
+              label="Emergency Address"
+              value={form.emergencyAddress}
+              onChange={(v) => update("emergencyAddress", v)}
+            />
           </FormSection>
 
           {/* Status */}

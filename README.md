@@ -1,13 +1,12 @@
-GitHub connection test
-  # Frontend Code Generation
+# ElderEase
 
-  This is a code bundle for Frontend Code Generation. The original project is available at https://www.figma.com/design/Ccl1Shp4Iuu0kmAVXygwNN/Frontend-Code-Generation.
+  ElderEase is an elderly care management app with an admin portal, nurse/caregiver profiles, MySQL-backed profile data, and login history.
 
   ## Running the code
 
   Run `npm i` to install the dependencies.
 
-  For UI-only testing:
+  To start the backend API, connect to MySQL, and run the React app:
 
   ```bash
   npm run dev
@@ -15,11 +14,17 @@ GitHub connection test
 
   Open the Vite localhost URL, usually `http://localhost:5173/`.
 
+  For UI-only testing without MySQL:
+
+  ```bash
+  npm run dev:ui
+  ```
+
   Demo logins:
 
   ```text
-  Admin: admin@eldercare.com / admin123
-  Nurse: patricia@eldercare.com / nurse123
+  Admin: use an active admin account from MySQL
+  Nurse: patricia@elderease.com / nurse123
   ```
 
   ## Sending this project to friends
@@ -65,7 +70,7 @@ GitHub connection test
   4. Start both the API server and React app:
 
   ```bash
-  npm run dev:full
+  npm run dev
   ```
 
   Open the UI at the Vite localhost URL, usually `http://localhost:5173/`.
@@ -79,9 +84,9 @@ GitHub connection test
 
   Do not put MySQL credentials in React components. Keep them only in `.env` or in your backend.
 
-  Run `npm run dev` to start the UI-only development server. This uses the built-in sample data.
+  Run `npm run dev:ui` to start the UI-only development server. This uses the built-in sample data.
 
-  Run `npm run dev:full` to start both the MySQL API server and the UI.
+  Run `npm run dev` to start both the MySQL API server and the UI.
 
   ## COBOL backend note
 

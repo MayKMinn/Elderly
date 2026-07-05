@@ -9,8 +9,9 @@ CREATE TABLE IF NOT EXISTS elderly_profiles (
   phone VARCHAR(40),
   medical_condition VARCHAR(160),
   emergency_contact VARCHAR(120),
+  emergency_address VARCHAR(500),
   status ENUM('Active', 'Inactive') NOT NULL DEFAULT 'Active',
-  avatar VARCHAR(255),
+  avatar MEDIUMTEXT,
   dob VARCHAR(80),
   address VARCHAR(255),
   blood_type VARCHAR(10),
@@ -38,6 +39,28 @@ CREATE TABLE IF NOT EXISTS nurse_profiles (
   nurse_status VARCHAR(80)
 );
 
+CREATE TABLE IF NOT EXISTS admin (
+  admin_id INT AUTO_INCREMENT PRIMARY KEY,
+  username VARCHAR(80) NOT NULL UNIQUE,
+  password VARCHAR(120) NOT NULL,
+  name VARCHAR(120) NOT NULL,
+  email VARCHAR(160) UNIQUE,
+  admin_status ENUM('active', 'suspended') NOT NULL DEFAULT 'active'
+);
+
+CREATE TABLE IF NOT EXISTS admin_login_history (
+  history_id INT AUTO_INCREMENT PRIMARY KEY,
+  admin_id INT NOT NULL,
+  username VARCHAR(80) NOT NULL,
+  name VARCHAR(120) NOT NULL,
+  signed_in_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  signed_out_at TIMESTAMP NULL,
+  INDEX idx_admin_login_history_signed_in_at (signed_in_at),
+  CONSTRAINT fk_admin_login_history_admin
+    FOREIGN KEY (admin_id) REFERENCES admin(admin_id)
+    ON DELETE CASCADE
+);
+
 INSERT INTO elderly_profiles (
   id, name, age, gender, phone, medical_condition, emergency_contact, status,
   avatar, dob, address, blood_type, allergies, doctor_name, relationship,
@@ -52,7 +75,7 @@ INSERT INTO nurse_profiles (
   id, name, age, gender, phone, email, position, hire_date, status,
   avatar, assigned_elders, work_area, nurse_status
 ) VALUES
-('NRS-0001', 'Emily Clark', 34, 'Female', '(555) 111-2233', 'emily.clark@eldercare.com', 'Senior Nurse', 'March 15, 2020', 'Active', 'https://i.pravatar.cc/40?img=49', 8, 'Memory Care Unit', 'Active'),
-('NRS-0002', 'James Lee', 29, 'Male', '(555) 222-3344', 'james.lee@eldercare.com', 'Registered Nurse', 'June 10, 2021', 'Active', 'https://i.pravatar.cc/40?img=53', 6, 'General Ward', 'Active'),
-('NRS-0003', 'Sophia Martinez', 38, 'Female', '(555) 333-4455', 'sophia.martinez@eldercare.com', 'Charge Nurse', 'January 5, 2019', 'Active', 'https://i.pravatar.cc/40?img=46', 10, 'Cardiac Care', 'Active')
+('NRS-0001', 'Emily Clark', 34, 'Female', '(555) 111-2233', 'emily.clark@elderease.com', 'Senior Nurse', 'March 15, 2020', 'Active', 'https://i.pravatar.cc/40?img=49', 8, 'Memory Care Unit', 'Active'),
+('NRS-0002', 'James Lee', 29, 'Male', '(555) 222-3344', 'james.lee@elderease.com', 'Registered Nurse', 'June 10, 2021', 'Active', 'https://i.pravatar.cc/40?img=53', 6, 'General Ward', 'Active'),
+('NRS-0003', 'Sophia Martinez', 38, 'Female', '(555) 333-4455', 'sophia.martinez@elderease.com', 'Charge Nurse', 'January 5, 2019', 'Active', 'https://i.pravatar.cc/40?img=46', 10, 'Cardiac Care', 'Active')
 ON DUPLICATE KEY UPDATE name = VALUES(name);

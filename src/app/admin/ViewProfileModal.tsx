@@ -93,6 +93,7 @@ export function ViewProfileModal({ profile, onClose, onEdit }: ViewProfileModalP
             <InfoRow label="Contact Name" value={profile.emergencyContact} />
             <InfoRow label="Relationship" value={profile.relationship} />
             <InfoRow label="Phone" value={profile.emergencyPhone} />
+            <InfoRow label="Address" value={profile.emergencyAddress} />
           </Section>
 
           {/* Status */}

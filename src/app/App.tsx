@@ -3,21 +3,21 @@ import type { FormEvent } from "react";
 import { AlertCircle, Eye, EyeOff, Heart, LogIn } from "lucide-react";
 import { AdminPortal } from "./admin/AdminPortal";
 import { NursePortal } from "./nurse/NursePortal";
-import { signInAdmin } from "./api/auth";
+import { signInAdmin, signOutAdmin } from "./api/auth";
 
 type Portal = "admin" | "nurse";
 
 type Session =
-  | { role: "admin"; name: string }
+  | { role: "admin"; name: string; username?: string; signedInAt?: string; loginHistoryId?: number }
   | { role: "nurse"; name: string }
   | null;
 
 const demoNurses = [
-  { name: "Patricia Chen", email: "patricia@eldercare.com", password: "nurse123" },
-  { name: "Thomas Wright", email: "thomas@eldercare.com", password: "nurse123" },
+  { name: "Patricia Chen", email: "patricia@elderease.com", password: "nurse123" },
+  { name: "Thomas Wright", email: "thomas@elderease.com", password: "nurse123" },
 ];
 
-const sessionStorageKey = "eldercare.session";
+const sessionStorageKey = "elderease.session";
 
 function readSavedSession(): Session {
   try {
@@ -43,7 +43,15 @@ export default function App() {
     setSession(nextSession);
   }
 
-  function handleSignOut() {
+  async function handleSignOut() {
+    if (session?.role === "admin") {
+      try {
+        await signOutAdmin(session.loginHistoryId, session.username);
+      } catch (error) {
+        console.error("Failed to record admin logout.", error);
+      }
+    }
+
     localStorage.removeItem(sessionStorageKey);
     setSession(null);
   }
@@ -53,7 +61,13 @@ export default function App() {
   }
 
   if (session.role === "admin") {
-    return <AdminPortal onSignOut={handleSignOut} />;
+    return (
+      <AdminPortal
+        adminName={session.username || session.name}
+        signedInAt={session.signedInAt}
+        onSignOut={handleSignOut}
+      />
+    );
   }
 
   return <NursePortal nurseName={session.name} onSignOut={handleSignOut} />;
@@ -73,7 +87,7 @@ function SignInScreen({ onSignIn }: { onSignIn: (session: Exclude<Session, null>
   const demoText =
     portal === "admin"
       ? { email: "Use admin username or email from MySQL", password: "database password" }
-      : { email: "patricia@eldercare.com", password: "nurse123" };
+      : { email: "patricia@elderease.com", password: "nurse123" };
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -83,7 +97,13 @@ function SignInScreen({ onSignIn }: { onSignIn: (session: Exclude<Session, null>
     try {
       if (portal === "admin") {
         const admin = await signInAdmin(email, password);
-        onSignIn({ role: "admin", name: admin.name });
+        onSignIn({
+          role: "admin",
+          name: admin.name,
+          username: admin.username,
+          signedInAt: new Date().toISOString(),
+          loginHistoryId: admin.loginHistoryId,
+        });
         return;
       }
 
@@ -132,7 +152,7 @@ function SignInScreen({ onSignIn }: { onSignIn: (session: Exclude<Session, null>
           <div className="w-16 h-16 rounded-2xl bg-primary flex items-center justify-center mx-auto mb-4 shadow-lg shadow-primary/30">
             <Heart size={28} className="text-primary-foreground" />
           </div>
-          <h1 className="text-3xl font-bold text-foreground" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>ElderCare</h1>
+          <h1 className="text-3xl font-bold text-foreground" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>ElderEase</h1>
           <p className="text-muted-foreground mt-1 text-sm">Care Management System</p>
         </div>
 
@@ -173,7 +193,7 @@ function SignInScreen({ onSignIn }: { onSignIn: (session: Exclude<Session, null>
                 <input
                   type={portal === "admin" ? "text" : "email"}
                   className={inputCls}
-                  placeholder={portal === "admin" ? "admin username or email" : "you@eldercare.com"}
+                  placeholder={portal === "admin" ? "admin username or email" : "you@elderease.com"}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required

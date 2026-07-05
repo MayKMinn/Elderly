@@ -35,6 +35,25 @@ const fieldOrder = [
 
 let compileAttempted = false;
 
+function getAgeFromBirthdate(value) {
+  if (!value) return undefined;
+
+  const birthdate = new Date(`${value}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (Number.isNaN(birthdate.getTime()) || birthdate > today) return undefined;
+
+  let age = today.getFullYear() - birthdate.getFullYear();
+  const hasHadBirthday =
+    today.getMonth() > birthdate.getMonth() ||
+    (today.getMonth() === birthdate.getMonth() && today.getDate() >= birthdate.getDate());
+
+  if (!hasHadBirthday) age -= 1;
+
+  return age;
+}
+
 function validateElderlyBirthdate(value) {
   if (!value) return undefined;
 
@@ -45,14 +64,19 @@ function validateElderlyBirthdate(value) {
   if (Number.isNaN(birthdate.getTime())) return "Enter a valid birthdate.";
   if (birthdate > today) return "Birthdate cannot be in the future.";
 
-  let age = today.getFullYear() - birthdate.getFullYear();
-  const hasHadBirthday =
-    today.getMonth() > birthdate.getMonth() ||
-    (today.getMonth() === birthdate.getMonth() && today.getDate() >= birthdate.getDate());
-
-  if (!hasHadBirthday) age -= 1;
-
+  const age = getAgeFromBirthdate(value);
+  if (age === undefined) return "Enter a valid birthdate.";
   if (age < 50 || age > 120) return "Birthdate must make age between 50 and 120.";
+
+  return undefined;
+}
+
+function validateElderlyAgeBirthdateMatch(profile, age) {
+  if (profile.type !== "elderly" || !String(profile.birthdate || "").trim()) return undefined;
+
+  const birthdateAge = getAgeFromBirthdate(profile.birthdate);
+  if (!Number.isInteger(age) || birthdateAge === undefined) return undefined;
+  if (age !== birthdateAge) return `Age must match birthdate. Expected age is ${birthdateAge}.`;
 
   return undefined;
 }
@@ -115,14 +139,17 @@ function fallbackValidate(profile) {
     errors.age = "Caregiver age must be between 18 and 80.";
   } else if (profile.type !== "nurse" && (age < 50 || age > 120)) {
     errors.age = "Elderly age must be between 50 and 120.";
+  } else {
+    const ageBirthdateError = validateElderlyAgeBirthdateMatch(profile, age);
+    if (ageBirthdateError) errors.age = ageBirthdateError;
   }
 
   if (!String(profile.gender || "").trim()) errors.gender = "Gender is required.";
   const phone = String(profile.phone || "").trim();
   if (!phone) {
     errors.phone = "Phone is required.";
-  } else if (!/^09-\d{10}$/.test(phone)) {
-    errors.phone = "Phone must use format 09-##########.";
+  } else if (!/^09-\d{9}$/.test(phone)) {
+    errors.phone = "Phone must use format 09-#########.";
   }
 
   const email = String(profile.email || "").trim();
@@ -166,8 +193,13 @@ function fallbackValidate(profile) {
     const emergencyPhone = String(profile.emergencyPhone || "").trim();
     if (!emergencyPhone) {
       errors.emergencyPhone = "Emergency phone is required.";
-    } else if (!/^09-\d{10}$/.test(emergencyPhone)) {
-      errors.emergencyPhone = "Emergency phone must use format 09-##########.";
+    } else if (!/^09-\d{9}$/.test(emergencyPhone)) {
+      errors.emergencyPhone = "Emergency phone must use format 09-#########.";
+    }
+    if (!String(profile.emergencyAddress || "").trim()) {
+      errors.emergencyAddress = "Emergency address is required.";
+    } else if (String(profile.emergencyAddress || "").trim().length > 500) {
+      errors.emergencyAddress = "Emergency address must be 500 characters or fewer.";
     }
   } else {
     if (!String(profile.position || "").trim()) errors.position = "Position is required.";
@@ -189,18 +221,33 @@ function fallbackValidate(profile) {
   return { valid: Object.keys(errors).length === 0, errors };
 }
 
+function applyEmergencyAddressValidation(profile, validation) {
+  if (profile.type !== "elderly") return validation;
+
+  const errors = { ...(validation.errors || {}) };
+  const emergencyAddress = String(profile.emergencyAddress || "").trim();
+
+  if (!emergencyAddress) {
+    errors.emergencyAddress = "Emergency address is required.";
+  } else if (emergencyAddress.length > 500) {
+    errors.emergencyAddress = "Emergency address must be 500 characters or fewer.";
+  }
+
+  return { valid: Object.keys(errors).length === 0, errors };
+}
+
 export async function validateProfileWithCobol(profile) {
   const input = fieldOrder.map((field) => String(profile[field] ?? "")).join("\n");
 
   if (!(await ensureCobolValidator())) {
-    return fallbackValidate(profile);
+    return applyEmergencyAddressValidation(profile, fallbackValidate(profile));
   }
 
   try {
     const output = await runProcess(cobolBinary, [], `${input}\n`);
-    return JSON.parse(output);
+    return applyEmergencyAddressValidation(profile, JSON.parse(output));
   } catch (error) {
     console.warn("COBOL validation failed, using JavaScript fallback:", error.message);
-    return fallbackValidate(profile);
+    return applyEmergencyAddressValidation(profile, fallbackValidate(profile));
   }
 }
