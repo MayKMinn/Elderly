@@ -5,7 +5,9 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const cobolSource = path.join(__dirname, "cobol", "validate-profile.cob");
-const cobolBinary = path.join(__dirname, "cobol", "validate-profile");
+const cobolBinary = path.join(__dirname, "cobol", process.platform === "win32" ? "validate-profile.exe" : "validate-profile");
+const openCobolIdeRoot = "C:\\Program Files (x86)\\OpenCobolIDE\\GnuCOBOL";
+const openCobolIdeCompiler = "C:\\Program Files (x86)\\OpenCobolIDE\\GnuCOBOL\\bin\\cobc.exe";
 
 const fieldOrder = [
   "type",
@@ -81,9 +83,19 @@ function validateElderlyAgeBirthdateMatch(profile, age) {
   return undefined;
 }
 
+function getCobolEnv(command) {
+  if (command !== openCobolIdeCompiler && !existsSync(openCobolIdeCompiler)) return process.env;
+
+  return {
+    ...process.env,
+    COB_CONFIG_DIR: path.join(openCobolIdeRoot, "config"),
+    PATH: `${path.join(openCobolIdeRoot, "bin")};${process.env.PATH || ""}`,
+  };
+}
+
 function runProcess(command, args, input = "") {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"], env: getCobolEnv(command) });
     let stdout = "";
     let stderr = "";
 
@@ -115,7 +127,8 @@ async function ensureCobolValidator() {
   compileAttempted = true;
 
   try {
-    await runProcess("cobc", ["-x", "-free", "-o", cobolBinary, cobolSource]);
+    const compiler = process.env.COBOL_COMPILER || (existsSync(openCobolIdeCompiler) ? openCobolIdeCompiler : "cobc");
+    await runProcess(compiler, ["-x", "-free", "-o", cobolBinary, cobolSource]);
     return existsSync(cobolBinary);
   } catch (error) {
     console.warn("COBOL validator is unavailable:", error.message);
