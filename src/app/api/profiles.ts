@@ -32,6 +32,8 @@ export type NewProfilePayload = {
   workArea: string;
   hireDate: string;
   nurseStatus: string;
+  licenseNumber: string;
+  shiftSchedule: string;
 };
 
 export type ValidationErrors = Record<string, string>;

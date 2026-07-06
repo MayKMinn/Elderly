@@ -95,36 +95,77 @@ const elderlyColumns = `
   '' AS notes
 `;
 
-const legacyNurseColumns = `
-  nurse_id AS id,
+const nurseColumns = `
+  CONCAT('NRS-', LPAD(nurse_id, 4, '0')) AS id,
+  nurse_id AS nurseId,
   name,
   age,
   gender,
   phone,
   email,
+  license_number AS licenseNumber,
   position,
+  shift_schedule AS shiftSchedule,
+  work_area AS workArea,
+  username,
+  address,
   DATE_FORMAT(hire_date, '%Y-%m-%d') AS hireDate,
   CASE nurse_status
     WHEN 'active' THEN 'Active'
-    WHEN 'on leave' THEN 'On Leave'
-    ELSE COALESCE(nurse_status, 'Active')
+    WHEN 'suspended' THEN 'Suspended'
+    WHEN 'resigned' THEN 'Resigned'
+    ELSE 'Active'
   END AS status,
   'https://i.pravatar.cc/40?img=49' AS avatar,
   0 AS assignedElders,
-  work_area AS workArea,
-  COALESCE(nurse_status, 'Active') AS nurseStatus
+  CASE nurse_status
+    WHEN 'active' THEN 'Active'
+    WHEN 'suspended' THEN 'Suspended'
+    WHEN 'resigned' THEN 'Resigned'
+    ELSE 'Active'
+  END AS nurseStatus
 `;
 
-function normalizeNurseStatus(value) {
-  const text = String(value || "").trim().toLowerCase();
-  if (text === "resigned") return "resigned";
-  if (text === "suspended" || text === "on leave") return "suspended";
+function getNurseDbId(id) {
+  const value = String(id || "").trim();
+
+  if (value.startsWith("NRS-")) {
+    return Number(value.replace("NRS-", ""));
+  }
+
+  return Number(value);
+}
+
+function toDbNurseStatus(status) {
+  const value = String(status || "").toLowerCase();
+
+  if (value === "suspended") return "suspended";
+  if (value === "resigned") return "resigned";
+  if (value === "on leave") return "suspended";
+
   return "active";
 }
 
-function normalizeNurseDate(value) {
-  const text = String(value || "").trim();
-  return text || null;
+function normalizeHireDate(value) {
+  const raw = String(value || "").trim();
+
+  if (!raw) return null;
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return raw;
+  }
+
+  const slashMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+
+  if (slashMatch) {
+    const month = slashMatch[1].padStart(2, "0");
+    const day = slashMatch[2].padStart(2, "0");
+    const year = slashMatch[3];
+
+    return `${year}-${month}-${day}`;
+  }
+
+  return raw;
 }
 
 const scheduleColumns = `
@@ -611,7 +652,15 @@ app.delete("/api/schedules/:id", async (req, res) => {
 app.get("/api/profiles", async (_req, res) => {
   try {
     const [elderly] = await pool.query(`SELECT ${elderlyColumns} FROM ${elderlyTable} ORDER BY elderly_id`);
-    const [nurses] = await pool.query(`SELECT ${legacyNurseColumns} FROM nurse ORDER BY nurse_id`);
+    let nurses = [];
+
+    try {
+      const [nurseRows] = await pool.query(`SELECT ${nurseColumns} FROM nurse ORDER BY nurse_id`);
+      nurses = nurseRows;
+    } catch (error) {
+      if (error.code !== "ER_NO_SUCH_TABLE") throw error;
+      console.warn("nurse table not found. Returning elderly profiles only.");
+    }
 
     res.json({ elderly, nurses });
   } catch (error) {
@@ -1113,19 +1162,19 @@ app.post("/api/nurses", async (req, res) => {
   try {
     const data = {
       name: String(profile.name || "").trim(),
-      age: Number(profile.age),
-      gender: String(profile.gender || "").trim().toLowerCase(),
+      age: Number(profile.age) || 0,
+      gender: String(profile.gender || "").toLowerCase(),
       phone: String(profile.phone || "").trim(),
       email: String(profile.email || "").trim(),
-      licenseNumber: Number(profile.licenseNumber) || Date.now() % 100000,
-      position: String(profile.position || "Nurse").trim().slice(0, 20),
-      shiftSchedule: String(profile.shiftSchedule || "Morning").trim(),
-      workArea: String(profile.workArea || "").trim(),
-      username: String(profile.username || profile.name || "").trim().toLowerCase().replace(/\s+/g, "").slice(0, 30),
-      password: String(profile.password || "password123"),
+      licenseNumber: Number(profile.licenseNumber || profile.license_number) || 0,
+      position: String(profile.position || "").trim(),
+      shiftSchedule: String(profile.shiftSchedule || profile.shift_schedule || "").trim(),
+      workArea: String(profile.workArea || profile.work_area || "").trim(),
+      username: String(profile.username || "").trim(),
+      password: String(profile.password || "").trim(),
       address: String(profile.address || "").trim(),
-      hireDate: normalizeNurseDate(profile.hireDate),
-      nurseStatus: normalizeNurseStatus(profile.nurseStatus || profile.status),
+      hireDate: normalizeHireDate(profile.hireDate || profile.hire_date),
+      nurseStatus: toDbNurseStatus(profile.nurseStatus || profile.status),
     };
 
     const [result] = await pool.query(
@@ -1135,12 +1184,14 @@ app.post("/api/nurses", async (req, res) => {
       ) VALUES (
         :name, :age, :gender, :phone, :email, :licenseNumber, :position,
         :shiftSchedule, :workArea, :username, :password, :address,
-        COALESCE(:hireDate, CURRENT_TIMESTAMP), :nurseStatus
+        :hireDate, :nurseStatus
       )`,
       data
     );
 
-    const [rows] = await pool.query(`SELECT ${legacyNurseColumns} FROM nurse WHERE nurse_id = ?`, [result.insertId]);
+    const [rows] = await pool.query(`SELECT ${nurseColumns} FROM nurse WHERE nurse_id = :nurseId`, {
+      nurseId: Number(result.insertId),
+    });
     res.status(201).json(rows[0]);
   } catch (error) {
     res.status(500).json({ error: "Failed to create nurse profile", details: error.message });
@@ -1148,49 +1199,60 @@ app.post("/api/nurses", async (req, res) => {
 });
 
 app.put("/api/nurses/:id", async (req, res) => {
-  const id = Number(req.params.id);
+  const nurseId = getNurseDbId(req.params.id);
   const profile = req.body;
 
-  if (!Number.isInteger(id) || id <= 0) {
-    res.status(400).json({ error: "Invalid nurse id." });
+  if (!Number.isInteger(nurseId) || nurseId <= 0) {
+    res.status(400).json({ error: "Valid nurse id is required." });
     return;
   }
 
   try {
     const data = {
-      id,
+      nurseId,
       name: String(profile.name || "").trim(),
       age: Number(profile.age) || 0,
-      gender: String(profile.gender || "").trim().toLowerCase(),
+      gender: String(profile.gender || "").toLowerCase(),
       phone: String(profile.phone || "").trim(),
       email: String(profile.email || "").trim(),
-      position: String(profile.position || "Nurse").trim().slice(0, 20),
-      workArea: String(profile.workArea || "").trim(),
-      hireDate: normalizeNurseDate(profile.hireDate),
-      nurseStatus: normalizeNurseStatus(profile.nurseStatus || profile.status),
+      licenseNumber: Number(profile.licenseNumber || profile.license_number) || 0,
+      position: String(profile.position || "").trim(),
+      shiftSchedule: String(profile.shiftSchedule || profile.shift_schedule || "").trim(),
+      workArea: String(profile.workArea || profile.work_area || "").trim(),
+      username: String(profile.username || "").trim(),
+      password: String(profile.password || "").trim(),
+      address: String(profile.address || "").trim(),
+      hireDate: normalizeHireDate(profile.hireDate || profile.hire_date),
+      nurseStatus: toDbNurseStatus(profile.nurseStatus || profile.status),
     };
 
-    const [result] = await pool.query(
+    await pool.query(
       `UPDATE nurse
        SET name = :name,
            age = :age,
            gender = :gender,
            phone = :phone,
            email = :email,
+           license_number = :licenseNumber,
            position = :position,
+           shift_schedule = :shiftSchedule,
            work_area = :workArea,
-           hire_date = COALESCE(:hireDate, hire_date),
+           username = :username,
+           password = :password,
+           address = :address,
+           hire_date = :hireDate,
            nurse_status = :nurseStatus
-       WHERE nurse_id = :id`,
+       WHERE nurse_id = :nurseId`,
       data
     );
 
-    if (result.affectedRows === 0) {
+    const [rows] = await pool.query(`SELECT ${nurseColumns} FROM nurse WHERE nurse_id = :nurseId`, { nurseId });
+
+    if (!rows[0]) {
       res.status(404).json({ error: "Nurse profile not found." });
       return;
     }
 
-    const [rows] = await pool.query(`SELECT ${legacyNurseColumns} FROM nurse WHERE nurse_id = ?`, [id]);
     res.json(rows[0]);
   } catch (error) {
     res.status(500).json({ error: "Failed to update nurse profile", details: error.message });
@@ -1198,15 +1260,15 @@ app.put("/api/nurses/:id", async (req, res) => {
 });
 
 app.delete("/api/nurses/:id", async (req, res) => {
-  const id = Number(req.params.id);
+  const nurseId = getNurseDbId(req.params.id);
 
-  if (!Number.isInteger(id) || id <= 0) {
-    res.status(400).json({ error: "Invalid nurse id." });
+  if (!Number.isInteger(nurseId) || nurseId <= 0) {
+    res.status(400).json({ error: "Valid nurse id is required." });
     return;
   }
 
   try {
-    const [result] = await pool.query("DELETE FROM nurse WHERE nurse_id = ?", [id]);
+    const [result] = await pool.query("DELETE FROM nurse WHERE nurse_id = :nurseId", { nurseId });
 
     if (result.affectedRows === 0) {
       res.status(404).json({ error: "Nurse profile not found." });
