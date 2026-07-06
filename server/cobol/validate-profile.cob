@@ -349,11 +349,11 @@
                            IF BIRTH-AGE < 50 OR BIRTH-AGE > 120
                                PERFORM ADD-BIRTHDATE-RANGE
                            ELSE
-                               IF FUNCTION TEST-NUMVAL(FUNCTION TRIM(AGE-TEXT))
+                       IF FUNCTION TEST-NUMVAL(FUNCTION TRIM(AGE-TEXT))
                                    = 0
-                                   IF AGE-NUMBER >= 50 AND AGE-NUMBER <= 120
+                               IF AGE-NUMBER >= 50 AND AGE-NUMBER <= 120
                                        IF AGE-NUMBER NOT = BIRTH-AGE
-                                           PERFORM ADD-AGE-BIRTHDATE-MATCH
+                                      PERFORM ADD-AGE-BIRTHDATE-MATCH
                                        END-IF
                                    END-IF
                                END-IF
