@@ -3,7 +3,7 @@ import {
   Activity, Pill, Stethoscope, Heart, Clock, Check, X, ChevronLeft,
   ChevronRight, Bell, AlertCircle, CheckCircle, Users, Calendar,
   LogOut, LayoutDashboard, Phone, AlertTriangle, Eye, EyeOff,
-  LogIn
+  LogIn, FileText
 } from "lucide-react";
 import { getMedicationAssignments, updateMedicationAssignmentStatus } from "../api/medications";
 import type { MedicationAssignment } from "../api/medications";
@@ -379,106 +379,310 @@ function CheckCard({ entry, resident, onFill }: {
 // ── Pages ──────────────────────────────────────────────────────────────────
 
 function SchedulePage({ checks, setChecks }: { checks: CheckEntry[]; setChecks: React.Dispatch<React.SetStateAction<CheckEntry[]>> }) {
+  const [selectedResidentId, setSelectedResidentId] = useState(RESIDENTS[0].id);
   const [activeDay, setActiveDay] = useState(TODAY);
   const [activeSlot, setActiveSlot] = useState<"morning" | "evening">("morning");
   const [filling, setFilling] = useState<{ entry: CheckEntry; idx: number } | null>(null);
 
-  // Day checks are the same for every day (same schedule), we display filtered by slot
-  const slotChecks = checks.map((e, idx) => ({ entry: e, idx })).filter(({ entry }) => entry.slot === activeSlot);
+  const selectedResident = RESIDENTS.find((resident) => resident.id === selectedResidentId) ?? RESIDENTS[0];
 
-  const totalToday = checks.length / 2; // per slot
-  const doneSlot = slotChecks.filter(({ entry }) => entry.done).length;
+  const selectedSlotChecks = checks
+    .map((entry, idx) => ({ entry, idx }))
+    .filter(({ entry }) => entry.residentId === selectedResidentId && entry.slot === activeSlot);
+
+  const doneSlot = selectedSlotChecks.filter(({ entry }) => entry.done).length;
+  const remaining = Math.max(selectedSlotChecks.length - doneSlot, 0);
 
   function saveEntry(idx: number, updates: Partial<CheckEntry>) {
-    setChecks((prev) => prev.map((e, i) => i === idx ? { ...e, ...updates } : e));
+    setChecks((prev) => prev.map((entry, i) => (i === idx ? { ...entry, ...updates } : entry)));
     setFilling(null);
+  }
+
+  function doneForResident(residentId: number) {
+    return checks.filter((entry) => entry.residentId === residentId && entry.slot === activeSlot && entry.done).length;
   }
 
   return (
     <div className="flex flex-col gap-5">
+      {/* Select resident */}
+      <div>
+        <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">
+          Select Resident
+        </p>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {RESIDENTS.map((resident) => {
+            const active = selectedResidentId === resident.id;
+            const residentDone = doneForResident(resident.id);
+
+            return (
+              <button
+                key={resident.id}
+                onClick={() => setSelectedResidentId(resident.id)}
+                className={`flex items-center gap-3 p-3 rounded-xl border bg-card text-left transition-all ${
+                  active
+                    ? "border-primary shadow-sm ring-1 ring-primary/10"
+                    : "border-border hover:border-primary/40 hover:bg-primary/5"
+                }`}
+              >
+                <div className="relative flex-shrink-0">
+                  <div className="w-12 h-12 rounded-full overflow-hidden bg-muted">
+                    <img src={resident.photo} alt={resident.name} className="w-full h-full object-cover" />
+                  </div>
+                  <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-card ${statusDot[resident.status]}`} />
+                </div>
+
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-foreground truncate" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>
+                    {resident.name}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Room {resident.room} · {residentDone}/3 done
+                  </p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Day selector */}
       <div className="grid grid-cols-7 gap-1 bg-muted p-1 rounded-xl">
-        {DAYS.map((d) => (
-          <button key={d} onClick={() => setActiveDay(d)}
-            className={`py-2 rounded-lg text-sm font-medium transition-all ${activeDay === d ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-card"}`}>
-            {d}
+        {DAYS.map((day) => (
+          <button
+            key={day}
+            onClick={() => setActiveDay(day)}
+            className={`py-2 rounded-lg text-sm font-medium transition-all ${
+              activeDay === day
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground hover:bg-card"
+            }`}
+          >
+            {day}
           </button>
         ))}
       </div>
 
       {/* Slot toggle */}
       <div className="flex gap-1 bg-muted p-1 rounded-xl w-fit mx-auto">
-        {(["morning", "evening"] as const).map((s) => (
-          <button key={s} onClick={() => setActiveSlot(s)}
-            className={`px-6 py-2 rounded-lg text-sm font-semibold transition-all capitalize ${activeSlot === s ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
-            {s === "morning" ? "🌅 Morning" : "🌙 Evening"}
+        {(["morning", "evening"] as const).map((slot) => (
+          <button
+            key={slot}
+            onClick={() => setActiveSlot(slot)}
+            className={`px-6 py-2 rounded-lg text-sm font-semibold transition-all capitalize ${
+              activeSlot === slot
+                ? "bg-card text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {slot === "morning" ? "🌅 Morning" : "🌙 Evening"}
           </button>
         ))}
       </div>
 
-      {/* Progress bar */}
+      {/* Progress summary */}
       <div className="bg-card border border-border rounded-xl p-4 flex items-center gap-4">
         <div className="relative w-12 h-12 flex-shrink-0">
           <svg viewBox="0 0 48 48" className="w-full h-full -rotate-90">
             <circle cx="24" cy="24" r="18" fill="none" stroke="currentColor" strokeWidth="5" className="text-muted" />
-            <circle cx="24" cy="24" r="18" fill="none" stroke="currentColor" strokeWidth="5"
-              strokeDasharray={`${(doneSlot / slotChecks.length) * 113.1} 113.1`}
-              className="text-primary transition-all" />
+            <circle
+              cx="24"
+              cy="24"
+              r="18"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="5"
+              strokeDasharray={`${selectedSlotChecks.length ? (doneSlot / selectedSlotChecks.length) * 113.1 : 0} 113.1`}
+              className="text-primary transition-all"
+            />
           </svg>
           <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-foreground">
-            {doneSlot}/{slotChecks.length}
+            {doneSlot}/{selectedSlotChecks.length}
           </span>
         </div>
+
         <div>
           <p className="font-semibold text-foreground" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>
-            {activeDay} · {activeSlot === "morning" ? "Morning" : "Evening"} Checks
+            {selectedResident.name}
           </p>
           <p className="text-sm text-muted-foreground">
-            {doneSlot === slotChecks.length ? "All checks completed ✓" : `${slotChecks.length - doneSlot} remaining`}
+            {activeDay} · {activeSlot === "morning" ? "Morning" : "Evening"} ·{" "}
+            {remaining === 0 ? "All checks completed ✓" : `${remaining} remaining`}
           </p>
         </div>
       </div>
 
-      {/* 3 category sections */}
-      {(["bp", "medication", "glucose"] as const).map((type) => {
-        const meta = CHECK_META[type];
-        const group = slotChecks.filter(({ entry }) => entry.type === type);
-        const groupDone = group.filter(({ entry }) => entry.done).length;
-        return (
-          <div key={type}>
-            <div className="flex items-center gap-2.5 mb-3">
-              <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${meta.bg} border ${meta.border}`}>
-                <meta.icon size={15} className={meta.color} />
-              </div>
-              <h3 className={`font-semibold text-sm ${meta.color}`}>{meta.label}</h3>
-              <span className="text-xs text-muted-foreground ml-auto">{groupDone}/{group.length} done</span>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {group.map(({ entry, idx }) => {
-                const resident = RESIDENTS.find((r) => r.id === entry.residentId)!;
-                return (
-                  <CheckCard
-                    key={idx}
-                    entry={entry}
-                    resident={resident}
-                    onFill={() => setFilling({ entry, idx })}
-                  />
-                );
-              })}
-            </div>
+      {/* Resident profile card */}
+      <div className="bg-card border border-border rounded-xl p-4 flex items-center gap-4">
+        <div className="relative flex-shrink-0">
+          <div className="w-16 h-16 rounded-full overflow-hidden bg-muted">
+            <img src={selectedResident.photo} alt={selectedResident.name} className="w-full h-full object-cover" />
           </div>
-        );
-      })}
+          <div className={`absolute bottom-0 right-0 w-4 h-4 rounded-full border-2 border-card ${statusDot[selectedResident.status]}`} />
+        </div>
+
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="text-lg font-semibold text-foreground" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>
+              {selectedResident.name}
+            </h3>
+            <span className={`text-xs px-2 py-1 rounded-full font-semibold capitalize ${statusColor[selectedResident.status]}`}>
+              {selectedResident.status}
+            </span>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Age {selectedResident.age} · Room {selectedResident.room} · {selectedResident.bloodType}
+          </p>
+        </div>
+      </div>
+
+      {/* Selected resident checks */}
+      <div className="flex flex-col gap-3">
+        {selectedSlotChecks.map(({ entry, idx }) => (
+          <CheckCard
+            key={`${entry.residentId}-${entry.type}-${entry.slot}`}
+            entry={entry}
+            resident={selectedResident}
+            onFill={() => setFilling({ entry, idx })}
+          />
+        ))}
+      </div>
 
       {/* Fill modal */}
       {filling && (
         <FillForm
           entry={filling.entry}
-          resident={RESIDENTS.find((r) => r.id === filling.entry.residentId)!}
+          resident={RESIDENTS.find((resident) => resident.id === filling.entry.residentId)!}
           onSave={(updates) => saveEntry(filling.idx, updates)}
           onClose={() => setFilling(null)}
         />
       )}
+    </div>
+  );
+}
+
+function WeeklyReportPage({ checks }: { checks: CheckEntry[] }) {
+  const totalPerDay = checks.length || 1;
+  const todayDone = checks.filter((entry) => entry.done).length;
+
+  const days = [
+    { day: "Mon", date: "Jun 29", done: todayDone, total: totalPerDay },
+    { day: "Tue", date: "Jun 30", done: Math.min(15, totalPerDay), total: totalPerDay },
+    { day: "Wed", date: "Jul 1", done: Math.min(16, totalPerDay), total: totalPerDay },
+    { day: "Thu", date: "Jul 2", done: Math.min(14, totalPerDay), total: totalPerDay },
+    { day: "Fri", date: "Jul 3", done: Math.min(17, totalPerDay), total: totalPerDay },
+    { day: "Sat", date: "Jul 4", done: Math.min(10, totalPerDay), total: totalPerDay },
+    { day: "Sun", date: "Jul 5", done: Math.min(9, totalPerDay), total: totalPerDay },
+  ];
+
+  const weekDone = days.reduce((sum, day) => sum + day.done, 0);
+  const weekTotal = days.reduce((sum, day) => sum + day.total, 0);
+  const weekPercent = Math.round((weekDone / weekTotal) * 100);
+
+  function submitReport() {
+    alert("Weekly report submitted to admin.");
+  }
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="bg-card border border-border rounded-2xl p-5">
+        <p className="text-sm text-muted-foreground">Weekly Report to Admin</p>
+        <h3 className="text-xl font-semibold text-foreground mt-1" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>
+          Jun 29 – Jul 5, 2026
+        </h3>
+        <p className="text-sm text-muted-foreground mt-2">
+          Prepared by <strong className="text-foreground">{NURSE_NAME}</strong> · Sent to Admin
+        </p>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="bg-card border border-border rounded-xl p-4">
+          <p className="text-2xl font-bold text-foreground">{weekPercent}%</p>
+          <p className="text-xs text-muted-foreground">Week Completion</p>
+        </div>
+        <div className="bg-card border border-border rounded-xl p-4">
+          <p className="text-2xl font-bold text-foreground">{weekDone}/{weekTotal}</p>
+          <p className="text-xs text-muted-foreground">Checks Done</p>
+        </div>
+        <div className="bg-card border border-border rounded-xl p-4">
+          <p className="text-2xl font-bold text-foreground">{RESIDENTS.length}</p>
+          <p className="text-xs text-muted-foreground">Residents</p>
+        </div>
+        <div className="bg-card border border-border rounded-xl p-4">
+          <p className="text-2xl font-bold text-foreground">{todayDone}/{totalPerDay}</p>
+          <p className="text-xs text-muted-foreground">Today</p>
+        </div>
+      </div>
+
+      <div className="bg-card border border-border rounded-2xl overflow-hidden">
+        <div className="px-5 py-4 border-b border-border flex items-center justify-between">
+          <h4 className="font-semibold text-foreground" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>Daily Breakdown</h4>
+          <p className="text-xs text-muted-foreground">Mon – Sun</p>
+        </div>
+
+        <div className="divide-y divide-border">
+          {days.map((day) => {
+            const percent = Math.round((day.done / day.total) * 100);
+
+            return (
+              <div key={day.day} className="px-5 py-4 flex items-center gap-4">
+                <div className="w-12">
+                  <p className="text-sm font-semibold text-foreground">{day.day}</p>
+                  <p className="text-xs text-muted-foreground">{day.date}</p>
+                </div>
+
+                <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                  <div className="h-full bg-primary rounded-full" style={{ width: `${percent}%` }} />
+                </div>
+
+                <p className="text-sm font-semibold text-muted-foreground w-14 text-right">
+                  {day.done}/{day.total}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="bg-card border border-border rounded-2xl overflow-hidden">
+        <div className="px-5 py-4 border-b border-border">
+          <h4 className="font-semibold text-foreground" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>Resident Weekly Summary</h4>
+        </div>
+
+        <div className="divide-y divide-border">
+          {RESIDENTS.map((resident) => {
+            const residentChecks = checks.filter((entry) => entry.residentId === resident.id);
+            const done = residentChecks.filter((entry) => entry.done).length;
+
+            return (
+              <div key={resident.id} className="px-5 py-4 flex items-center gap-4">
+                <div className="w-11 h-11 rounded-full overflow-hidden bg-muted flex-shrink-0">
+                  <img src={resident.photo} alt={resident.name} className="w-full h-full object-cover" />
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-foreground truncate">{resident.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Room {resident.room} · Est. {done * 7}/{residentChecks.length * 7} checks this week
+                  </p>
+                </div>
+
+                <span className={`text-xs px-2.5 py-1 rounded-full font-semibold capitalize ${statusColor[resident.status]}`}>
+                  {resident.status}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <button
+        onClick={submitReport}
+        className="w-full bg-primary text-primary-foreground py-3 rounded-xl font-semibold hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+      >
+        <FileText size={16} />
+        Submit Weekly Report to Admin
+      </button>
     </div>
   );
 }
@@ -664,7 +868,7 @@ function AuthScreen({ onAuth }: { onAuth: (name: string) => void }) {
 
 // ── App ────────────────────────────────────────────────────────────────────
 
-type Page = "overview" | "schedule" | "residents";
+type Page = "overview" | "schedule" | "residents" | "weeklyReport";
 
 interface NursePortalProps {
   nurseName?: string;
@@ -724,9 +928,10 @@ export function NursePortal({ nurseName = "Nurse", onSignOut }: NursePortalProps
   }
 
   const nav: { id: Page; label: string; icon: React.ElementType }[] = [
-    { id: "overview",  label: "Overview",    icon: LayoutDashboard },
-    { id: "schedule",  label: "My Schedule", icon: Calendar },
-    { id: "residents", label: "Residents",   icon: Users },
+    { id: "overview",     label: "Overview",      icon: LayoutDashboard },
+    { id: "schedule",     label: "My Schedule",   icon: Calendar },
+    { id: "residents",    label: "Residents",     icon: Users },
+    { id: "weeklyReport", label: "Weekly Report", icon: FileText },
   ];
 
   return (
@@ -918,7 +1123,7 @@ export function NursePortal({ nurseName = "Nurse", onSignOut }: NursePortalProps
           </div>
         </div>
 
-        <div className="p-5 max-w-4xl mx-auto">
+        <div className="p-5 max-w-5xl mx-auto">
           {page === "overview" && (
             <div className="flex flex-col gap-5">
               {/* Greeting */}
@@ -999,6 +1204,7 @@ export function NursePortal({ nurseName = "Nurse", onSignOut }: NursePortalProps
 
           {page === "schedule"  && <SchedulePage checks={checks} setChecks={setChecks} />}
           {page === "residents" && <ResidentsPage />}
+          {page === "weeklyReport" && <WeeklyReportPage checks={checks} />}
         </div>
       </main>
     </div>
