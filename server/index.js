@@ -1,6 +1,7 @@
 import express from "express";
 import { checkDatabase, pool } from "./db.js";
 import { validateProfileWithCobol } from "./profileValidator.js";
+import { validateScheduleWithCobol } from "./scheduleValidator.js";
 
 const app = express();
 const port = Number(process.env.SERVER_PORT || 3002);
@@ -94,20 +95,52 @@ const elderlyColumns = `
   '' AS notes
 `;
 
-const nurseColumns = `
-  id,
+const legacyNurseColumns = `
+  nurse_id AS id,
   name,
   age,
   gender,
   phone,
   email,
   position,
-  hire_date AS hireDate,
-  status,
-  avatar,
-  assigned_elders AS assignedElders,
+  DATE_FORMAT(hire_date, '%Y-%m-%d') AS hireDate,
+  CASE nurse_status
+    WHEN 'active' THEN 'Active'
+    WHEN 'on leave' THEN 'On Leave'
+    ELSE COALESCE(nurse_status, 'Active')
+  END AS status,
+  'https://i.pravatar.cc/40?img=49' AS avatar,
+  0 AS assignedElders,
   work_area AS workArea,
-  nurse_status AS nurseStatus
+  COALESCE(nurse_status, 'Active') AS nurseStatus
+`;
+
+function normalizeNurseStatus(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (text === "resigned") return "resigned";
+  if (text === "suspended" || text === "on leave") return "suspended";
+  return "active";
+}
+
+function normalizeNurseDate(value) {
+  const text = String(value || "").trim();
+  return text || null;
+}
+
+const scheduleColumns = `
+  s.schedule_id AS id,
+  s.nurse_id AS nurseId,
+  COALESCE(n.name, s.nurse_id) AS nurseName,
+  'https://i.pravatar.cc/40' AS nurseAvatar,
+  s.elderly_id AS elderlyId,
+  COALESCE(e.name, s.elderly_id) AS elderlyName,
+  COALESCE(e.avatar, 'https://i.pravatar.cc/40') AS elderlyAvatar,
+  DATE_FORMAT(s.visit_time, '%H:%i') AS visitTime,
+  COALESCE(DATE_FORMAT(s.visit_date, '%Y-%m-%d'), s.visit_date) AS visitDate,
+  s.purpose,
+  s.schedule_status AS scheduleStatus,
+  s.recurring_group_id AS recurringGroupId,
+  s.recurring_sequence AS recurringSequence
 `;
 
 app.get("/api/health", async (_req, res) => {
@@ -119,18 +152,466 @@ app.get("/api/health", async (_req, res) => {
   }
 });
 
+app.get("/api/schedules", async (req, res) => {
+  const nurseId = String(req.query.nurseId || "").trim();
+
+  try {
+    const params = {};
+    let where = "";
+
+    if (nurseId) {
+      params.nurseId = nurseId;
+      where = "WHERE s.nurse_id = :nurseId";
+    }
+
+    const [schedules] = await pool.query(
+      `SELECT ${scheduleColumns}
+       FROM \`schedule\` s
+       LEFT JOIN nurse n ON CAST(n.nurse_id AS CHAR) = CAST(s.nurse_id AS CHAR)
+       LEFT JOIN ${elderlyTable} e ON CAST(e.elderly_id AS CHAR) = CAST(s.elderly_id AS CHAR)
+       ${where}
+       ORDER BY s.visit_date ASC, s.visit_time ASC, s.schedule_id DESC
+       LIMIT 100`,
+      params
+    );
+
+    res.json({ schedules });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to load schedules.", details: error.message });
+  }
+});
+
+function normalizeScheduleDate(value) {
+  return String(value || "").trim().replace(/[\/\u2010-\u2015\u2212]/g, "-");
+}
+
+function addWeeksToDateKey(dateKey, weeks) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
+  if (!match) return dateKey;
+
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  date.setDate(date.getDate() + weeks * 7);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function validateSchedulePayload(payload, visitDate, visitTime) {
+  const selectedDate = visitDate ? new Date(`${visitDate}T00:00:00`) : null;
+  const allowedPurposes = ["Vitals Check", "Medication Check", "Emergency Follow-up", "Routine Visit"];
+  const errors = {};
+
+  if (!String(payload.nurseId || "").trim()) errors.nurseId = "Select a caregiver or nurse.";
+  if (!String(payload.elderlyId || "").trim()) errors.elderlyId = "Select an elderly profile.";
+  if (!visitDate) {
+    errors.visitDate = "Visit date is required.";
+  } else if (!selectedDate || Number.isNaN(selectedDate.getTime())) {
+    errors.visitDate = "Enter a valid visit date.";
+  }
+  if (!visitTime) errors.visitTime = "Visit time is required.";
+  if (!allowedPurposes.includes(String(payload.purpose || "").trim())) {
+    errors.purpose = "Select a valid purpose.";
+  }
+
+  return errors;
+}
+
+async function selectScheduleById(id) {
+  const [rows] = await pool.query(
+    `SELECT ${scheduleColumns}
+     FROM \`schedule\` s
+     LEFT JOIN nurse n ON CAST(n.nurse_id AS CHAR) = CAST(s.nurse_id AS CHAR)
+     LEFT JOIN ${elderlyTable} e ON CAST(e.elderly_id AS CHAR) = CAST(s.elderly_id AS CHAR)
+     WHERE s.schedule_id = :id
+     LIMIT 1`,
+    { id }
+  );
+
+  return rows[0];
+}
+
+async function findNurseScheduleConflict({
+  nurseId,
+  visitDate,
+  visitTime,
+  excludeScheduleId = null,
+  excludeRecurringGroupId = null,
+}) {
+  const params = {
+    nurseId: String(nurseId).trim(),
+    visitTime: `${visitDate} ${visitTime.length === 5 ? `${visitTime}:00` : visitTime}`,
+    excludeScheduleId,
+    excludeRecurringGroupId,
+  };
+
+  const [rows] = await pool.query(
+    `SELECT ${scheduleColumns}
+     FROM \`schedule\` s
+     LEFT JOIN nurse n ON CAST(n.nurse_id AS CHAR) = CAST(s.nurse_id AS CHAR)
+     LEFT JOIN ${elderlyTable} e ON CAST(e.elderly_id AS CHAR) = CAST(s.elderly_id AS CHAR)
+     WHERE CAST(s.nurse_id AS CHAR) = :nurseId
+       AND s.visit_time = :visitTime
+       AND s.schedule_status <> 'cancelled'
+       AND (:excludeScheduleId IS NULL OR s.schedule_id <> :excludeScheduleId)
+       AND (:excludeRecurringGroupId IS NULL OR s.recurring_group_id IS NULL OR s.recurring_group_id <> :excludeRecurringGroupId)
+     LIMIT 1`,
+    params
+  );
+
+  return rows[0] || null;
+}
+
+function sendNurseScheduleConflict(res, conflict) {
+  res.status(422).json({
+    valid: false,
+    errors: {
+      visitTime: `${conflict.nurseName} already has a visit at this date and time.`,
+    },
+  });
+}
+
+app.post("/api/schedules", async (req, res) => {
+  const payload = req.body;
+  const visitDate = normalizeScheduleDate(payload.visitDate);
+  const visitTime = String(payload.visitTime || "").trim();
+  const allowedStatuses = ["scheduled", "completed", "missed", "cancelled"];
+  const errors = validateSchedulePayload(payload, visitDate, visitTime);
+
+  if (Object.keys(errors).length > 0) {
+    res.status(422).json({ valid: false, errors });
+    return;
+  }
+
+  const validation = await validateScheduleWithCobol({
+    nurseId: payload.nurseId,
+    elderlyId: payload.elderlyId,
+    visitDate,
+    visitTime,
+    purpose: payload.purpose,
+    scheduleStatus: payload.scheduleStatus || "scheduled",
+  });
+
+  if (!validation.valid) {
+    res.status(422).json(validation);
+    return;
+  }
+
+  const data = {
+    nurseId: String(payload.nurseId).trim(),
+    elderlyId: String(payload.elderlyId).trim(),
+    visitTime: `${visitDate} ${visitTime.length === 5 ? `${visitTime}:00` : visitTime}`,
+    visitDate: `${visitDate} 00:00:00`,
+    purpose: String(payload.purpose).trim(),
+    scheduleStatus: allowedStatuses.includes(String(payload.scheduleStatus || "").toLowerCase())
+      ? String(payload.scheduleStatus).toLowerCase()
+      : "scheduled",
+    recurringGroupId: String(payload.recurringGroupId || "").trim() || null,
+    recurringSequence: Number.isInteger(Number(payload.recurringSequence))
+      ? Number(payload.recurringSequence)
+      : null,
+  };
+
+  try {
+    const conflict = await findNurseScheduleConflict({
+      nurseId: data.nurseId,
+      visitDate,
+      visitTime,
+    });
+
+    if (conflict) {
+      sendNurseScheduleConflict(res, conflict);
+      return;
+    }
+
+    const [result] = await pool.query(
+      `INSERT INTO \`schedule\` (
+         nurse_id, elderly_id, visit_time, visit_date, purpose, schedule_status,
+         recurring_group_id, recurring_sequence
+       ) VALUES (
+         :nurseId, :elderlyId, :visitTime, :visitDate, :purpose, :scheduleStatus,
+         :recurringGroupId, :recurringSequence
+       )`,
+      data
+    );
+
+    res.status(201).json({
+      id: result.insertId,
+      ...data,
+      visitTime,
+      visitDate,
+      nurseName: String(payload.nurseName || payload.nurseId || "").trim(),
+      nurseAvatar: "https://i.pravatar.cc/40?img=49",
+      elderlyName: String(payload.elderlyName || payload.elderlyId || "").trim(),
+      elderlyAvatar: String(payload.elderlyAvatar || "https://i.pravatar.cc/40"),
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to save schedule.", details: error.message });
+  }
+});
+
+app.put("/api/schedules/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  const payload = req.body;
+  const updateGroup = req.query.group === "true";
+  const stopRecurring = req.query.stopRecurring === "true";
+  const visitDate = normalizeScheduleDate(payload.visitDate);
+  const visitTime = String(payload.visitTime || "").trim();
+  const allowedStatuses = ["scheduled", "completed", "missed", "cancelled"];
+  const errors = validateSchedulePayload(payload, visitDate, visitTime);
+
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid schedule id." });
+    return;
+  }
+
+  if (Object.keys(errors).length > 0) {
+    res.status(422).json({ valid: false, errors });
+    return;
+  }
+
+  try {
+    const existingSchedule = await selectScheduleById(id);
+    if (!existingSchedule) {
+      res.status(404).json({ error: "Schedule not found." });
+      return;
+    }
+
+    const dateTimeUnchanged = existingSchedule.visitDate === visitDate && existingSchedule.visitTime === visitTime;
+
+    const validation = await validateScheduleWithCobol({
+      nurseId: payload.nurseId,
+      elderlyId: payload.elderlyId,
+      visitDate,
+      visitTime,
+      purpose: payload.purpose,
+      scheduleStatus: payload.scheduleStatus || "scheduled",
+      allowPastDateTime: dateTimeUnchanged ? "Y" : "N",
+    });
+
+    if (!validation.valid) {
+      res.status(422).json(validation);
+      return;
+    }
+
+    const baseData = {
+      id,
+      nurseId: String(payload.nurseId).trim(),
+      elderlyId: String(payload.elderlyId).trim(),
+      visitTime: `${visitDate} ${visitTime.length === 5 ? `${visitTime}:00` : visitTime}`,
+      visitDate: `${visitDate} 00:00:00`,
+      purpose: String(payload.purpose).trim(),
+      scheduleStatus: allowedStatuses.includes(String(payload.scheduleStatus || "").toLowerCase())
+        ? String(payload.scheduleStatus).toLowerCase()
+        : "scheduled",
+      recurringGroupId: String(payload.recurringGroupId || "").trim() || null,
+      recurringSequence: Number.isInteger(Number(payload.recurringSequence))
+        ? Number(payload.recurringSequence)
+        : null,
+    };
+
+    if (stopRecurring && existingSchedule.recurringGroupId) {
+      const conflict = await findNurseScheduleConflict({
+        nurseId: baseData.nurseId,
+        visitDate,
+        visitTime,
+        excludeRecurringGroupId: existingSchedule.recurringGroupId,
+      });
+
+      if (conflict) {
+        sendNurseScheduleConflict(res, conflict);
+        return;
+      }
+
+      const [result] = await pool.query(
+        `UPDATE \`schedule\`
+         SET nurse_id = :nurseId,
+             elderly_id = :elderlyId,
+             visit_time = :visitTime,
+             visit_date = :visitDate,
+             purpose = :purpose,
+             schedule_status = :scheduleStatus,
+             recurring_group_id = NULL,
+             recurring_sequence = NULL
+         WHERE schedule_id = :id`,
+        baseData
+      );
+
+      await pool.query(
+        "DELETE FROM `schedule` WHERE recurring_group_id = :recurringGroupId",
+        { recurringGroupId: existingSchedule.recurringGroupId }
+      );
+
+      if (result.affectedRows === 0) {
+        res.status(404).json({ error: "Schedule not found." });
+        return;
+      }
+
+      res.json(await selectScheduleById(id));
+      return;
+    }
+
+    if (updateGroup && existingSchedule.recurringGroupId) {
+      const [groupRows] = await pool.query(
+        `SELECT schedule_id AS id, recurring_sequence AS recurringSequence
+         FROM \`schedule\`
+         WHERE recurring_group_id = :recurringGroupId
+         ORDER BY recurring_sequence ASC, schedule_id ASC`,
+        { recurringGroupId: existingSchedule.recurringGroupId }
+      );
+
+      for (const groupRow of groupRows) {
+        const sequenceOffset = Number(groupRow.recurringSequence || 1) - Number(existingSchedule.recurringSequence || 1);
+        const nextVisitDate = addWeeksToDateKey(visitDate, sequenceOffset);
+        const conflict = await findNurseScheduleConflict({
+          nurseId: baseData.nurseId,
+          visitDate: nextVisitDate,
+          visitTime,
+          excludeRecurringGroupId: existingSchedule.recurringGroupId,
+        });
+
+        if (conflict) {
+          sendNurseScheduleConflict(res, conflict);
+          return;
+        }
+
+        await pool.query(
+          `UPDATE \`schedule\`
+           SET nurse_id = :nurseId,
+               elderly_id = :elderlyId,
+               visit_time = :visitTime,
+               visit_date = :visitDate,
+               purpose = :purpose,
+               schedule_status = :scheduleStatus
+           WHERE schedule_id = :id`,
+          {
+            ...baseData,
+            id: groupRow.id,
+            visitTime: `${nextVisitDate} ${visitTime.length === 5 ? `${visitTime}:00` : visitTime}`,
+            visitDate: `${nextVisitDate} 00:00:00`,
+          }
+        );
+      }
+
+      const [updatedSchedules] = await pool.query(
+        `SELECT ${scheduleColumns}
+         FROM \`schedule\` s
+         LEFT JOIN nurse n ON CAST(n.nurse_id AS CHAR) = CAST(s.nurse_id AS CHAR)
+         LEFT JOIN ${elderlyTable} e ON CAST(e.elderly_id AS CHAR) = CAST(s.elderly_id AS CHAR)
+         WHERE s.recurring_group_id = :recurringGroupId
+         ORDER BY s.recurring_sequence ASC, s.visit_date ASC`,
+        { recurringGroupId: existingSchedule.recurringGroupId }
+      );
+
+      res.json({ schedules: updatedSchedules });
+      return;
+    }
+
+    const conflict = await findNurseScheduleConflict({
+      nurseId: baseData.nurseId,
+      visitDate,
+      visitTime,
+      excludeScheduleId: id,
+    });
+
+    if (conflict) {
+      sendNurseScheduleConflict(res, conflict);
+      return;
+    }
+
+    const [result] = await pool.query(
+      `UPDATE \`schedule\`
+       SET nurse_id = :nurseId,
+           elderly_id = :elderlyId,
+           visit_time = :visitTime,
+           visit_date = :visitDate,
+           purpose = :purpose,
+           schedule_status = :scheduleStatus,
+           recurring_group_id = :recurringGroupId,
+           recurring_sequence = :recurringSequence
+       WHERE schedule_id = :id`,
+      baseData
+    );
+
+    if (result.affectedRows === 0) {
+      res.status(404).json({ error: "Schedule not found." });
+      return;
+    }
+
+    res.json(await selectScheduleById(id));
+  } catch (error) {
+    res.status(500).json({ error: "Failed to update schedule.", details: error.message });
+  }
+});
+
+app.patch("/api/schedules/:id/status", async (req, res) => {
+  const id = Number(req.params.id);
+  const scheduleStatus = String(req.body.scheduleStatus || "").trim().toLowerCase();
+  const allowedStatuses = ["scheduled", "completed", "missed", "cancelled"];
+
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid schedule id." });
+    return;
+  }
+
+  if (!allowedStatuses.includes(scheduleStatus)) {
+    res.status(422).json({ errors: { scheduleStatus: "Select a valid schedule status." } });
+    return;
+  }
+
+  try {
+    const [result] = await pool.query(
+      "UPDATE `schedule` SET schedule_status = :scheduleStatus WHERE schedule_id = :id",
+      { id, scheduleStatus }
+    );
+
+    if (result.affectedRows === 0) {
+      res.status(404).json({ error: "Schedule not found." });
+      return;
+    }
+
+    res.json(await selectScheduleById(id));
+  } catch (error) {
+    res.status(500).json({ error: "Failed to update schedule.", details: error.message });
+  }
+});
+
+app.delete("/api/schedules/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  const deleteGroup = req.query.group === "true";
+
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid schedule id." });
+    return;
+  }
+
+  try {
+    const existingSchedule = await selectScheduleById(id);
+    const params = { id };
+    let sql = "DELETE FROM `schedule` WHERE schedule_id = :id";
+
+    if (deleteGroup && existingSchedule?.recurringGroupId) {
+      params.recurringGroupId = existingSchedule.recurringGroupId;
+      sql = "DELETE FROM `schedule` WHERE recurring_group_id = :recurringGroupId";
+    }
+
+    const [result] = await pool.query(sql, params);
+
+    if (result.affectedRows === 0) {
+      res.status(404).json({ error: "Schedule not found." });
+      return;
+    }
+
+    res.status(204).end();
+  } catch (error) {
+    res.status(500).json({ error: "Failed to delete schedule.", details: error.message });
+  }
+});
+
 app.get("/api/profiles", async (_req, res) => {
   try {
     const [elderly] = await pool.query(`SELECT ${elderlyColumns} FROM ${elderlyTable} ORDER BY elderly_id`);
-    let nurses = [];
-
-    try {
-      const [nurseRows] = await pool.query(`SELECT ${nurseColumns} FROM nurse_profiles ORDER BY id`);
-      nurses = nurseRows;
-    } catch (error) {
-      if (error.code !== "ER_NO_SUCH_TABLE") throw error;
-      console.warn("nurse_profiles table not found. Returning elderly profiles only.");
-    }
+    const [nurses] = await pool.query(`SELECT ${legacyNurseColumns} FROM nurse ORDER BY nurse_id`);
 
     res.json({ elderly, nurses });
   } catch (error) {
@@ -327,13 +808,6 @@ app.put("/api/admin/profile/:id/avatar", async (req, res) => {
     res.status(500).json({ error: "Failed to update admin photo.", details: error.message });
   }
 });
-
-async function nextProfileId(table, prefix) {
-  const [rows] = await pool.query(`SELECT id FROM ${table} ORDER BY id DESC LIMIT 1`);
-  const lastId = rows[0]?.id || `${prefix}-0000`;
-  const nextNumber = Number(String(lastId).replace(`${prefix}-`, "")) + 1;
-  return `${prefix}-${String(nextNumber).padStart(4, "0")}`;
-}
 
 app.post("/api/elderly", async (req, res) => {
   const profile = { ...req.body, type: "elderly" };
@@ -637,35 +1111,36 @@ app.post("/api/nurses", async (req, res) => {
   }
 
   try {
-    const id = await nextProfileId("nurse_profiles", "NRS");
     const data = {
-      id,
       name: String(profile.name || "").trim(),
       age: Number(profile.age),
-      gender: profile.gender,
-      phone: profile.phone || "",
-      email: profile.email || "",
-      position: profile.position || "",
-      hireDate: profile.hireDate || "",
-      status: profile.nurseStatus === "On Leave" ? "On Leave" : "Active",
-      avatar: profile.avatar || "https://i.pravatar.cc/40?img=49",
-      assignedElders: Number(profile.assignedElders) || 0,
-      workArea: profile.workArea || "",
-      nurseStatus: profile.nurseStatus || "Active",
+      gender: String(profile.gender || "").trim().toLowerCase(),
+      phone: String(profile.phone || "").trim(),
+      email: String(profile.email || "").trim(),
+      licenseNumber: Number(profile.licenseNumber) || Date.now() % 100000,
+      position: String(profile.position || "Nurse").trim().slice(0, 20),
+      shiftSchedule: String(profile.shiftSchedule || "Morning").trim(),
+      workArea: String(profile.workArea || "").trim(),
+      username: String(profile.username || profile.name || "").trim().toLowerCase().replace(/\s+/g, "").slice(0, 30),
+      password: String(profile.password || "password123"),
+      address: String(profile.address || "").trim(),
+      hireDate: normalizeNurseDate(profile.hireDate),
+      nurseStatus: normalizeNurseStatus(profile.nurseStatus || profile.status),
     };
 
-    await pool.query(
-      `INSERT INTO nurse_profiles (
-        id, name, age, gender, phone, email, position, hire_date, status,
-        avatar, assigned_elders, work_area, nurse_status
+    const [result] = await pool.query(
+      `INSERT INTO nurse (
+        name, age, gender, phone, email, license_number, position,
+        shift_schedule, work_area, username, password, address, hire_date, nurse_status
       ) VALUES (
-        :id, :name, :age, :gender, :phone, :email, :position, :hireDate,
-        :status, :avatar, :assignedElders, :workArea, :nurseStatus
+        :name, :age, :gender, :phone, :email, :licenseNumber, :position,
+        :shiftSchedule, :workArea, :username, :password, :address,
+        COALESCE(:hireDate, CURRENT_TIMESTAMP), :nurseStatus
       )`,
       data
     );
 
-    const [rows] = await pool.query(`SELECT ${nurseColumns} FROM nurse_profiles WHERE id = ?`, [id]);
+    const [rows] = await pool.query(`SELECT ${legacyNurseColumns} FROM nurse WHERE nurse_id = ?`, [result.insertId]);
     res.status(201).json(rows[0]);
   } catch (error) {
     res.status(500).json({ error: "Failed to create nurse profile", details: error.message });
@@ -673,34 +1148,49 @@ app.post("/api/nurses", async (req, res) => {
 });
 
 app.put("/api/nurses/:id", async (req, res) => {
-  const { id } = req.params;
+  const id = Number(req.params.id);
   const profile = req.body;
 
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid nurse id." });
+    return;
+  }
+
   try {
-    await pool.query(
-      `UPDATE nurse_profiles
+    const data = {
+      id,
+      name: String(profile.name || "").trim(),
+      age: Number(profile.age) || 0,
+      gender: String(profile.gender || "").trim().toLowerCase(),
+      phone: String(profile.phone || "").trim(),
+      email: String(profile.email || "").trim(),
+      position: String(profile.position || "Nurse").trim().slice(0, 20),
+      workArea: String(profile.workArea || "").trim(),
+      hireDate: normalizeNurseDate(profile.hireDate),
+      nurseStatus: normalizeNurseStatus(profile.nurseStatus || profile.status),
+    };
+
+    const [result] = await pool.query(
+      `UPDATE nurse
        SET name = :name,
            age = :age,
            gender = :gender,
            phone = :phone,
            email = :email,
            position = :position,
-           hire_date = :hireDate,
-           status = :status,
-           avatar = :avatar,
-           assigned_elders = :assignedElders,
            work_area = :workArea,
+           hire_date = COALESCE(:hireDate, hire_date),
            nurse_status = :nurseStatus
-       WHERE id = :id`,
-      {
-        ...profile,
-        id,
-        age: Number(profile.age) || 0,
-        assignedElders: Number(profile.assignedElders) || 0,
-      }
+       WHERE nurse_id = :id`,
+      data
     );
 
-    const [rows] = await pool.query(`SELECT ${nurseColumns} FROM nurse_profiles WHERE id = ?`, [id]);
+    if (result.affectedRows === 0) {
+      res.status(404).json({ error: "Nurse profile not found." });
+      return;
+    }
+
+    const [rows] = await pool.query(`SELECT ${legacyNurseColumns} FROM nurse WHERE nurse_id = ?`, [id]);
     res.json(rows[0]);
   } catch (error) {
     res.status(500).json({ error: "Failed to update nurse profile", details: error.message });
@@ -708,8 +1198,21 @@ app.put("/api/nurses/:id", async (req, res) => {
 });
 
 app.delete("/api/nurses/:id", async (req, res) => {
+  const id = Number(req.params.id);
+
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid nurse id." });
+    return;
+  }
+
   try {
-    await pool.query("DELETE FROM nurse_profiles WHERE id = ?", [req.params.id]);
+    const [result] = await pool.query("DELETE FROM nurse WHERE nurse_id = ?", [id]);
+
+    if (result.affectedRows === 0) {
+      res.status(404).json({ error: "Nurse profile not found." });
+      return;
+    }
+
     res.status(204).end();
   } catch (error) {
     res.status(500).json({ error: "Failed to delete nurse profile", details: error.message });
