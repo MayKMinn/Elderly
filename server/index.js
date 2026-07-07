@@ -179,10 +179,10 @@ const elderlyColumns = `
 `;
 
 const nurseColumns = `
-   CONCAT('NRS-', LPAD(nurse_id, 4, '0')) AS id,
-  nurse_id AS nurseId,
-  name,
-  age,
+  nurse_id AS id,
+nurse_id AS nurseId,
+name,
+age,
   gender,
   phone,
   email,

@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import {
   Search,
-  Filter,
   Plus,
   Eye,
   Pencil,
@@ -298,6 +297,13 @@ function getAssignedElderly(
   return elderlyList.filter((profile) => assignedIds.has(String(profile.id)));
 }
 
+function getNurseSqlDisplayId(profile: NurseProfile) {
+  const value = String(profile.nurseId ?? profile.id ?? "").trim();
+  const formattedMatch = value.match(/^(?:NRS|NUR|N)-0*(\d+)$/i);
+
+  return formattedMatch ? formattedMatch[1] : value;
+}
+
 export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) {
   const useApi = import.meta.env.VITE_USE_API !== "false";
   const [modal, setModal] = useState<Modal>(null);
@@ -310,6 +316,10 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [assignmentMap, setAssignmentMap] = useState<Record<string, string[]>>({});
+  const [elderlyStatusFilter, setElderlyStatusFilter] = useState<"all" | "Active" | "Inactive">("all");
+  const [elderlyGenderFilter, setElderlyGenderFilter] = useState<"all" | "male" | "female" | "other">("all");
+  const [elderlyMinAge, setElderlyMinAge] = useState("");
+  const [elderlyMaxAge, setElderlyMaxAge] = useState("");
 
   const perPage = 8;
 
@@ -367,15 +377,41 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
     setModal(null);
   };
 
+  const resetElderlyTable = () => {
+    setPage(1);
+    setSelectedRow(null);
+  };
+
+  const clearElderlyFilters = () => {
+    setElderlyStatusFilter("all");
+    setElderlyGenderFilter("all");
+    setElderlyMinAge("");
+    setElderlyMaxAge("");
+    resetElderlyTable();
+  };
+
   const searchText = search.toLowerCase();
   const safeText = (value: unknown) => String(value ?? "").toLowerCase();
+  const minAgeFilter = elderlyMinAge === "" ? null : Number(elderlyMinAge);
+  const maxAgeFilter = elderlyMaxAge === "" ? null : Number(elderlyMaxAge);
+  const hasElderlyFilters =
+    elderlyStatusFilter !== "all" ||
+    elderlyGenderFilter !== "all" ||
+    elderlyMinAge !== "" ||
+    elderlyMaxAge !== "";
 
-  const filteredElderly = elderlyList.filter(
-    (e) =>
+  const filteredElderly = elderlyList.filter((e) => {
+    const matchesSearch =
       safeText(e.name).includes(searchText) ||
       safeText(e.medicalCondition).includes(searchText) ||
-      safeText(e.phone).includes(searchText)
-  );
+      safeText(e.phone).includes(searchText);
+    const matchesStatus = elderlyStatusFilter === "all" || e.status === elderlyStatusFilter;
+    const matchesGender = elderlyGenderFilter === "all" || safeText(e.gender) === elderlyGenderFilter;
+    const matchesMinAge = minAgeFilter === null || Number(e.age) >= minAgeFilter;
+    const matchesMaxAge = maxAgeFilter === null || Number(e.age) <= maxAgeFilter;
+
+    return matchesSearch && matchesStatus && matchesGender && matchesMinAge && matchesMaxAge;
+  });
 
   const filteredNurse = nurseList.filter(
     (n) =>
@@ -816,8 +852,8 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
           {/* Main table area */}
           <div className="flex-1 bg-white rounded-xl border overflow-hidden" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
             {/* Table Header */}
-            <div className="flex items-center justify-between p-4 border-b" style={{ borderColor: "rgba(0,0,0,0.06)" }}>
-              <div className="relative flex-1 max-w-xs">
+            <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-b" style={{ borderColor: "rgba(0,0,0,0.06)" }}>
+              <div className="relative min-w-[220px] flex-1 max-w-xs">
                 <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "#6b7a99" }} />
                 <input
                   value={search}
@@ -828,16 +864,66 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
                 />
               </div>
 
-              <div className="flex items-center gap-2 ml-3">
-                <FilterPill label="All Status" />
-                {activeTab === "elderly" && <FilterPill label="All Members" />}
-                <FilterPill label="All Conditions" />
-                <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border" style={{ borderColor: "rgba(0,0,0,0.1)", color: "#6b7a99" }}>
-                  <Filter size={12} /> More Filters
-                </button>
+              <div className="flex flex-wrap items-center gap-2">
+                {activeTab === "elderly" && (
+                  <>
+                    <FilterSelect
+                      label="Status"
+                      value={elderlyStatusFilter}
+                      onChange={(value) => {
+                        setElderlyStatusFilter(value as "all" | "Active" | "Inactive");
+                        resetElderlyTable();
+                      }}
+                      options={[
+                        { value: "all", label: "All Status" },
+                        { value: "Active", label: "Active" },
+                        { value: "Inactive", label: "Inactive" },
+                      ]}
+                    />
+                    <FilterSelect
+                      label="Gender"
+                      value={elderlyGenderFilter}
+                      onChange={(value) => {
+                        setElderlyGenderFilter(value as "all" | "male" | "female" | "other");
+                        resetElderlyTable();
+                      }}
+                      options={[
+                        { value: "all", label: "All Gender" },
+                        { value: "male", label: "Male" },
+                        { value: "female", label: "Female" },
+                        { value: "other", label: "Other" },
+                      ]}
+                    />
+                    <AgeFilterInput
+                      label="Min Age"
+                      value={elderlyMinAge}
+                      onChange={(value) => {
+                        setElderlyMinAge(value);
+                        resetElderlyTable();
+                      }}
+                    />
+                    <AgeFilterInput
+                      label="Max Age"
+                      value={elderlyMaxAge}
+                      onChange={(value) => {
+                        setElderlyMaxAge(value);
+                        resetElderlyTable();
+                      }}
+                    />
+                    {hasElderlyFilters && (
+                      <button
+                        onClick={clearElderlyFilters}
+                        className="flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs transition-colors hover:bg-gray-50"
+                        style={{ borderColor: "rgba(0,0,0,0.1)", color: "#6b7a99" }}
+                      >
+                        <X size={12} /> Clear
+                      </button>
+                    )}
+                  </>
+                )}
                 <button
                   onClick={() => setModal({ type: "addForm", formType: activeTab })}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-white"
+                  className="flex h-8 items-center gap-1.5 px-3 rounded-lg text-xs text-white"
                   style={{ backgroundColor: "#2563eb" }}
                 >
                   <Plus size={12} /> Add New Profile
@@ -1100,7 +1186,7 @@ function NurseTable({
               onMouseEnter={(e) => { if (selectedRow !== row.id) e.currentTarget.style.backgroundColor = "#f8fafc"; }}
               onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = selectedRow === row.id ? "#eff6ff" : "transparent"; }}
             >
-              <td className="px-3 py-2.5 text-xs" style={{ color: "#6b7a99" }}>{row.id}</td>
+              <td className="px-3 py-2.5 text-xs" style={{ color: "#6b7a99" }}>{getNurseSqlDisplayId(row)}</td>
               <td className="px-3 py-2.5">
                 <div className="flex items-center gap-2">
                   <ProfileAvatar src={row.avatar} name={row.name} className="w-7 h-7" iconSize={13} />
@@ -1231,7 +1317,7 @@ function NurseSideProfile({
         <div className="flex flex-col items-center mb-4">
           <ProfileAvatar src={profile.avatar} name={profile.name} className="w-14 h-14 mb-2" iconSize={22} />
           <div className="text-sm text-center" style={{ color: "#1a2b42", fontWeight: 700 }}>{profile.name}</div>
-          <div className="text-xs" style={{ color: "#6b7a99" }}>{profile.id}</div>
+          <div className="text-xs" style={{ color: "#6b7a99" }}>{getNurseSqlDisplayId(profile)}</div>
           <span
             className="text-xs px-2 py-0.5 rounded-full mt-1"
             style={{
@@ -1379,7 +1465,7 @@ function NurseViewModal({
         <div className="flex items-center justify-between p-5 border-b" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
           <div>
             <h2 style={{ color: "#1a2b42", fontWeight: 700 }}>View Nurse Profile</h2>
-            <p className="text-xs mt-0.5" style={{ color: "#6b7a99" }}>{profile.id}</p>
+            <p className="text-xs mt-0.5" style={{ color: "#6b7a99" }}>{getNurseSqlDisplayId(profile)}</p>
           </div>
           <button onClick={onClose} className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-gray-100">
             <X size={16} style={{ color: "#6b7a99" }} />
@@ -1804,15 +1890,58 @@ function ModalRow({ label, value, highlight }: { label: string; value: string; h
   );
 }
 
-function FilterPill({ label }: { label: string }) {
+function FilterSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (value: string) => void;
+}) {
   return (
-    <button
-      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs transition-colors hover:bg-gray-50"
-      style={{ borderColor: "rgba(0,0,0,0.1)", color: "#6b7a99" }}
-    >
-      {label}
-      <ChevronRight size={10} className="rotate-90" />
-    </button>
+    <label className="flex h-8 items-center gap-1.5 rounded-lg border bg-white px-2.5 text-xs" style={{ borderColor: "rgba(0,0,0,0.1)", color: "#6b7a99" }}>
+      <span>{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="bg-transparent text-xs outline-none"
+        style={{ color: "#1a2b42" }}
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function AgeFilterInput({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="flex h-8 items-center gap-1.5 rounded-lg border bg-white px-2.5 text-xs" style={{ borderColor: "rgba(0,0,0,0.1)", color: "#6b7a99" }}>
+      <span>{label}</span>
+      <input
+        type="number"
+        min={50}
+        max={120}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-14 bg-transparent text-xs outline-none"
+        style={{ color: "#1a2b42" }}
+      />
+    </label>
   );
 }
 
