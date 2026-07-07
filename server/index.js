@@ -185,12 +185,12 @@ function normalizeScheduleDate(value) {
   return String(value || "").trim().replace(/[\/\u2010-\u2015\u2212]/g, "-");
 }
 
-function addWeeksToDateKey(dateKey, weeks) {
+function addDaysToDateKey(dateKey, daysToAdd) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
   if (!match) return dateKey;
 
   const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-  date.setDate(date.getDate() + weeks * 7);
+  date.setDate(date.getDate() + daysToAdd);
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
@@ -199,7 +199,7 @@ function addWeeksToDateKey(dateKey, weeks) {
 
 function validateSchedulePayload(payload, visitDate, visitTime) {
   const selectedDate = visitDate ? new Date(`${visitDate}T00:00:00`) : null;
-  const allowedPurposes = ["Vitals Check", "Medication Check", "Emergency Follow-up", "Routine Visit"];
+  const allowedPurposes = ["Blood Pressure", "Blood Glucose", "Medication", "Routine Visit"];
   const errors = {};
 
   if (!String(payload.nurseId || "").trim()) errors.nurseId = "Select a caregiver or nurse.";
@@ -290,6 +290,8 @@ app.post("/api/schedules", async (req, res) => {
     visitTime,
     purpose: payload.purpose,
     scheduleStatus: payload.scheduleStatus || "scheduled",
+    slotLockDate: normalizeScheduleDate(payload.slotLockDate),
+    slotLockHour: String(payload.slotLockHour || "").trim(),
   });
 
   if (!validation.valid) {
@@ -452,6 +454,7 @@ app.put("/api/schedules/:id", async (req, res) => {
     }
 
     if (updateGroup && existingSchedule.recurringGroupId) {
+      const recurrenceIntervalDays = Number(payload.recurrenceIntervalDays) === 1 ? 1 : 7;
       const [groupRows] = await pool.query(
         `SELECT schedule_id AS id, recurring_sequence AS recurringSequence
          FROM \`schedule\`
@@ -462,7 +465,7 @@ app.put("/api/schedules/:id", async (req, res) => {
 
       for (const groupRow of groupRows) {
         const sequenceOffset = Number(groupRow.recurringSequence || 1) - Number(existingSchedule.recurringSequence || 1);
-        const nextVisitDate = addWeeksToDateKey(visitDate, sequenceOffset);
+        const nextVisitDate = addDaysToDateKey(visitDate, sequenceOffset * recurrenceIntervalDays);
         const conflict = await findNurseScheduleConflict({
           nurseId: baseData.nurseId,
           visitDate: nextVisitDate,

@@ -5,12 +5,15 @@ import {
   RefreshCw,
   Eye,
   CalendarDays,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Search,
   Users,
   AlertCircle,
   CheckCircle2,
   MoreVertical,
+  Pencil,
   Trash2,
   X,
 } from "lucide-react";
@@ -36,43 +39,45 @@ const FALLBACK_ELDERS = [
   { id: "ELD-001", name: "Elizabeth Johnson", avatar: "https://i.pravatar.cc/32?img=44" },
 ];
 
-const PURPOSES = ["Vitals Check", "Medication Check", "Emergency Follow-up", "Routine Visit"];
+const PURPOSES = ["Blood Pressure", "Blood Glucose", "Medication", "Routine Visit"];
 
 const upcomingSchedules = [
-  { caregiver: "Sarah Johnson", careId: "NUR-001", elderName: "Robert Brown", elderId: "ELD-008", date: "May 24, 2025", day: "Sat", time: "09:00 AM", purpose: "Vital Check", status: "Scheduled", recurring: "—" },
-  { caregiver: "Mary Wilson", careId: "NUR-002", elderName: "Patricia Smith", elderId: "ELD-005", date: "May 24, 2025", day: "Sat", time: "11:00 AM", purpose: "Medication Check", status: "Scheduled", recurring: "Weekly" },
-  { caregiver: "John Taylor", careId: "NUR-003", elderName: "James Miller", elderId: "ELD-006", date: "May 24, 2025", day: "Sat", time: "01:00 PM", purpose: "Vital Check", status: "Completed", recurring: "Weekly" },
-  { caregiver: "Linda Davis", careId: "NUR-004", elderName: "Michael Lee", elderId: "ELD-007", date: "May 24, 2025", day: "Sat", time: "02:00 PM", purpose: "Emergency Follow-up", status: "Missed", recurring: "—" },
+  { caregiver: "Sarah Johnson", careId: "NUR-001", elderName: "Robert Brown", elderId: "ELD-008", date: "May 24, 2025", day: "Sat", time: "09:00 AM", purpose: "Blood Pressure", status: "Scheduled", recurring: "—" },
+  { caregiver: "Mary Wilson", careId: "NUR-002", elderName: "Patricia Smith", elderId: "ELD-005", date: "May 24, 2025", day: "Sat", time: "11:00 AM", purpose: "Medication", status: "Scheduled", recurring: "Weekly" },
+  { caregiver: "John Taylor", careId: "NUR-003", elderName: "James Miller", elderId: "ELD-006", date: "May 24, 2025", day: "Sat", time: "01:00 PM", purpose: "Blood Glucose", status: "Completed", recurring: "Weekly" },
+  { caregiver: "Linda Davis", careId: "NUR-004", elderName: "Michael Lee", elderId: "ELD-007", date: "May 24, 2025", day: "Sat", time: "02:00 PM", purpose: "Routine Visit", status: "Missed", recurring: "—" },
   { caregiver: "Emily Clark", careId: "NUR-005", elderName: "Elizabeth Johnson", elderId: "ELD-001", date: "May 24, 2025", day: "Sat", time: "10:00 AM", purpose: "Routine Visit", status: "Cancelled", recurring: "—" },
 ];
 
 const calendarEvents: Record<string, { name: string; time: string; purpose: string; color: string }[]> = {
   Sun: [],
   Mon: [
-    { name: "Robert Brown", time: "9:00 AM", purpose: "Vital Check", color: "#dbeafe" },
+    { name: "Robert Brown", time: "9:00 AM", purpose: "Blood Pressure", color: "#dbeafe" },
   ],
   Tue: [
     { name: "Patricia Smith", time: "8:00 AM", purpose: "Routine Visit", color: "#f3e8ff" },
-    { name: "Mary Wilson", time: "10:00 AM", purpose: "Medication Check", color: "#d1fae5" },
-    { name: "James Miller", time: "1:00 PM", purpose: "Vital Check", color: "#fef9c3" },
+    { name: "Mary Wilson", time: "10:00 AM", purpose: "Medication", color: "#fef9c3" },
+    { name: "James Miller", time: "1:00 PM", purpose: "Blood Glucose", color: "#d1fae5" },
   ],
   Wed: [
-    { name: "Linda Davis", time: "9:00 AM", purpose: "Vital Check", color: "#dbeafe" },
-    { name: "Michael Lee", time: "11:00 AM", purpose: "Medication Check", color: "#d1fae5" },
+    { name: "Linda Davis", time: "9:00 AM", purpose: "Blood Pressure", color: "#dbeafe" },
+    { name: "Michael Lee", time: "11:00 AM", purpose: "Medication", color: "#fef9c3" },
   ],
   Thu: [
     { name: "Elizabeth Johnson", time: "10:00 AM", purpose: "Routine Visit", color: "#f3e8ff" },
   ],
   Fri: [
-    { name: "John Taylor", time: "8:00 AM", purpose: "Emergency Follow-up", color: "#fee2e2" },
+    { name: "John Taylor", time: "8:00 AM", purpose: "Routine Visit", color: "#f3e8ff" },
   ],
   Sat: [
-    { name: "Sarah Johnson", time: "2:00 PM", purpose: "Medication Check", color: "#d1fae5" },
+    { name: "Sarah Johnson", time: "2:00 PM", purpose: "Medication", color: "#fef9c3" },
     { name: "Emily Clark", time: "10:00 AM", purpose: "Routine Visit", color: "#fef9c3" },
   ],
 };
 
-const timeSlots = Array.from({ length: 15 }, (_, index) => index + 8);
+const timeSlots = Array.from({ length: 24 }, (_, index) => index);
+const CALENDAR_PREVIEW_LIMIT = 2;
+const NURSE_VISIT_MIN_INTERVAL_MINUTES = 10;
 
 const statusColors: Record<string, { bg: string; color: string }> = {
   Scheduled: { bg: "#dbeafe", color: "#2563eb" },
@@ -132,11 +137,61 @@ function addDays(value: Date, count: number) {
   return date;
 }
 
-function weeklyRecurringDates(startDate: string, count: number) {
+function recurringDates(startDate: string, count: number, frequency: "daily" | "weekly") {
   const firstDate = dateFromKey(startDate);
   if (!firstDate) return [startDate];
 
-  return Array.from({ length: count }, (_, index) => toDateKey(addDays(firstDate, index * 7)));
+  const intervalDays = frequency === "daily" ? 1 : 7;
+  return Array.from({ length: count }, (_, index) => toDateKey(addDays(firstDate, index * intervalDays)));
+}
+
+function inferRecurringFrequency(series: ScheduleAssignment[]) {
+  const sortedDates = series
+    .map((schedule) => dateFromKey(schedule.visitDate))
+    .filter((date): date is Date => Boolean(date))
+    .sort((a, b) => a.getTime() - b.getTime());
+
+  if (sortedDates.length < 2) return "weekly";
+
+  const dayDiff = Math.round((sortedDates[1].getTime() - sortedDates[0].getTime()) / 86400000);
+  return dayDiff === 1 ? "daily" : "weekly";
+}
+
+function minutesFromTime(value: string) {
+  const match = /^(\d{2}):(\d{2})/.exec(String(value || ""));
+  if (!match) return null;
+
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  return hours * 60 + minutes;
+}
+
+function findNurseIntervalConflict(
+  schedules: ScheduleAssignment[],
+  nurseId: string,
+  visitDate: string,
+  visitTime: string,
+  options: { excludeScheduleId?: number | null; excludeRecurringGroupId?: string | null } = {}
+) {
+  const targetMinutes = minutesFromTime(visitTime);
+  if (targetMinutes === null) return null;
+
+  return schedules.find((schedule) => {
+    if (String(schedule.nurseId) !== String(nurseId)) return false;
+    if (schedule.visitDate !== visitDate) return false;
+    if (schedule.scheduleStatus === "cancelled") return false;
+    if (options.excludeScheduleId && schedule.id === options.excludeScheduleId) return false;
+    if (
+      options.excludeRecurringGroupId &&
+      schedule.recurringGroupId === options.excludeRecurringGroupId
+    ) {
+      return false;
+    }
+
+    const scheduleMinutes = minutesFromTime(schedule.visitTime);
+    return scheduleMinutes !== null && Math.abs(scheduleMinutes - targetMinutes) < NURSE_VISIT_MIN_INTERVAL_MINUTES;
+  }) || null;
 }
 
 function newRecurringGroupId() {
@@ -166,8 +221,8 @@ function formatWeekRange(days: Date[]) {
 }
 
 function scheduleColor(purpose: string) {
-  if (purpose === "Medication Check") return "#d1fae5";
-  if (purpose === "Emergency Follow-up") return "#fee2e2";
+  if (purpose === "Blood Glucose") return "#d1fae5";
+  if (purpose === "Medication") return "#fef9c3";
   if (purpose === "Routine Visit") return "#f3e8ff";
   return "#dbeafe";
 }
@@ -193,11 +248,12 @@ export function Schedules() {
   const [schedules, setSchedules] = useState<ScheduleAssignment[]>([]);
   const [nurse, setNurse] = useState("");
   const [elder, setElder] = useState("");
-  const [purpose, setPurpose] = useState("Vitals Check");
+  const [purpose, setPurpose] = useState("Blood Pressure");
   const [visitDate, setVisitDate] = useState(todayInputValue());
   const [visitTime, setVisitTime] = useState("09:00");
   const [notes, setNotes] = useState("");
   const [recurring, setRecurring] = useState(false);
+  const [recurrenceFrequency, setRecurrenceFrequency] = useState<"daily" | "weekly">("weekly");
   const [repeatWeeks, setRepeatWeeks] = useState(4);
   const [view, setView] = useState<"Week" | "Day">("Week");
   const [loading, setLoading] = useState(true);
@@ -209,6 +265,8 @@ export function Schedules() {
   const [scheduleSearch, setScheduleSearch] = useState("");
   const [showAllSchedules, setShowAllSchedules] = useState(false);
   const [selectedSchedule, setSelectedSchedule] = useState<ScheduleAssignment | null>(null);
+  const [activeCalendarSlot, setActiveCalendarSlot] = useState<{ dateKey: string; hour: number } | null>(null);
+  const [createSlotLock, setCreateSlotLock] = useState<{ dateKey: string; hour: number } | null>(null);
   const [pendingDeleteSchedule, setPendingDeleteSchedule] = useState<ScheduleAssignment | null>(null);
   const [actionMenuId, setActionMenuId] = useState<number | null>(null);
   const [updatingScheduleId, setUpdatingScheduleId] = useState<number | null>(null);
@@ -240,12 +298,51 @@ export function Schedules() {
       view === "Day" ? schedule.visitDate === selectedDateKey : weekKeys.has(schedule.visitDate)
     ));
   }, [filteredSchedules, selectedDateKey, view, weekDays]);
-  const tableSchedules = showAllSchedules ? filteredSchedules : overviewSchedules;
+  const activeSlotSchedules = useMemo(() => {
+    if (!activeCalendarSlot) return [];
+
+    return filteredSchedules
+      .filter((schedule) => {
+        const scheduleHour = Number(String(schedule.visitTime || "").slice(0, 2));
+        return schedule.visitDate === activeCalendarSlot.dateKey && scheduleHour === activeCalendarSlot.hour;
+      })
+      .sort((a, b) => a.visitTime.localeCompare(b.visitTime) || a.elderlyName.localeCompare(b.elderlyName));
+  }, [activeCalendarSlot, filteredSchedules]);
+  const currentWeekSchedules = useMemo(() => {
+    const currentWeekStart = getWeekStart(new Date());
+    const currentWeekKeys = new Set(
+      Array.from({ length: 7 }, (_, index) => toDateKey(addDays(currentWeekStart, index)))
+    );
+
+    return filteredSchedules
+      .filter((schedule) => currentWeekKeys.has(schedule.visitDate) && schedule.scheduleStatus !== "cancelled")
+      .sort((a, b) => a.visitDate.localeCompare(b.visitDate) || a.visitTime.localeCompare(b.visitTime));
+  }, [filteredSchedules]);
+  const tableSchedules = showAllSchedules ? filteredSchedules : currentWeekSchedules;
+
+  function hydrateScheduleNames(schedule: ScheduleAssignment): ScheduleAssignment {
+    const matchingNurse = nurses.find((item) => item.id === String(schedule.nurseId));
+    const matchingElder = elders.find((item) => item.id === String(schedule.elderlyId));
+
+    return {
+      ...schedule,
+      nurseId: String(schedule.nurseId),
+      elderlyId: String(schedule.elderlyId),
+      nurseName: matchingNurse?.name || schedule.nurseName || String(schedule.nurseId),
+      nurseAvatar: matchingNurse?.avatar || schedule.nurseAvatar,
+      elderlyName: matchingElder?.name || schedule.elderlyName || String(schedule.elderlyId),
+      elderlyAvatar: matchingElder?.avatar || schedule.elderlyAvatar,
+    };
+  }
+
   const summaryStats = useMemo(() => {
-    const weekKeys = new Set(weekDays.map(toDateKey));
+    const currentWeekStart = getWeekStart(new Date());
+    const currentWeekKeys = new Set(
+      Array.from({ length: 7 }, (_, index) => toDateKey(addDays(currentWeekStart, index)))
+    );
     const todayVisits = schedules.filter((schedule) => schedule.visitDate === todayKey).length;
     const upcomingVisits = schedules.filter((schedule) => (
-      weekKeys.has(schedule.visitDate) && schedule.scheduleStatus !== "cancelled"
+      currentWeekKeys.has(schedule.visitDate) && schedule.scheduleStatus !== "cancelled"
     )).length;
     const missedVisits = schedules.filter((schedule) => schedule.scheduleStatus === "missed").length;
 
@@ -287,7 +384,7 @@ export function Schedules() {
         subColor: "#22c55e",
       },
     ];
-  }, [nurses.length, schedules, todayKey, weekDays]);
+  }, [nurses.length, schedules, todayKey]);
 
   async function loadScheduleData() {
     setLoading(true);
@@ -328,13 +425,15 @@ export function Schedules() {
   function resetForm() {
     setNurse(nurses[0]?.id || "");
     setElder(elders[0]?.id || "");
-    setPurpose("Vitals Check");
+    setPurpose("Blood Pressure");
     setVisitDate(todayInputValue());
     setVisitTime("09:00");
     setNotes("");
     setRecurring(false);
+    setRecurrenceFrequency("weekly");
     setRepeatWeeks(4);
     setEditingSchedule(null);
+    setCreateSlotLock(null);
     setMessage("");
     setError("");
   }
@@ -349,6 +448,7 @@ export function Schedules() {
     setShowAllSchedules(false);
     setSelectedDateKey(dateKey);
     setWeekStart(getWeekStart(date));
+    setActiveCalendarSlot(null);
   }
 
   function handleScheduleSearch(value: string) {
@@ -392,16 +492,41 @@ export function Schedules() {
     setVisitTime(row.visitTime);
     setNotes("");
     setRecurring(Boolean(row.recurringGroupId));
+    setRecurrenceFrequency(row.recurringGroupId ? inferRecurringFrequency(recurringSeries) : "weekly");
     setRepeatWeeks(row.recurringGroupId ? Math.max(recurringSeries.length, Number(row.recurringSequence) || 1) : 4);
     setEditingSchedule(row);
+    setCreateSlotLock(null);
     setShowCreateForm(true);
+    setActiveCalendarSlot(null);
     setActionMenuId(null);
     setMessage("");
     setError("");
 
-    window.setTimeout(() => {
-      scheduleFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 0);
+  }
+
+  function startCreateSchedule(date: Date, hour = 9, lockToSlot = false) {
+    const dateKey = toDateKey(date);
+    setNurse((current) => nurses.some((item) => item.id === current) ? current : nurses[0]?.id || "");
+    setElder((current) => elders.some((item) => item.id === current) ? current : elders[0]?.id || "");
+    setPurpose("Blood Pressure");
+    setVisitDate(dateKey);
+    setVisitTime(`${String(hour).padStart(2, "0")}:00`);
+    setNotes("");
+    setRecurring(false);
+    setRecurrenceFrequency("weekly");
+    setRepeatWeeks(4);
+    setEditingSchedule(null);
+    setCreateSlotLock(lockToSlot ? { dateKey, hour } : null);
+    setSelectedDateKey(dateKey);
+    setWeekStart(getWeekStart(date));
+    setShowAllSchedules(false);
+    setShowCreateForm(true);
+    setSelectedSchedule(null);
+    setActiveCalendarSlot(null);
+    setActionMenuId(null);
+    setMessage("");
+    setError("");
+
   }
 
   async function handleSaveSchedule() {
@@ -410,6 +535,21 @@ export function Schedules() {
     setError("");
     const selectedNurse = nurses.find((item) => item.id === nurse);
     const selectedElder = elders.find((item) => item.id === elder);
+    const visitHour = Number(String(visitTime || "").slice(0, 2));
+
+    if (!editingSchedule && createSlotLock) {
+      if (visitDate !== createSlotLock.dateKey || visitHour !== createSlotLock.hour) {
+        setSaving(false);
+        setError(`This schedule must stay within ${toDisplayDate(createSlotLock.dateKey)} at ${formatHour(createSlotLock.hour)}.`);
+        return;
+      }
+
+      if (recurring) {
+        setSaving(false);
+        setError("Recurring schedules cannot be added from a single calendar time slot.");
+        return;
+      }
+    }
 
     try {
       const payload = {
@@ -424,6 +564,9 @@ export function Schedules() {
         scheduleStatus: "scheduled",
         recurringGroupId: editingSchedule?.recurringGroupId || null,
         recurringSequence: editingSchedule?.recurringSequence || null,
+        recurrenceIntervalDays: recurrenceFrequency === "daily" ? 1 : 7,
+        slotLockDate: !editingSchedule && createSlotLock ? createSlotLock.dateKey : undefined,
+        slotLockHour: !editingSchedule && createSlotLock ? String(createSlotLock.hour).padStart(2, "0") : undefined,
       };
 
       const addingRecurringFromEdit = Boolean(editingSchedule) && !editingSchedule?.recurringGroupId && recurring;
@@ -431,7 +574,28 @@ export function Schedules() {
       const repeatCount = recurring && (!editingSchedule || addingRecurringFromEdit || resizingRecurringEdit)
         ? Math.min(12, Math.max(1, Number(repeatWeeks) || 1))
         : 1;
-      const visitDates = weeklyRecurringDates(visitDate, repeatCount);
+      const visitDates = recurringDates(visitDate, repeatCount, recurrenceFrequency);
+      const recurrenceIntervalDays = recurrenceFrequency === "daily" ? 1 : 7;
+      const editingSequence = Math.max(1, Number(editingSchedule?.recurringSequence) || 1);
+      const recurringDateForSequence = (sequence: number) => {
+        const baseDate = dateFromKey(visitDate);
+        if (!baseDate) return visitDate;
+        return toDateKey(addDays(baseDate, (sequence - editingSequence) * recurrenceIntervalDays));
+      };
+      const localConflict = visitDates
+        .map((nextVisitDate) => findNurseIntervalConflict(schedules, nurse, nextVisitDate, visitTime, {
+          excludeScheduleId: editingSchedule?.recurringGroupId ? null : editingSchedule?.id,
+          excludeRecurringGroupId: editingSchedule?.recurringGroupId || null,
+        }))
+        .find(Boolean);
+
+      if (localConflict) {
+        setSaving(false);
+        setError(
+          `${localConflict.nurseName} already has a visit on ${toDisplayDate(localConflict.visitDate)} at ${localConflict.visitTime}. Keep at least ${NURSE_VISIT_MIN_INTERVAL_MINUTES} minutes between visits.`
+        );
+        return;
+      }
 
       const savedSchedules: ScheduleAssignment[] = [];
 
@@ -468,15 +632,15 @@ export function Schedules() {
           savedSchedules.push(...("schedules" in updateResult ? updateResult.schedules : [updateResult]));
 
           const existingCount = currentSeries.length;
-          const desiredCount = visitDates.length;
+          const desiredCount = repeatCount;
 
           if (desiredCount > existingCount) {
-            for (const [index, nextVisitDate] of visitDates.slice(existingCount).entries()) {
+            for (let nextSequence = existingCount + 1; nextSequence <= desiredCount; nextSequence += 1) {
               savedSchedules.push(await createSchedule({
                 ...payload,
-                visitDate: nextVisitDate,
+                visitDate: recurringDateForSequence(nextSequence),
                 recurringGroupId: editingSchedule.recurringGroupId,
-                recurringSequence: existingCount + index + 1,
+                recurringSequence: nextSequence,
               }));
             }
           } else if (desiredCount < existingCount) {
@@ -501,7 +665,11 @@ export function Schedules() {
         }
       }
 
-      const saved = savedSchedules[0];
+      const hydratedSavedSchedules = savedSchedules.map(hydrateScheduleNames);
+      const saved =
+        (editingSchedule
+          ? hydratedSavedSchedules.find((schedule) => schedule.id === editingSchedule.id)
+          : hydratedSavedSchedules[0]) || hydratedSavedSchedules[0];
 
       setSchedules((current) => editingSchedule
         ? [
@@ -513,33 +681,59 @@ export function Schedules() {
 
                 if (resizingRecurringEdit && editingSchedule.recurringGroupId) {
                   return (
-                    schedule.recurringGroupId !== editingSchedule.recurringGroupId ||
-                    savedSchedules.some((item) => item.id === schedule.id)
+                    schedule.recurringGroupId !== editingSchedule.recurringGroupId
                   );
                 }
 
                 return true;
               })
-              .map((schedule) => savedSchedules.find((item) => item.id === schedule.id) || schedule),
-            ...savedSchedules.filter((item) => !current.some((schedule) => schedule.id === item.id)),
+              .map((schedule) => hydratedSavedSchedules.find((item) => item.id === schedule.id) || schedule),
+            ...hydratedSavedSchedules.filter((item) => !current.some((schedule) => schedule.id === item.id)),
           ]
-        : [...savedSchedules, ...current]
+        : [...hydratedSavedSchedules, ...current]
       );
       setMessage(
         editingSchedule
           ? editingSchedule.recurringGroupId && !recurring
             ? "Recurring schedule stopped. This visit was kept."
             : addingRecurringFromEdit && savedSchedules.length > 1
-              ? `${savedSchedules.length} weekly schedules saved to MySQL.`
+              ? `${savedSchedules.length} ${recurrenceFrequency} schedules saved to MySQL.`
             : resizingRecurringEdit
-              ? `Recurring period updated to ${repeatCount} week${repeatCount === 1 ? "" : "s"}.`
+              ? `Recurring period updated to ${repeatCount} ${recurrenceFrequency === "daily" ? "day" : "week"}${repeatCount === 1 ? "" : "s"}.`
             : "Schedule updated in MySQL."
           : savedSchedules.length > 1
-            ? `${savedSchedules.length} weekly schedules saved to MySQL.`
+            ? `${savedSchedules.length} ${recurrenceFrequency} schedules saved to MySQL.`
             : "Schedule saved to MySQL."
       );
       if (editingSchedule) {
         setEditingSchedule(saved);
+        if (saved?.recurringGroupId) {
+          setRepeatWeeks(Math.max(hydratedSavedSchedules.length, Number(saved.recurringSequence) || 1));
+        }
+      }
+      if (!editingSchedule) {
+        setCreateSlotLock(null);
+      }
+      if (saved?.visitDate) {
+        const savedDate = dateFromKey(saved.visitDate) || new Date();
+        setSelectedDateKey(saved.visitDate);
+        setWeekStart(getWeekStart(savedDate));
+        setShowAllSchedules(false);
+        setActiveCalendarSlot(null);
+      }
+      const refreshedSchedules = await getSchedules();
+      const hydratedRefreshedSchedules = refreshedSchedules.schedules.map(hydrateScheduleNames);
+      setSchedules(hydratedRefreshedSchedules);
+      if (saved?.recurringGroupId) {
+        const refreshedSeries = hydratedRefreshedSchedules
+          .filter((schedule) => schedule.recurringGroupId === saved.recurringGroupId)
+          .sort((a, b) => (a.recurringSequence || 0) - (b.recurringSequence || 0));
+        const firstInSeries = refreshedSeries[0];
+        if (firstInSeries?.visitDate) {
+          const firstDate = dateFromKey(firstInSeries.visitDate) || new Date();
+          setSelectedDateKey(firstInSeries.visitDate);
+          setWeekStart(getWeekStart(firstDate));
+        }
       }
     } catch (saveError) {
       console.error("Failed to save schedule.", saveError);
@@ -581,10 +775,7 @@ export function Schedules() {
           <span style={{ color: "#1a2b42", fontWeight: 500 }}>Set Up Schedules</span>
         </div>
         <button
-          onClick={() => {
-            setVisitDate(selectedDateKey);
-            setShowCreateForm(true);
-          }}
+          onClick={() => startCreateSchedule(dateFromKey(selectedDateKey) || new Date(), 9)}
           className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm text-white"
           style={{ backgroundColor: "#2563eb" }}
         >
@@ -606,10 +797,11 @@ export function Schedules() {
         ))}
       </div>
 
-      <div className="flex gap-5">
+      <div>
         {/* Create Schedule Form */}
         {showCreateForm && (
-        <div ref={scheduleFormRef} className="w-80 flex-shrink-0 bg-white rounded-xl border p-4" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 py-6">
+        <div ref={scheduleFormRef} className="w-full max-w-md max-h-[90vh] overflow-y-auto bg-white rounded-xl border p-4 shadow-xl" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm" style={{ color: "#1a2b42", fontWeight: 700 }}>
               {editingSchedule ? "Edit Schedule" : "Create Schedule"}
@@ -620,7 +812,7 @@ export function Schedules() {
               style={{ color: "#6b7a99" }}
               aria-label="Close schedule form"
             >
-              x
+              <X size={15} />
             </button>
           </div>
 
@@ -648,33 +840,49 @@ export function Schedules() {
                     inputMode="numeric"
                     placeholder="YYYY-MM-DD"
                     value={visitDate}
+                    readOnly={Boolean(createSlotLock)}
                     onChange={(e) => setVisitDate(normalizeDateInput(e.target.value))}
                     className="w-full px-3 py-2 border rounded-lg text-sm outline-none"
-                    style={{ borderColor: "rgba(0,0,0,0.12)", color: "#1a2b42" }}
+                    style={{
+                      borderColor: "rgba(0,0,0,0.12)",
+                      color: "#1a2b42",
+                      backgroundColor: createSlotLock ? "#f8fafc" : "#fff",
+                    }}
                   />
               </FormGroup>
               <FormGroup label="Visit Time">
                 <input
                   type="time"
                   value={visitTime}
+                  min={createSlotLock ? `${String(createSlotLock.hour).padStart(2, "0")}:00` : undefined}
+                  max={createSlotLock ? `${String(createSlotLock.hour).padStart(2, "0")}:59` : undefined}
                   onChange={(e) => setVisitTime(e.target.value)}
                   className="w-full px-3 py-2 border rounded-lg text-sm outline-none"
                   style={{ borderColor: "rgba(0,0,0,0.12)", color: "#1a2b42" }}
                 />
               </FormGroup>
             </div>
+            {createSlotLock && !editingSchedule && (
+              <div className="rounded-lg border px-3 py-2 text-xs" style={{ borderColor: "#bfdbfe", backgroundColor: "#eff6ff", color: "#1d4ed8" }}>
+                Add within {toDisplayDate(createSlotLock.dateKey)} at {formatHour(createSlotLock.hour)} only.
+              </div>
+            )}
 
             <FormGroup label="Purpose">
-              <div className="flex items-center gap-1.5 px-2 py-1.5 border rounded-lg" style={{ borderColor: "rgba(0,0,0,0.12)" }}>
-                <span className="text-xs" style={{ color: "#22c55e" }}>♥</span>
+              <div className="relative">
                 <select
                   value={purpose}
                   onChange={(e) => setPurpose(e.target.value)}
-                  className="flex-1 text-xs outline-none bg-transparent"
-                  style={{ color: "#1a2b42" }}
+                  className="w-full appearance-none rounded-lg border px-3 py-2 pr-9 text-xs outline-none transition-colors focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                  style={{ borderColor: "rgba(0,0,0,0.12)", backgroundColor: "#f8fafc", color: "#1a2b42" }}
                 >
                   {PURPOSES.map((p) => <option key={p}>{p}</option>)}
                 </select>
+                <ChevronDown
+                  size={15}
+                  className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2"
+                  style={{ color: "#6b7a99" }}
+                />
               </div>
             </FormGroup>
 
@@ -694,9 +902,12 @@ export function Schedules() {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setRecurring(!recurring)}
+                  onClick={() => {
+                    if (createSlotLock && !editingSchedule) return;
+                    setRecurring(!recurring);
+                  }}
                   className="relative w-9 h-5 rounded-full transition-colors"
-                  style={{ backgroundColor: recurring ? "#2563eb" : "#d1d5db" }}
+                  style={{ backgroundColor: recurring ? "#2563eb" : "#d1d5db", opacity: createSlotLock && !editingSchedule ? 0.65 : 1 }}
                 >
                   <span
                     className="absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all"
@@ -711,8 +922,30 @@ export function Schedules() {
                 </div>
               )}
               {recurring && (
-                <div className="mt-2">
-                  <label className="text-xs block mb-1" style={{ color: "#6b7a99" }}>Repeat Weeks</label>
+                <div className="mt-2 space-y-2">
+                  <div>
+                    <label className="text-xs block mb-1" style={{ color: "#6b7a99" }}>Repeat Every</label>
+                    <div className="grid grid-cols-2 gap-1 rounded-lg border p-1" style={{ borderColor: "rgba(0,0,0,0.12)" }}>
+                      {(["daily", "weekly"] as const).map((frequency) => (
+                        <button
+                          key={frequency}
+                          type="button"
+                          onClick={() => setRecurrenceFrequency(frequency)}
+                          className="rounded-md px-2 py-1.5 text-xs capitalize transition-colors"
+                          style={{
+                            backgroundColor: recurrenceFrequency === frequency ? "#2563eb" : "transparent",
+                            color: recurrenceFrequency === frequency ? "#fff" : "#6b7a99",
+                          }}
+                        >
+                          {frequency}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                  <label className="text-xs block mb-1" style={{ color: "#6b7a99" }}>
+                    Repeat {recurrenceFrequency === "daily" ? "Days" : "Weeks"}
+                  </label>
                   <input
                     type="number"
                     min={1}
@@ -722,6 +955,7 @@ export function Schedules() {
                     className="w-full px-2 py-1.5 border rounded-lg text-xs outline-none"
                     style={{ borderColor: "rgba(0,0,0,0.12)", color: "#1a2b42" }}
                   />
+                  </div>
                 </div>
               )}
             </FormGroup>
@@ -752,12 +986,13 @@ export function Schedules() {
             </button>
           </div>
         </div>
+        </div>
         )}
 
-        {/* Right: Calendar + Table */}
-        <div className="flex-1 space-y-4">
+        {/* Calendar + Table */}
+        <div className="space-y-4">
           {/* Weekly Calendar */}
-          <div className="bg-white rounded-xl border overflow-hidden" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
+          <div className="relative bg-white rounded-xl border overflow-visible" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
             <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: "rgba(0,0,0,0.06)" }}>
               <h3 className="text-sm" style={{ color: "#1a2b42", fontWeight: 700 }}>Weekly Schedule Overview</h3>
               <div className="flex items-center gap-2">
@@ -831,14 +1066,17 @@ export function Schedules() {
 
             <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b" style={{ borderColor: "rgba(0,0,0,0.06)" }}>
               <div className="flex-1 min-w-[180px]">
+                <div className="relative">
+                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "#6b7a99" }} />
                 <input
                   list="schedule-person-search"
                   value={scheduleSearch}
                   onChange={(event) => handleScheduleSearch(event.target.value)}
                   placeholder="Search nurse or elderly..."
-                  className="w-full px-3 py-1.5 border rounded-lg text-xs outline-none"
-                  style={{ borderColor: "rgba(0,0,0,0.12)", color: "#1a2b42" }}
+                  className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border outline-none"
+                  style={{ borderColor: "rgba(0,0,0,0.1)", backgroundColor: "#f8fafc", color: "#1a2b42" }}
                 />
+                </div>
                 <datalist id="schedule-person-search">
                   {nurses.map((item) => (
                     <option key={`nurse-${item.id}`} value={item.name} />
@@ -934,24 +1172,29 @@ export function Schedules() {
                         const scheduleHour = Number(String(schedule.visitTime || "").slice(0, 2));
                         return schedule.visitDate === dateKey && scheduleHour === hour;
                       });
+                      const previewMatches = matches.slice(0, CALENDAR_PREVIEW_LIMIT);
+                      const hiddenCount = matches.length - previewMatches.length;
+                      const isActiveSlot = false;
 
                       return (
                         <div
                           key={`${dateKey}-${hour}`}
-                          onClick={() => selectOverviewDate(date)}
-                          className="border-b border-r p-1 min-h-[48px] space-y-1 cursor-pointer hover:bg-blue-50"
+                          onClick={() => {
+                            const nextDateKey = toDateKey(date);
+                            setShowAllSchedules(false);
+                            setSelectedDateKey(nextDateKey);
+                            setWeekStart(getWeekStart(date));
+                            setActiveCalendarSlot(matches.length > 0 ? { dateKey: nextDateKey, hour } : null);
+                          }}
+                          className="group relative border-b border-r p-1 min-h-[48px] space-y-1 cursor-pointer hover:bg-blue-50"
                           style={{ borderColor: "rgba(0,0,0,0.05)" }}
                         >
-                          {matches.map((match) => (
+                          {previewMatches.map((match) => (
                             <div
                               key={match.id}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setSelectedSchedule(match);
-                              }}
                               className="rounded-md px-1.5 py-1 text-xs cursor-pointer hover:opacity-80 transition-opacity"
                               style={{ backgroundColor: scheduleColor(match.purpose) }}
-                              title="View schedule details"
+                              title="View all schedules in this time slot"
                             >
                               <div className="truncate" style={{ color: "#1a2b42", fontWeight: 600, fontSize: "10px" }}>
                                 {match.elderlyName}
@@ -960,6 +1203,118 @@ export function Schedules() {
                               <div style={{ color: "#6b7a99", fontSize: "10px" }}>{match.purpose}</div>
                             </div>
                           ))}
+                          {hiddenCount > 0 && (
+                            <div
+                              className="rounded-md px-1.5 py-1 text-[10px]"
+                              style={{ backgroundColor: "#eff6ff", color: "#2563eb", fontWeight: 700 }}
+                            >
+                              {hiddenCount} more in this slot
+                            </div>
+                          )}
+                          {matches.length === 0 && (
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                startCreateSchedule(date, hour);
+                              }}
+                              className="absolute inset-1 flex items-center justify-center gap-1 rounded-md border border-dashed text-[10px] font-semibold opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
+                              style={{
+                                borderColor: "#93c5fd",
+                                backgroundColor: "rgba(239, 246, 255, 0.96)",
+                                color: "#2563eb",
+                              }}
+                            >
+                              <Plus size={11} /> Add schedule?
+                            </button>
+                          )}
+                          {isActiveSlot && activeSlotSchedules.length > 0 && (
+                            <div
+                              onClick={(event) => event.stopPropagation()}
+                              className="absolute left-1 top-1 z-30 w-72 max-w-[calc(100vw-3rem)] rounded-lg border bg-white p-3 shadow-xl"
+                              style={{ borderColor: "rgba(0,0,0,0.08)" }}
+                            >
+                              <div className="mb-2 flex items-start justify-between gap-2">
+                                <div>
+                                  <div className="text-xs" style={{ color: "#1a2b42", fontWeight: 700 }}>
+                                    {toDisplayDate(dateKey)} at {formatHour(hour)}
+                                  </div>
+                                  <div className="text-xs" style={{ color: "#6b7a99" }}>
+                                    {activeSlotSchedules.length} schedule{activeSlotSchedules.length === 1 ? "" : "s"}
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveCalendarSlot(null)}
+                                  className="flex h-6 w-6 items-center justify-center rounded hover:bg-gray-100"
+                                  aria-label="Close schedule list"
+                                >
+                                  <X size={13} style={{ color: "#6b7a99" }} />
+                                </button>
+                              </div>
+                              <div className="max-h-72 space-y-2 overflow-y-auto">
+                                {activeSlotSchedules.map((row) => (
+                                  <div
+                                    key={row.id}
+                                    className="rounded-md border p-2"
+                                    style={{ borderColor: "rgba(0,0,0,0.08)", backgroundColor: scheduleColor(row.purpose) }}
+                                  >
+                                    <div className="flex items-start justify-between gap-2">
+                                      <div className="min-w-0">
+                                        <div className="truncate text-xs" style={{ color: "#1a2b42", fontWeight: 700 }}>
+                                          {row.elderlyName}
+                                        </div>
+                                        <div className="truncate text-xs" style={{ color: "#6b7a99" }}>
+                                          {row.visitTime} · {row.purpose}
+                                        </div>
+                                        <div className="truncate text-xs" style={{ color: "#6b7a99" }}>
+                                          Nurse: {row.nurseName}
+                                        </div>
+                                      </div>
+                                      <div className="flex flex-shrink-0 gap-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setActiveCalendarSlot(null);
+                                            setSelectedSchedule(row);
+                                          }}
+                                          className="flex h-6 w-6 items-center justify-center rounded bg-white/80"
+                                          title="View schedule details"
+                                          aria-label="View schedule details"
+                                        >
+                                          <Eye size={12} style={{ color: "#2563eb" }} />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setActiveCalendarSlot(null);
+                                            startEditSchedule(row);
+                                          }}
+                                          className="flex h-6 w-6 items-center justify-center rounded bg-white/80"
+                                          title="Edit schedule"
+                                          aria-label="Edit schedule"
+                                        >
+                                          <Pencil size={12} style={{ color: "#16a34a" }} />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setActiveCalendarSlot(null);
+                                            setPendingDeleteSchedule(row);
+                                          }}
+                                          className="flex h-6 w-6 items-center justify-center rounded bg-white/80"
+                                          title="Delete schedule"
+                                          aria-label="Delete schedule"
+                                        >
+                                          <Trash2 size={12} style={{ color: "#dc2626" }} />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -967,6 +1322,112 @@ export function Schedules() {
                 ))}
               </div>
             </div>
+            {activeCalendarSlot && activeSlotSchedules.length > 0 && (
+              <div
+                className="fixed inset-0 z-40 flex items-center justify-center bg-black/20 px-4 py-6"
+                onClick={() => setActiveCalendarSlot(null)}
+              >
+                <div
+                  className="w-full max-w-xl max-h-[86vh] overflow-y-auto rounded-xl border bg-white p-4 shadow-xl"
+                  style={{ borderColor: "rgba(0,0,0,0.08)" }}
+                  onClick={(event) => event.stopPropagation()}
+                >
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <div>
+                    <h4 className="text-sm" style={{ color: "#1a2b42", fontWeight: 700 }}>
+                      {toDisplayDate(activeCalendarSlot.dateKey)} at {formatHour(activeCalendarSlot.hour)}
+                    </h4>
+                    <p className="text-xs" style={{ color: "#6b7a99" }}>
+                      {activeSlotSchedules.length} schedule{activeSlotSchedules.length === 1 ? "" : "s"}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const lockedDate = dateFromKey(activeCalendarSlot.dateKey);
+                        if (!lockedDate) return;
+                        startCreateSchedule(lockedDate, activeCalendarSlot.hour, true);
+                      }}
+                      className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-white"
+                      style={{ backgroundColor: "#2563eb" }}
+                    >
+                      <Plus size={12} /> Add Schedule
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveCalendarSlot(null)}
+                      className="flex h-7 w-7 items-center justify-center rounded-lg hover:bg-gray-100"
+                      aria-label="Close schedule list"
+                    >
+                      <X size={15} style={{ color: "#6b7a99" }} />
+                    </button>
+                  </div>
+                </div>
+                <div className="grid max-h-80 gap-2 overflow-y-auto md:grid-cols-2">
+                  {activeSlotSchedules.map((row) => (
+                    <div
+                      key={row.id}
+                      className="rounded-lg border p-3"
+                      style={{ borderColor: "rgba(0,0,0,0.08)", backgroundColor: scheduleColor(row.purpose) }}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-xs" style={{ color: "#1a2b42", fontWeight: 700 }}>
+                            {row.elderlyName}
+                          </div>
+                          <div className="truncate text-xs" style={{ color: "#6b7a99" }}>
+                            {row.visitTime} - {row.purpose}
+                          </div>
+                          <div className="truncate text-xs" style={{ color: "#6b7a99" }}>
+                            Nurse: {row.nurseName}
+                          </div>
+                        </div>
+                        <div className="flex flex-shrink-0 gap-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveCalendarSlot(null);
+                              setSelectedSchedule(row);
+                            }}
+                            className="flex h-7 w-7 items-center justify-center rounded bg-white/80"
+                            title="View schedule details"
+                            aria-label="View schedule details"
+                          >
+                            <Eye size={13} style={{ color: "#2563eb" }} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveCalendarSlot(null);
+                              startEditSchedule(row);
+                            }}
+                            className="flex h-7 w-7 items-center justify-center rounded bg-white/80"
+                            title="Edit schedule"
+                            aria-label="Edit schedule"
+                          >
+                            <Pencil size={13} style={{ color: "#16a34a" }} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveCalendarSlot(null);
+                              setPendingDeleteSchedule(row);
+                            }}
+                            className="flex h-7 w-7 items-center justify-center rounded bg-white/80"
+                            title="Delete schedule"
+                            aria-label="Delete schedule"
+                          >
+                            <Trash2 size={13} style={{ color: "#dc2626" }} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Upcoming Schedules Table */}
@@ -1052,7 +1513,7 @@ export function Schedules() {
                         </span>
                       </td>
                       <td className="px-3 py-2.5 text-xs" style={{ color: "#6b7a99" }}>
-                        {row.recurringGroupId ? "Weekly" : "-"}
+                        {row.recurringGroupId ? "Recurring" : "-"}
                       </td>
                       <td className="px-3 py-2.5">
                         <div className="relative flex items-center gap-1">
@@ -1142,7 +1603,7 @@ export function Schedules() {
                 <DetailText label="Time" value={selectedSchedule.visitTime} />
                 <DetailText label="Purpose" value={selectedSchedule.purpose} />
                 <DetailText label="Status" value={statusLabel(selectedSchedule.scheduleStatus)} />
-                <DetailText label="Recurring" value={selectedSchedule.recurringGroupId ? "Weekly" : "-"} />
+                <DetailText label="Recurring" value={selectedSchedule.recurringGroupId ? "Recurring" : "-"} />
               </div>
             </div>
 
@@ -1200,7 +1661,7 @@ export function Schedules() {
                 </p>
                 {pendingDeleteSchedule.recurringGroupId && (
                   <p className="mt-2 text-xs leading-relaxed" style={{ color: "#991b1b" }}>
-                    This will delete every weekly visit in this recurring series.
+                    This will delete every visit in this recurring series.
                   </p>
                 )}
               </div>
@@ -1276,23 +1737,34 @@ function AvatarSelect({
   const selected = options.find((o) => o.id === value) || options[0];
   return (
     <div className="relative">
-      <div
-        className="flex items-center gap-2 px-2 py-1.5 border rounded-lg cursor-pointer"
-        style={{ borderColor: "rgba(0,0,0,0.12)" }}
-      >
-        {selected && <img src={selected.avatar} className="w-5 h-5 rounded-full" alt="" />}
+      {selected && (
+        <img
+          src={selected.avatar}
+          className="pointer-events-none absolute left-3 top-1/2 z-10 h-5 w-5 -translate-y-1/2 rounded-full"
+          alt=""
+        />
+      )}
         <select
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="flex-1 text-xs outline-none bg-transparent"
-          style={{ color: "#1a2b42" }}
+          className="w-full appearance-none rounded-lg border py-2 pr-9 text-xs outline-none transition-colors focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+          style={{
+            borderColor: "rgba(0,0,0,0.12)",
+            backgroundColor: "#f8fafc",
+            color: "#1a2b42",
+            paddingLeft: selected ? "40px" : "12px",
+          }}
         >
           {options.length === 0 && <option value="">No records found</option>}
           {options.map((o) => (
             <option key={o.id} value={o.id}>{o.name}</option>
           ))}
         </select>
-      </div>
+      <ChevronDown
+        size={15}
+        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2"
+        style={{ color: "#6b7a99" }}
+      />
     </div>
   );
 }
