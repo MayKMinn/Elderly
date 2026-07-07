@@ -139,7 +139,7 @@ const elderlyColumns = `
 `;
 
 const nurseColumns = `
-  CONCAT('NRS-', LPAD(nurse_id, 4, '0')) AS id,
+  CAST(nurse_id AS CHAR) AS id,
   nurse_id AS nurseId,
   name,
   age,
@@ -973,11 +973,18 @@ const [rows] = await pool.query(
 });
 
 app.put("/api/nurses/:id", async (req, res) => {
-  const nurseId = getNurseDbId(req.params.id);
-  const profile = req.body;
+  const nurseId = Number(req.params.id);
 
   if (!Number.isInteger(nurseId) || nurseId <= 0) {
-    res.status(400).json({ error: "Valid nurse id is required." });
+    res.status(400).json({ error: "Invalid nurse id." });
+    return;
+  }
+
+  const profile = { ...req.body, type: "nurse" };
+  const validation = await validateProfileWithCobol(profile);
+
+  if (!validation.valid) {
+    res.status(422).json(validation);
     return;
   }
 
@@ -1003,29 +1010,34 @@ app.put("/api/nurses/:id", async (req, res) => {
 
     await pool.query(
       `UPDATE nurse
-       SET name = :name,
-           age = :age,
-           gender = :gender,
-           phone = :phone,
-           email = :email,
-           license_number = :licenseNumber,
-           position = :position,
-           shift_schedule = :shiftSchedule,
-           work_area = :workArea,
-           username = :username,
-           password = :password,
-           address = :address,
-           avatar = :avatar,
-           hire_date = :hireDate,
-           nurse_status = :nurseStatus
+       SET
+         name = :name,
+         age = :age,
+         gender = :gender,
+         phone = :phone,
+         email = :email,
+         license_number = :licenseNumber,
+         position = :position,
+         shift_schedule = :shiftSchedule,
+         work_area = :workArea,
+         username = :username,
+         password = :password,
+         address = :address,
+         avatar = :avatar,
+         hire_date = :hireDate,
+         nurse_status = :nurseStatus
        WHERE nurse_id = :nurseId`,
       data
     );
 
     const [rows] = await pool.query(
-      `SELECT ${nurseColumns} FROM nurse WHERE nurse_id = :nurseId`,
-      { nurseId }
+      `SELECT ${nurseColumns} FROM nurse WHERE nurse_id = ${nurseId}`
     );
+
+    if (!rows[0]) {
+      res.status(404).json({ error: "Nurse profile not found." });
+      return;
+    }
 
     res.json(rows[0]);
   } catch (error) {

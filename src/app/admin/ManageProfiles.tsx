@@ -480,7 +480,7 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
         setSuccessMessage("Elderly profile added successfully.");
       } else {
         const created: NurseProfile = {
-          id: `NRS-${String(nurseList.length + 1).padStart(4, "0")}`,
+          id: String(nurseList.length + 1),
           name: profile.name.trim(),
           age: Number(profile.age),
           gender: profile.gender,
@@ -1395,13 +1395,29 @@ function NurseEditPanel({
           </EditSection>
         </div>
 
-        <div className="flex gap-2 p-4 border-t flex-shrink-0" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
-          <button onClick={onClose} className="flex-1 py-2 rounded-lg border text-sm hover:bg-gray-50" style={{ borderColor: "rgba(0,0,0,0.12)", color: "#6b7a99" }}>
+        <div
+          className="relative z-[9999] flex gap-2 p-4 border-t flex-shrink-0"
+          style={{ borderColor: "rgba(0,0,0,0.07)" }}
+        >
+          <button
+            type="button"
+            onClick={onClose}
+            className="relative z-[9999] flex-1 py-2 rounded-lg border text-sm hover:bg-gray-50"
+            style={{ borderColor: "rgba(0,0,0,0.12)", color: "#6b7a99" }}
+          >
             Cancel
           </button>
-          <button
-            onClick={() => onSave({ ...form, age: Number(form.age) || 0, assignedElders: Number(form.assignedElders) || 0 })}
-            className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm text-white hover:opacity-90"
+
+                    <button
+            type="button"
+            onClick={() => {
+              onSave({
+                ...form,
+                age: Number(form.age) || 0,
+                assignedElders: Number(form.assignedElders) || 0,
+              });
+            }}
+            className="relative z-[9999] flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm text-white hover:opacity-90"
             style={{ backgroundColor: "#2563eb" }}
           >
             <Save size={14} /> Save Changes
