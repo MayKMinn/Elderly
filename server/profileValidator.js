@@ -31,6 +31,7 @@ const fieldOrder = [
   "emergencyPhone",
   "elderlyStatus",
   "enrollDate",
+  "avatar",
 ];
 
 let compileAttempted = false;
@@ -81,6 +82,19 @@ function validateElderlyAgeBirthdateMatch(profile, age) {
   return undefined;
 }
 
+function validateHireDate(value) {
+  if (!String(value || "").trim()) return "Hire date is required.";
+
+  const hireDate = new Date(`${value}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (Number.isNaN(hireDate.getTime())) return "Enter a valid hire date.";
+  if (hireDate > today) return "Hire date cannot be in the future.";
+
+  return undefined;
+}
+
 function runProcess(command, args, input = "") {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
@@ -126,11 +140,11 @@ async function ensureCobolValidator() {
 function fallbackValidate(profile) {
   const errors = {};
   const name = String(profile.name || "");
+  const emailPattern = /^[A-Za-z][A-Za-z0-9._%+-]*@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
   const age = Number(profile.age);
 
   if (!name.trim()) errors.name = "Full name is required.";
-  else if (name.trim().length > 10) errors.name = "Full name must be 10 characters or fewer.";
-  else if (name.startsWith(" ")) errors.name = "Full name cannot start with a space.";
+  else if (profile.type === "elderly" && name.startsWith(" ")) errors.name = "Full name cannot start with a space.";
   else if (!/[A-Za-z]/.test(name)) errors.name = "Full name must contain at least one letter.";
 
   if (profile.age === "" || profile.age === undefined) errors.age = "Age is required.";
@@ -153,10 +167,14 @@ function fallbackValidate(profile) {
   }
 
   const email = String(profile.email || "").trim();
-  if (email && email.length > 160) {
+  if (profile.type === "nurse") {
+    if (!email) errors.email = "Email is required.";
+    else if (email.length > 160) errors.email = "Email must be 160 characters or fewer.";
+    else if (!emailPattern.test(email)) errors.email = "Email must include @ and a valid domain.";
+  } else if (email && email.length > 160) {
     errors.email = "Email must be 160 characters or fewer.";
-  } else if (email && !/^[A-Za-z][A-Za-z0-9]*@[A-Za-z]+\.[A-Za-z]{2,}$/.test(email)) {
-    errors.email = "Email must be like name@gmail.com with one @ and one dot.";
+  } else if (email && !emailPattern.test(email)) {
+    errors.email = "Email must include @ and a valid domain.";
   }
 
   if (profile.type === "elderly") {
@@ -204,18 +222,25 @@ function fallbackValidate(profile) {
   } else {
     if (!String(profile.position || "").trim()) errors.position = "Position is required.";
     if (!String(profile.workArea || "").trim()) errors.workArea = "Work area is required.";
-    if (!String(profile.hireDate || "").trim()) errors.hireDate = "Hire date is required.";
+    const hireDateError = validateHireDate(profile.hireDate);
+    if (hireDateError) errors.hireDate = hireDateError;
     if (!String(profile.nurseStatus || "").trim()) errors.nurseStatus = "Nurse status is required.";
-  }
-
-  if (profile.username && String(profile.username).trim().length < 4) {
-    errors.username = "Username must be at least 4 characters.";
-  }
-  if (profile.password && String(profile.password).trim().length < 8) {
-    errors.password = "Password must be at least 8 characters.";
-  }
-  if (profile.password !== profile.confirmPassword) {
-    errors.confirmPassword = "Passwords must match.";
+    const address = String(profile.address || "").trim();
+    if (!address) errors.address = "Address is required.";
+    else if (address.length > 500) errors.address = "Address must be 500 characters or fewer.";
+    const licenseNumber = String(profile.licenseNumber || "").trim();
+    if (!licenseNumber) errors.licenseNumber = "License number is required.";
+    else if (!/^\d+$/.test(licenseNumber)) errors.licenseNumber = "License number must contain numbers only.";
+    const username = String(profile.username || "").trim();
+    if (!username) errors.username = "Username is required.";
+    else if (!/^[A-Za-z]+$/.test(username)) errors.username = "Username must contain letters only.";
+    else if (username.length < 4) errors.username = "Username must be at least 4 characters.";
+    const password = String(profile.password || "").trim();
+    if (!password) errors.password = "Password is required.";
+    else if (password.length < 8) errors.password = "Password must be at least 8 characters.";
+    if (password && profile.confirmPassword && password !== String(profile.confirmPassword)) {
+      errors.confirmPassword = "Passwords must match.";
+    }
   }
 
   return { valid: Object.keys(errors).length === 0, errors };
@@ -237,6 +262,10 @@ function applyEmergencyAddressValidation(profile, validation) {
 }
 
 export async function validateProfileWithCobol(profile) {
+  if (profile.type === "nurse") {
+    return fallbackValidate(profile);
+  }
+
   const input = fieldOrder.map((field) => String(profile[field] ?? "")).join("\n");
 
   if (!(await ensureCobolValidator())) {

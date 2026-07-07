@@ -110,8 +110,8 @@ function SignInScreen({
   const demoText =
     portal === "admin"
       ? {
-          email: "Use admin username or email from MySQL",
-          password: "database password",
+          email: "Try admin or admin@elderease.com",
+          password: "admin123",
         }
       : {
           email: "Use nurse username or email from MySQL",

@@ -8,6 +8,10 @@ export interface AddProfileFormBaseProps {
   onSave: (profile: NewProfilePayload) => Promise<ValidationErrors | void> | ValidationErrors | void;
 }
 
+const emailPattern = /^[A-Za-z][A-Za-z0-9._%+-]*@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
+
+const defaultNurseEmail = "ames.lee@eldercare.com";
+
 const emptyProfile: NewProfilePayload = {
   type: "elderly",
   name: "",
@@ -35,6 +39,8 @@ const emptyProfile: NewProfilePayload = {
   workArea: "",
   hireDate: "",
   nurseStatus: "",
+  licenseNumber: "",
+  shiftSchedule: "",
 };
 
 function getAgeFromBirthdate(value: string) {
@@ -95,6 +101,19 @@ function formatDateInput(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
+function validateHireDate(value: string) {
+  if (!value) return "Hire date is required.";
+
+  const hireDate = new Date(`${value}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (Number.isNaN(hireDate.getTime())) return "Enter a valid hire date.";
+  if (hireDate > today) return "Hire date cannot be in the future.";
+
+  return undefined;
+}
+
 function getElderlyBirthdateLimits() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -114,7 +133,11 @@ function getElderlyBirthdateLimits() {
 export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseProps) {
   const isNurse = type === "nurse";
   const elderlyBirthdateLimits = getElderlyBirthdateLimits();
-  const [form, setForm] = useState<NewProfilePayload>({ ...emptyProfile, type });
+  const [form, setForm] = useState<NewProfilePayload>({
+    ...emptyProfile,
+    type,
+    email: type === "nurse" ? defaultNurseEmail : emptyProfile.email,
+  });
   const [errors, setErrors] = useState<ValidationErrors>({});
   const [saving, setSaving] = useState(false);
 
@@ -123,18 +146,19 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
     value: string,
     currentForm: NewProfilePayload
   ) => {
-    const trimmedValue = value.trim();
+    const valueText = String(value ?? "");
+    const trimmedValue = valueText.trim();
 
     if (field === "name") {
       if (!trimmedValue) return "Full name is required.";
       if (trimmedValue.length > 10) return "Full name must be 10 characters or fewer.";
-      if (value.startsWith(" ")) return "Full name cannot start with a space.";
-      if (value.includes("  ")) return "Full name cannot contain double spaces.";
-      if (!/[A-Za-z]/.test(value)) return "Full name must contain at least one letter.";
+      if (valueText.startsWith(" ")) return "Full name cannot start with a space.";
+      if (valueText.includes("  ")) return "Full name cannot contain double spaces.";
+      if (!/[A-Za-z]/.test(valueText)) return "Full name must contain at least one letter.";
     }
 
     if (field === "age") {
-      const age = Number(value);
+      const age = Number(valueText);
       if (!trimmedValue) return "Age is required.";
       if (!Number.isInteger(age)) return "Age must be a whole number.";
       if (currentForm.type === "nurse" && (age < 18 || age > 80)) {
@@ -153,14 +177,15 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
       if (!/^09-\d{9}$/.test(trimmedValue)) return "Phone must use format 09-#########.";
     }
 
-    if (field === "email" && trimmedValue) {
+    if (field === "email") {
+      if (currentForm.type === "nurse" && !trimmedValue) return "Email is required.";
       if (trimmedValue.length > 160) return "Email must be 160 characters or fewer.";
-      if (!/^[A-Za-z][A-Za-z0-9]*@[A-Za-z]+\.[A-Za-z]{2,}$/.test(trimmedValue)) {
-        return "Email must be like name@gmail.com with one @ and one dot.";
+      if (trimmedValue && !emailPattern.test(trimmedValue)) {
+        return "Email must include @ and a valid domain.";
       }
     }
 
-    if (field === "address" && currentForm.type === "elderly") {
+    if (field === "address") {
       if (!trimmedValue) return "Address is required.";
       if (trimmedValue.length > 500) return "Address must be 500 characters or fewer.";
     }
@@ -189,7 +214,7 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
     if (field === "emergencyName" && currentForm.type === "elderly") {
       if (!trimmedValue) return "Emergency contact name is required.";
       if (trimmedValue.length > 100) return "Emergency contact name must be 100 characters or fewer.";
-      if (!/[A-Za-z]/.test(value)) return "Emergency contact name must contain at least one letter.";
+      if (!/[A-Za-z]/.test(valueText)) return "Emergency contact name must contain at least one letter.";
     }
 
     if (field === "emergencyPhone" && currentForm.type === "elderly") {
@@ -205,16 +230,24 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
     if (currentForm.type === "nurse") {
       if (field === "position" && !trimmedValue) return "Position is required.";
       if (field === "workArea" && !trimmedValue) return "Work area is required.";
-      if (field === "hireDate" && !trimmedValue) return "Hire date is required.";
+      if (field === "hireDate") return validateHireDate(valueText);
       if (field === "nurseStatus" && !trimmedValue) return "Nurse status is required.";
     }
 
-    if (field === "username" && trimmedValue && trimmedValue.length < 4) {
-      return "Username must be at least 4 characters.";
+    if (field === "licenseNumber") {
+      if (!trimmedValue) return "License number is required.";
+      if (!/^\d+$/.test(trimmedValue)) return "License number must contain numbers only.";
     }
 
-    if (field === "password" && trimmedValue && trimmedValue.length < 8) {
-      return "Password must be at least 8 characters.";
+    if (field === "username") {
+      if (!trimmedValue) return "Username is required.";
+      if (!/^[A-Za-z]+$/.test(trimmedValue)) return "Username must contain letters only.";
+      if (trimmedValue.length < 4) return "Username must be at least 4 characters.";
+    }
+
+    if (field === "password") {
+      if (!trimmedValue) return "Password is required.";
+      if (trimmedValue.length < 8) return "Password must be at least 8 characters.";
     }
 
     if (field === "confirmPassword" && currentForm.password !== currentForm.confirmPassword) {
@@ -307,12 +340,10 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
 
           <FormSection title="Basic Information">
             <div className="space-y-4">
-              {!isNurse && (
-                <PhotoField
-                  value={form.avatar}
-                  onChange={(value) => setField("avatar", value)}
-                />
-              )}
+              <PhotoField
+                value={form.avatar}
+                onChange={(value) => setField("avatar", value)}
+              />
               <FormRow2>
                 <FormField
                   label="Full Name *"
@@ -347,13 +378,24 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
                 />
               </FormRow2>
               {isNurse ? (
-                <FormField
-                  label="Email"
-                  placeholder="name@gmail.com"
-                  value={form.email}
-                  error={errors.email}
-                  onChange={(value) => setField("email", value)}
-                />
+                <>
+                  <FormRow2>
+                    <FormField
+                      label="Email *"
+                      placeholder={defaultNurseEmail}
+                      value={form.email}
+                      error={errors.email}
+                      onChange={(value) => setField("email", value)}
+                    />
+                    <FormField
+                      label="Address *"
+                      placeholder="Enter complete address"
+                      value={form.address}
+                      error={errors.address}
+                      onChange={(value) => setField("address", value)}
+                    />
+                  </FormRow2>
+                </>
               ) : (
                 <FormRow2>
                   <FormField
@@ -384,11 +426,11 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
               <>
                 <FormRow2>
                   <FormField
-                    label="License Number"
+                    label="License Number *"
                     placeholder="Enter license number"
-                    value={form.username}
-                    error={errors.username}
-                    onChange={(value) => setField("username", value)}
+                    value={form.licenseNumber}
+                    error={errors.licenseNumber}
+                    onChange={(value) => setField("licenseNumber", value.replace(/\D/g, ""))}
                   />
                   <FormFieldSelect
                     label="Position *"
@@ -410,7 +452,9 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
                   />
                   <FormField
                     label="Hire Date *"
-                    placeholder="MM/DD/YYYY"
+                    placeholder="YYYY-MM-DD"
+                    type="date"
+                    max={formatDateInput(new Date())}
                     value={form.hireDate}
                     error={errors.hireDate}
                     onChange={(value) => setField("hireDate", value)}
@@ -491,14 +535,14 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
             <FormSection title="Account Access">
               <FormRow2>
                 <FormField
-                  label="Username"
+                  label="Username *"
                   placeholder="Enter username"
                   value={form.username}
                   error={errors.username}
-                  onChange={(value) => setField("username", value)}
+                  onChange={(value) => setField("username", value.replace(/[^A-Za-z]/g, ""))}
                 />
                 <FormField
-                  label="Password"
+                  label="Password *"
                   placeholder="Enter password"
                   type="password"
                   value={form.password}
@@ -507,7 +551,7 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
                 />
               </FormRow2>
               <FormField
-                label="Confirm Password"
+                label="Confirm Password *"
                 placeholder="Confirm password"
                 type="password"
                 value={form.confirmPassword}
@@ -657,15 +701,20 @@ function PhotoField({
           }}
         />
         <label
+          htmlFor="profile-photo-input"
           className="absolute bottom-0 right-0 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-2 bg-white shadow-md transition-colors hover:bg-blue-50"
           style={{ borderColor: "#fff", color: "#2563eb" }}
         >
           <ImagePlus size={16} />
           <input
+            id="profile-photo-input"
             type="file"
             accept="image/*"
             className="hidden"
-            onChange={(event) => handleUpload(event.target.files?.[0])}
+            onChange={(event) => {
+              handleUpload(event.target.files?.[0]);
+              event.currentTarget.value = "";
+            }}
           />
         </label>
       </div>
