@@ -10,6 +10,9 @@ export type SchedulePayload = {
   scheduleStatus: string;
   recurringGroupId?: string | null;
   recurringSequence?: number | null;
+  recurrenceIntervalDays?: number;
+  slotLockDate?: string;
+  slotLockHour?: string;
 };
 
 export type ScheduleAssignment = SchedulePayload & {

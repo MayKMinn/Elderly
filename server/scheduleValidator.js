@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -9,8 +9,19 @@ const cobolBinary = path.join(__dirname, "cobol", process.platform === "win32" ?
 const openCobolIdeRoot = "C:\\Program Files (x86)\\OpenCobolIDE\\GnuCOBOL";
 const openCobolIdeCompiler = "C:\\Program Files (x86)\\OpenCobolIDE\\GnuCOBOL\\bin\\cobc.exe";
 
-const fieldOrder = ["nurseId", "elderlyId", "visitDate", "visitTime", "purpose", "scheduleStatus", "allowPastDateTime"];
-const allowedPurposes = ["Vitals Check", "Medication Check", "Emergency Follow-up", "Routine Visit"];
+const fieldOrder = [
+  "nurseId",
+  "elderlyId",
+  "visitDate",
+  "visitTime",
+  "purpose",
+  "scheduleStatus",
+  "allowPastDateTime",
+  "slotLockDate",
+  "slotLockHour",
+  "recurrenceIntervalDays",
+];
+const allowedPurposes = ["Blood Pressure", "Blood Glucose", "Medication", "Routine Visit"];
 const allowedStatuses = ["scheduled", "completed", "missed", "cancelled"];
 
 let compileAttempted = false;
@@ -53,7 +64,13 @@ function runProcess(command, args, input = "") {
 }
 
 async function ensureCobolValidator() {
-  if (existsSync(cobolBinary)) return true;
+  if (existsSync(cobolBinary)) {
+    try {
+      if (statSync(cobolBinary).mtimeMs >= statSync(cobolSource).mtimeMs) return true;
+    } catch {
+      return true;
+    }
+  }
   if (compileAttempted) return false;
 
   compileAttempted = true;
@@ -126,6 +143,24 @@ function fallbackValidate(schedule) {
   }
   if (!allowedStatuses.includes(status)) {
     errors.scheduleStatus = "Select a valid schedule status.";
+  }
+  const slotLockDate = String(schedule.slotLockDate || "").trim();
+  const slotLockHour = String(schedule.slotLockHour || "").trim();
+  if (slotLockDate || slotLockHour) {
+    const visitHour = String(schedule.visitTime || "").slice(0, 2);
+    if (!slotLockDate || !isValidDate(slotLockDate)) {
+      errors.visitDate = "Selected calendar slot is invalid.";
+    } else if (slotLockDate !== String(schedule.visitDate || "").trim()) {
+      errors.visitDate = "Schedule must stay within the selected calendar slot.";
+    } else if (!/^\d{2}$/.test(slotLockHour) || Number(slotLockHour) > 23) {
+      errors.visitTime = "Selected calendar slot is invalid.";
+    } else if (visitHour !== slotLockHour) {
+      errors.visitTime = "Schedule must stay within the selected calendar time slot.";
+    }
+  }
+  const recurrenceIntervalDays = String(schedule.recurrenceIntervalDays || "").trim();
+  if (recurrenceIntervalDays && !["1", "7"].includes(recurrenceIntervalDays)) {
+    errors.recurrenceIntervalDays = "Recurring schedule must repeat daily or weekly.";
   }
 
   return { valid: Object.keys(errors).length === 0, errors };

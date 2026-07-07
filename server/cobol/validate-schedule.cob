@@ -10,6 +10,9 @@ working-storage section.
 01 visit-purpose     pic x(80).
 01 schedule-status   pic x(40).
 01 allow-past        pic x(10).
+01 slot-lock-date    pic x(40).
+01 slot-lock-hour    pic x(2).
+01 recurrence-days   pic x(10).
 01 hour-text         pic x(2).
 01 minute-text       pic x(2).
 01 hour-number       pic 99.
@@ -35,12 +38,17 @@ main-procedure.
     accept visit-purpose
     accept schedule-status
     accept allow-past
+    accept slot-lock-date
+    accept slot-lock-hour
+    accept recurrence-days
 
     perform validate-nurse-id
     perform validate-elderly-id
     perform validate-visit-date
     perform validate-visit-time
     perform validate-future-date-time
+    perform validate-slot-lock
+    perform validate-recurrence-days
     perform validate-purpose
     perform validate-schedule-status
 
@@ -190,9 +198,9 @@ validate-future-date-time.
 
 validate-purpose.
     if valid-flag = "Y"
-        if function trim(visit-purpose) not = "Vitals Check"
-            and function trim(visit-purpose) not = "Medication Check"
-            and function trim(visit-purpose) not = "Emergency Follow-up"
+        if function trim(visit-purpose) not = "Blood Pressure"
+            and function trim(visit-purpose) not = "Blood Glucose"
+            and function trim(visit-purpose) not = "Medication"
             and function trim(visit-purpose) not = "Routine Visit"
             move "N" to valid-flag
             move "purpose" to error-field
@@ -209,5 +217,46 @@ validate-schedule-status.
             move "N" to valid-flag
             move "scheduleStatus" to error-field
             move "Select a valid schedule status." to error-message
+        end-if
+    end-if.
+
+validate-slot-lock.
+    if valid-flag = "Y"
+        if function trim(slot-lock-date) not = spaces
+            if function trim(slot-lock-date) not = function trim(visit-date)
+                move "N" to valid-flag
+                move "visitDate" to error-field
+                move "Schedule must stay within the selected calendar slot." to error-message
+            else
+                if function trim(slot-lock-hour) = spaces
+                    move "N" to valid-flag
+                    move "visitTime" to error-field
+                    move "Selected calendar slot is invalid." to error-message
+                else
+                    if slot-lock-hour is not numeric
+                        move "N" to valid-flag
+                        move "visitTime" to error-field
+                        move "Selected calendar slot is invalid." to error-message
+                    else
+                        if function trim(slot-lock-hour) not = function trim(hour-text)
+                            move "N" to valid-flag
+                            move "visitTime" to error-field
+                            move "Schedule must stay within the selected calendar time slot." to error-message
+                        end-if
+                    end-if
+                end-if
+            end-if
+        end-if
+    end-if.
+
+validate-recurrence-days.
+    if valid-flag = "Y"
+        if function trim(recurrence-days) not = spaces
+            if function trim(recurrence-days) not = "1"
+                and function trim(recurrence-days) not = "7"
+                move "N" to valid-flag
+                move "recurrenceIntervalDays" to error-field
+                move "Recurring schedule must repeat daily or weekly." to error-message
+            end-if
         end-if
     end-if.

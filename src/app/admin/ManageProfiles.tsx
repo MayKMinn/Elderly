@@ -56,6 +56,8 @@ type Modal =
   | { type: "addForm"; formType: "elderly" | "nurse" }
   | null;
 
+const PROFILE_NAME_MAX_LENGTH = 100;
+
 function validateElderlyBirthdate(value: string) {
   if (!value) return undefined;
 
@@ -84,7 +86,9 @@ function validateElderlyProfile(profile: ElderlyProfile): ValidationErrors {
   const age = Number(profile.age);
 
   if (!name.trim()) errors.name = "Full name is required.";
-  else if (name.trim().length > 10) errors.name = "Full name must be 10 characters or fewer.";
+  else if (name.trim().length > PROFILE_NAME_MAX_LENGTH) {
+    errors.name = `Full name must be ${PROFILE_NAME_MAX_LENGTH} characters or fewer.`;
+  }
   else if (name.startsWith(" ")) errors.name = "Full name cannot start with a space.";
   else if (name.includes("  ")) errors.name = "Full name cannot contain double spaces.";
   else if (!/[A-Za-z]/.test(name)) errors.name = "Full name must contain at least one letter.";
@@ -355,7 +359,9 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
     const age = Number(profile.age);
 
     if (!name.trim()) errors.name = "Full name is required.";
-    else if (name.trim().length > 10) errors.name = "Full name must be 10 characters or fewer.";
+    else if (name.trim().length > PROFILE_NAME_MAX_LENGTH) {
+      errors.name = `Full name must be ${PROFILE_NAME_MAX_LENGTH} characters or fewer.`;
+    }
     else if (name.startsWith(" ")) errors.name = "Full name cannot start with a space.";
     else if (name.includes("  ")) errors.name = "Full name cannot contain double spaces.";
     else if (!/[A-Za-z]/.test(name)) errors.name = "Full name must contain at least one letter.";
@@ -472,7 +478,7 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
         setSuccessMessage("Elderly profile added successfully.");
       } else {
         const created: NurseProfile = {
-          id: `NRS-${String(nurseList.length + 1).padStart(4, "0")}`,
+          id: String(nurseList.length + 1),
           name: profile.name.trim(),
           age: Number(profile.age),
           gender: profile.gender,
