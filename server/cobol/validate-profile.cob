@@ -26,6 +26,7 @@
        01  EMERGENCY-PHONE    PIC X(40).
        01  ELDERLY-STATUS     PIC X(20).
        01  ENROLL-DATE        PIC X(80).
+       01  AVATAR-TEXT        PIC X(2000).
        01  AGE-NUMBER         PIC 9(3) VALUE 0.
        01  BIRTH-YEAR         PIC 9(4) VALUE 0.
        01  BIRTH-MONTH        PIC 9(2) VALUE 0.
@@ -74,6 +75,7 @@
            ACCEPT EMERGENCY-PHONE.
            ACCEPT ELDERLY-STATUS.
            ACCEPT ENROLL-DATE.
+           ACCEPT AVATAR-TEXT.
 
            MOVE '{"valid":false,"errors":{' TO OUTPUT-JSON.
 

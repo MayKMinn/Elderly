@@ -379,16 +379,25 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
     else if (!/^09-\d{9}$/.test(profile.phone.trim())) {
       errors.phone = "Phone must use format 09-#########.";
     }
-    if (
+    if (profile.type === "nurse") {
+      if (!profile.email.trim()) errors.email = "Email is required.";
+      else if (!/^[A-Za-z][A-Za-z0-9._%+-]*@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(profile.email.trim())) {
+        errors.email = "Email must include @ and a valid domain.";
+      }
+    } else if (
       profile.email.trim() &&
-      !/^[A-Za-z][A-Za-z0-9]*@[A-Za-z]+\.[A-Za-z]{2,}$/.test(profile.email.trim())
+      !/^[A-Za-z][A-Za-z0-9._%+-]*@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(profile.email.trim())
     ) {
-      errors.email = "Email must be like name@gmail.com with one @ and one dot.";
+      errors.email = "Email must include @ and a valid domain.";
+    }
+
+    if (profile.address.trim()) {
+      if (profile.address.trim().length > 500) errors.address = "Address must be 500 characters or fewer.";
+    } else if (profile.type === "elderly" || profile.type === "nurse") {
+      errors.address = "Address is required.";
     }
 
     if (profile.type === "elderly") {
-      if (!profile.address.trim()) errors.address = "Address is required.";
-      if (profile.address.trim().length > 500) errors.address = "Address must be 500 characters or fewer.";
       const birthdateError = validateElderlyBirthdate(profile.birthdate);
       if (birthdateError) errors.birthdate = birthdateError;
       if (!profile.medicalCondition.trim()) errors.medicalCondition = "Medical conditions are required.";
@@ -423,14 +432,13 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
       if (!profile.nurseStatus) errors.nurseStatus = "Nurse status is required.";
     }
 
-    if (profile.username.trim() && profile.username.trim().length < 4) {
-      errors.username = "Username must be at least 4 characters.";
-    }
-    if (profile.password.trim() && profile.password.trim().length < 8) {
-      errors.password = "Password must be at least 8 characters.";
-    }
-    if (profile.password !== profile.confirmPassword) {
-      errors.confirmPassword = "Passwords must match.";
+    if (profile.type === "nurse") {
+      if (!profile.username.trim()) errors.username = "Username is required.";
+      else if (!/^[A-Za-z]+$/.test(profile.username.trim())) errors.username = "Username must contain letters only.";
+      else if (profile.username.trim().length < 4) errors.username = "Username must be at least 4 characters.";
+      if (!profile.password.trim()) errors.password = "Password is required.";
+      else if (profile.password.trim().length < 8) errors.password = "Password must be at least 8 characters.";
+      if (profile.password !== profile.confirmPassword) errors.confirmPassword = "Passwords must match.";
     }
 
     return errors;
@@ -484,10 +492,11 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
           gender: profile.gender,
           phone: profile.phone,
           email: profile.email,
+          address: profile.address,
           position: profile.position,
           hireDate: profile.hireDate,
           status: profile.nurseStatus === "On Leave" ? "On Leave" : "Active",
-          avatar: "https://i.pravatar.cc/40?img=49",
+          avatar: profile.avatar || "https://i.pravatar.cc/40?img=49",
           assignedElders: 0,
           workArea: profile.workArea,
           nurseStatus: profile.nurseStatus,
@@ -1048,6 +1057,7 @@ function NurseSideProfile({
         <SideSection title="Contact Information">
           <SideRow label="Phone" value={profile.phone} />
           <SideRow label="Email" value={profile.email} />
+          <SideRow label="Address" value={profile.address} />
         </SideSection>
 
         <SideSection title="Professional Information">
@@ -1189,6 +1199,7 @@ function NurseViewModal({ profile, onClose }: { profile: NurseProfile; onClose: 
           <ModalSection title="Contact Information">
             <ModalRow label="Phone" value={profile.phone} />
             <ModalRow label="Email" value={profile.email} />
+            <ModalRow label="Address" value={profile.address} />
           </ModalSection>
           <ModalSection title="Professional Information">
             <ModalRow label="Position" value={profile.position} />
@@ -1360,6 +1371,7 @@ function NurseEditPanel({
 
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
           <EditSection title="Personal Information">
+            <EditPhotoField value={form.avatar} onChange={(v) => update("avatar", v)} />
             <EditRow2>
               <EditField label="Full Name" value={form.name} onChange={(v) => update("name", v)} />
               <EditField label="Age" value={String(form.age)} onChange={(v) => update("age" as any, v)} />
@@ -1373,6 +1385,7 @@ function NurseEditPanel({
           <EditSection title="Contact Information">
             <EditField label="Phone" value={form.phone} onChange={(v) => update("phone", v)} />
             <EditField label="Email" value={form.email} onChange={(v) => update("email", v)} />
+            <EditField label="Address" value={form.address} onChange={(v) => update("address", v)} />
           </EditSection>
 
           <EditSection title="Professional Information">
@@ -1388,13 +1401,29 @@ function NurseEditPanel({
           </EditSection>
         </div>
 
-        <div className="flex gap-2 p-4 border-t flex-shrink-0" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
-          <button onClick={onClose} className="flex-1 py-2 rounded-lg border text-sm hover:bg-gray-50" style={{ borderColor: "rgba(0,0,0,0.12)", color: "#6b7a99" }}>
+        <div
+          className="relative z-[9999] flex gap-2 p-4 border-t flex-shrink-0"
+          style={{ borderColor: "rgba(0,0,0,0.07)" }}
+        >
+          <button
+            type="button"
+            onClick={onClose}
+            className="relative z-[9999] flex-1 py-2 rounded-lg border text-sm hover:bg-gray-50"
+            style={{ borderColor: "rgba(0,0,0,0.12)", color: "#6b7a99" }}
+          >
             Cancel
           </button>
-          <button
-            onClick={() => onSave({ ...form, age: Number(form.age) || 0, assignedElders: Number(form.assignedElders) || 0 })}
-            className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm text-white hover:opacity-90"
+
+                    <button
+            type="button"
+            onClick={() => {
+              onSave({
+                ...form,
+                age: Number(form.age) || 0,
+                assignedElders: Number(form.assignedElders) || 0,
+              });
+            }}
+            className="relative z-[9999] flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm text-white hover:opacity-90"
             style={{ backgroundColor: "#2563eb" }}
           >
             <Save size={14} /> Save Changes

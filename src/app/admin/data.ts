@@ -27,6 +27,7 @@ export type NurseProfile = {
   gender: string;
   phone: string;
   email: string;
+  address: string;
   position: string;
   hireDate: string;
   status: "Active" | "On Leave";

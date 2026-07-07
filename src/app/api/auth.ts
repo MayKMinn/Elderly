@@ -72,3 +72,17 @@ export function signOutAdmin(loginHistoryId: number | undefined, username: strin
     body: JSON.stringify({ loginHistoryId, username }),
   });
 }
+
+export function signInNurse(login: string, password: string) {
+  return request<{
+    role: "nurse";
+    id: number;
+    username: string;
+    name: string;
+    email: string;
+    status: string;
+  }>("/api/auth/nurse-login", {
+    method: "POST",
+    body: JSON.stringify({ login, password }),
+  });
+}
