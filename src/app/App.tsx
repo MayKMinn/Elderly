@@ -3,19 +3,30 @@ import type { FormEvent } from "react";
 import { AlertCircle, Eye, EyeOff, Heart, LogIn } from "lucide-react";
 import { AdminPortal } from "./admin/AdminPortal";
 import { NursePortal } from "./nurse/NursePortal";
-import { signInAdmin, signOutAdmin } from "./api/auth";
+import { signInAdmin, signInNurse, signOutAdmin } from "./api/auth";
 
 type Portal = "admin" | "nurse";
 
 type Session =
-  | { role: "admin"; id?: number; name: string; username?: string; email?: string | null; avatar?: string; signedInAt?: string; loginHistoryId?: number }
-  | { role: "nurse"; name: string }
+  | {
+      role: "admin";
+      id?: number;
+      name: string;
+      username?: string;
+      email?: string | null;
+      avatar?: string;
+      signedInAt?: string;
+      loginHistoryId?: number;
+    }
+  | {
+      role: "nurse";
+      id?: number;
+      name: string;
+      username?: string;
+      email?: string;
+      status?: string;
+    }
   | null;
-
-const demoNurses = [
-  { name: "Patricia Chen", email: "patricia@elderease.com", password: "nurse123" },
-  { name: "Thomas Wright", email: "thomas@elderease.com", password: "nurse123" },
-];
 
 const sessionStorageKey = "elderease.session";
 
@@ -25,6 +36,7 @@ function readSavedSession(): Session {
     if (!saved) return null;
 
     const parsed = JSON.parse(saved) as Session;
+
     if (parsed?.role === "admin" || parsed?.role === "nurse") {
       return parsed;
     }
@@ -80,7 +92,11 @@ export default function App() {
   return <NursePortal nurseName={session.name} onSignOut={handleSignOut} />;
 }
 
-function SignInScreen({ onSignIn }: { onSignIn: (session: Exclude<Session, null>) => void }) {
+function SignInScreen({
+  onSignIn,
+}: {
+  onSignIn: (session: Exclude<Session, null>) => void;
+}) {
   const [portal, setPortal] = useState<Portal>("admin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -93,8 +109,14 @@ function SignInScreen({ onSignIn }: { onSignIn: (session: Exclude<Session, null>
 
   const demoText =
     portal === "admin"
-      ? { email: "Use admin username or email from MySQL", password: "database password" }
-      : { email: "patricia@elderease.com", password: "nurse123" };
+      ? {
+          email: "Use admin username or email from MySQL",
+          password: "database password",
+        }
+      : {
+          email: "Use nurse username or email from MySQL",
+          password: "database password",
+        };
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -104,6 +126,7 @@ function SignInScreen({ onSignIn }: { onSignIn: (session: Exclude<Session, null>
     try {
       if (portal === "admin") {
         const admin = await signInAdmin(email, password);
+
         onSignIn({
           role: "admin",
           id: admin.id,
@@ -114,19 +137,20 @@ function SignInScreen({ onSignIn }: { onSignIn: (session: Exclude<Session, null>
           signedInAt: new Date().toISOString(),
           loginHistoryId: admin.loginHistoryId,
         });
+
         return;
       }
 
-      const nurse = demoNurses.find(
-        (item) => item.email.toLowerCase() === email.toLowerCase() && item.password === password
-      );
+      const nurse = await signInNurse(email, password);
 
-      if (!nurse) {
-        setError("Incorrect nurse email or password.");
-        return;
-      }
-
-      onSignIn({ role: "nurse", name: nurse.name });
+      onSignIn({
+        role: "nurse",
+        id: nurse.id,
+        name: nurse.name,
+        username: nurse.username,
+        email: nurse.email,
+        status: nurse.status,
+      });
     } catch (err) {
       if (err instanceof Error) {
         try {
@@ -162,8 +186,17 @@ function SignInScreen({ onSignIn }: { onSignIn: (session: Exclude<Session, null>
           <div className="w-16 h-16 rounded-2xl bg-primary flex items-center justify-center mx-auto mb-4 shadow-lg shadow-primary/30">
             <Heart size={28} className="text-primary-foreground" />
           </div>
-          <h1 className="text-3xl font-bold text-foreground" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>ElderEase</h1>
-          <p className="text-muted-foreground mt-1 text-sm">Care Management System</p>
+
+          <h1
+            className="text-3xl font-bold text-foreground"
+            style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}
+          >
+            ElderEase
+          </h1>
+
+          <p className="text-muted-foreground mt-1 text-sm">
+            Care Management System
+          </p>
         </div>
 
         <div className="bg-card border border-border rounded-2xl shadow-xl overflow-hidden">
@@ -171,6 +204,7 @@ function SignInScreen({ onSignIn }: { onSignIn: (session: Exclude<Session, null>
             {(["admin", "nurse"] as Portal[]).map((item) => (
               <button
                 key={item}
+                type="button"
                 onClick={() => switchPortal(item)}
                 className="rounded-xl py-3 text-sm font-semibold capitalize transition-all"
                 style={{
@@ -191,26 +225,36 @@ function SignInScreen({ onSignIn }: { onSignIn: (session: Exclude<Session, null>
           <div className="p-6">
             {error && (
               <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 mb-4">
-                <AlertCircle size={14} className="flex-shrink-0" />{error}
+                <AlertCircle size={14} className="flex-shrink-0" />
+                {error}
               </div>
             )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-semibold text-foreground mb-1.5">
-                  {portal === "admin" ? "Username or Email" : "Email Address"}
+                  Username or Email
                 </label>
+
                 <input
-                  type={portal === "admin" ? "text" : "email"}
+                  type="text"
                   className={inputCls}
-                  placeholder={portal === "admin" ? "admin username or email" : "you@elderease.com"}
+                  placeholder={
+                    portal === "admin"
+                      ? "admin username or email"
+                      : "nurse username or email"
+                  }
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
                 />
               </div>
+
               <div>
-                <label className="block text-sm font-semibold text-foreground mb-1.5">Password</label>
+                <label className="block text-sm font-semibold text-foreground mb-1.5">
+                  Password
+                </label>
+
                 <div className="relative">
                   <input
                     type={showPassword ? "text" : "password"}
@@ -220,6 +264,7 @@ function SignInScreen({ onSignIn }: { onSignIn: (session: Exclude<Session, null>
                     onChange={(e) => setPassword(e.target.value)}
                     required
                   />
+
                   <button
                     type="button"
                     onClick={() => setShowPassword((value) => !value)}
@@ -230,15 +275,25 @@ function SignInScreen({ onSignIn }: { onSignIn: (session: Exclude<Session, null>
                   </button>
                 </div>
               </div>
+
               <button
                 type="submit"
                 disabled={loading}
                 className="w-full bg-primary text-primary-foreground py-3 rounded-xl font-semibold hover:opacity-90 transition-opacity flex items-center justify-center gap-2 mt-2 disabled:opacity-70"
               >
-                <LogIn size={16} /> {loading ? "Signing In..." : "Sign In"}
+                <LogIn size={16} />
+                {loading ? "Signing In..." : "Sign In"}
               </button>
+
               <p className="text-xs text-center text-muted-foreground pt-1">
-                Demo: <span className="font-mono text-foreground">{demoText.email}</span> / <span className="font-mono text-foreground">{demoText.password}</span>
+                Demo:{" "}
+                <span className="font-mono text-foreground">
+                  {demoText.email}
+                </span>{" "}
+                /{" "}
+                <span className="font-mono text-foreground">
+                  {demoText.password}
+                </span>
               </p>
             </form>
           </div>

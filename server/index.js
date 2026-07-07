@@ -115,7 +115,7 @@ const nurseColumns = `
     WHEN 'resigned' THEN 'Resigned'
     ELSE 'Active'
   END AS status,
-  'https://i.pravatar.cc/40?img=49' AS avatar,
+  COALESCE(NULLIF(avatar, ''), 'https://i.pravatar.cc/40?img=49') AS avatar,
   0 AS assignedElders,
   CASE nurse_status
     WHEN 'active' THEN 'Active'
@@ -321,6 +321,58 @@ app.post("/api/auth/admin-login", async (req, res) => {
   } catch (error) {
     res.status(500).json({
       error: "Failed to sign in admin.",
+      details: error.message,
+    });
+  }
+});
+
+app.post("/api/auth/nurse-login", async (req, res) => {
+  const login = String(req.body.login || "").trim();
+  const password = String(req.body.password || "");
+
+  if (!login || !password) {
+    res.status(400).json({ error: "Username/email and password are required." });
+    return;
+  }
+
+  try {
+    const [rows] = await pool.query(
+      `SELECT
+         nurse_id,
+         name,
+         email,
+         username,
+         nurse_status
+       FROM nurse
+       WHERE (username = :login OR email = :login)
+         AND password = :password
+       LIMIT 1`,
+      { login, password }
+    );
+
+    const nurse = rows[0];
+
+    if (!nurse) {
+      res.status(401).json({ error: "Incorrect nurse username/email or password." });
+      return;
+    }
+
+    if (nurse.nurse_status && nurse.nurse_status !== "active") {
+      res.status(403).json({ error: "This nurse account is not active." });
+      return;
+    }
+
+    res.json({
+      role: "nurse",
+      id: nurse.nurse_id,
+      username: nurse.username,
+      name: nurse.name,
+      email: nurse.email,
+      status: nurse.nurse_status,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "Failed to sign in nurse.",
       details: error.message,
     });
   }
@@ -761,6 +813,7 @@ app.post("/api/nurses", async (req, res) => {
       username: String(profile.username || "").trim(),
       password: String(profile.password || "").trim(),
       address: String(profile.address || "").trim(),
+      avatar: String(profile.avatar || "").trim(),
       hireDate: normalizeHireDate(profile.hireDate || profile.hire_date),
       nurseStatus: toDbNurseStatus(profile.nurseStatus || profile.status),
     };
@@ -794,6 +847,7 @@ app.post("/api/nurses", async (req, res) => {
         :username,
         :password,
         :address,
+        :avatar,
         :hireDate,
         :nurseStatus
       )`,
@@ -839,6 +893,7 @@ app.put("/api/nurses/:id", async (req, res) => {
       username: String(profile.username || "").trim(),
       password: String(profile.password || "").trim(),
       address: String(profile.address || "").trim(),
+      avatar: String(profile.avatar || "").trim(),
       hireDate: normalizeHireDate(profile.hireDate || profile.hire_date),
       nurseStatus: toDbNurseStatus(profile.nurseStatus || profile.status),
     };
@@ -857,6 +912,7 @@ app.put("/api/nurses/:id", async (req, res) => {
            username = :username,
            password = :password,
            address = :address,
+           avatar = :avatar,
            hire_date = :hireDate,
            nurse_status = :nurseStatus
        WHERE nurse_id = :nurseId`,
