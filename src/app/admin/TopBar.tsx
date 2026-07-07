@@ -48,7 +48,9 @@ export function TopBar({ title, subtitle, adminName, adminProfile, signedInAt, o
   const [medicationNotifications, setMedicationNotifications] = useState<MedicationAssignment[]>([]);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const notificationsRef = useRef<HTMLDivElement | null>(null);
-  const avatarSrc = profile?.avatar || adminProfile?.avatar || "https://i.pravatar.cc/80?img=33";
+  const avatarSrc = profile
+    ? profile.avatar || "https://i.pravatar.cc/80?img=33"
+    : adminProfile?.avatar || "https://i.pravatar.cc/80?img=33";
   const profileUsername = profile?.username || adminProfile?.username || adminName;
   const pendingMedicationCount = medicationNotifications.filter((item) =>
     item.complianceStatus === "Pending" || item.complianceStatus === "Due Soon"
@@ -275,7 +277,7 @@ export function TopBar({ title, subtitle, adminName, adminProfile, signedInAt, o
                   <button
                     type="button"
                     onClick={() => saveAvatar("")}
-                    disabled={photoSaving || !profile?.avatar}
+                    disabled={photoSaving || !(profile?.avatar || adminProfile?.avatar)}
                     className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
                     style={{ color: "#dc2626" }}
                   >

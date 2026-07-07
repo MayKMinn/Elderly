@@ -22,6 +22,7 @@ export type ElderlyProfile = {
 
 export type NurseProfile = {
   id: string;
+  nurseId?: string | number;
   name: string;
   age: number;
   gender: string;

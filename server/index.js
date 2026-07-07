@@ -114,6 +114,45 @@ async function ensureNurseColumns() {
   }
 }
 
+async function ensureScheduleColumns() {
+  await pool.query(
+    "ALTER TABLE `schedule` MODIFY COLUMN purpose ENUM('Blood Pressure', 'Blood Glucose', 'Medication', 'Routine Visit', 'Vitals Check', 'Medication Check', 'Emergency Follow-up') NOT NULL"
+  );
+
+  try {
+    await pool.query("ALTER TABLE `schedule` ADD COLUMN recurring_group_id VARCHAR(40) NULL");
+  } catch (error) {
+    if (error.code !== "ER_DUP_FIELDNAME") throw error;
+  }
+
+  try {
+    await pool.query("ALTER TABLE `schedule` ADD COLUMN recurring_sequence INT NULL");
+  } catch (error) {
+    if (error.code !== "ER_DUP_FIELDNAME") throw error;
+  }
+
+  try {
+    await pool.query("ALTER TABLE `schedule` ADD INDEX idx_schedule_recurring_group_id (recurring_group_id)");
+  } catch (error) {
+    if (error.code !== "ER_DUP_KEYNAME") throw error;
+  }
+}
+
+async function ensureNurseElderlyAssignmentsTable() {
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS nurse_elderly_assignments (
+      assignment_id INT AUTO_INCREMENT PRIMARY KEY,
+      nurse_id INT NOT NULL,
+      elderly_id INT NOT NULL,
+      assigned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      status ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+      UNIQUE KEY unique_nurse_elderly_assignment (nurse_id, elderly_id),
+      INDEX idx_assignment_nurse_id (nurse_id),
+      INDEX idx_assignment_elderly_id (elderly_id)
+    )`
+  );
+}
+
 const elderlyColumns = `
   elderly_id AS id,
   name,
@@ -127,7 +166,7 @@ const elderlyColumns = `
     WHEN 'active' THEN 'Active'
     ELSE 'Inactive'
   END AS status,
-  COALESCE(NULLIF(avatar, ''), 'https://i.pravatar.cc/40') AS avatar,
+  COALESCE(avatar, '') AS avatar,
   DATE_FORMAT(birthdate, '%Y-%m-%d') AS dob,
   address,
   blood_type AS bloodType,
@@ -161,7 +200,12 @@ const nurseColumns = `
     ELSE 'Active'
   END AS status,
   COALESCE(NULLIF(avatar, ''), 'https://i.pravatar.cc/40?img=49') AS avatar,
-  0 AS assignedElders,
+  (
+    SELECT COUNT(*)
+    FROM nurse_elderly_assignments nea
+    WHERE nea.nurse_id = nurse.nurse_id
+      AND nea.status = 'active'
+  ) AS assignedElders,
   CASE nurse_status
     WHEN 'active' THEN 'Active'
     WHEN 'suspended' THEN 'Suspended'
@@ -270,6 +314,22 @@ function normalizeScheduleDate(value) {
   return String(value || "").trim().replace(/[\/\u2010-\u2015\u2212]/g, "-");
 }
 
+function normalizeSchedulePurpose(value) {
+  const text = String(value || "").trim();
+  const normalized = text.toLowerCase();
+  const legacyPurposeMap = {
+    "vitals check": "Blood Pressure",
+    "blood pressure check": "Blood Pressure",
+    "glucose check": "Blood Glucose",
+    "blood sugar": "Blood Glucose",
+    "medication check": "Medication",
+    "medicine check": "Medication",
+    "emergency follow-up": "Routine Visit",
+  };
+
+  return legacyPurposeMap[normalized] || text;
+}
+
 function addDaysToDateKey(dateKey, daysToAdd) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
   if (!match) return dateKey;
@@ -360,8 +420,9 @@ app.post("/api/schedules", async (req, res) => {
   const payload = req.body;
   const visitDate = normalizeScheduleDate(payload.visitDate);
   const visitTime = String(payload.visitTime || "").trim();
+  const purpose = normalizeSchedulePurpose(payload.purpose);
   const allowedStatuses = ["scheduled", "completed", "missed", "cancelled"];
-  const errors = validateSchedulePayload(payload, visitDate, visitTime);
+  const errors = validateSchedulePayload({ ...payload, purpose }, visitDate, visitTime);
 
   if (Object.keys(errors).length > 0) {
     res.status(422).json({ valid: false, errors });
@@ -373,10 +434,11 @@ app.post("/api/schedules", async (req, res) => {
     elderlyId: payload.elderlyId,
     visitDate,
     visitTime,
-    purpose: payload.purpose,
+    purpose,
     scheduleStatus: payload.scheduleStatus || "scheduled",
     slotLockDate: normalizeScheduleDate(payload.slotLockDate),
     slotLockHour: String(payload.slotLockHour || "").trim(),
+    recurrenceIntervalDays: payload.recurrenceIntervalDays,
   });
 
   if (!validation.valid) {
@@ -389,7 +451,7 @@ app.post("/api/schedules", async (req, res) => {
     elderlyId: String(payload.elderlyId).trim(),
     visitTime: `${visitDate} ${visitTime.length === 5 ? `${visitTime}:00` : visitTime}`,
     visitDate: `${visitDate} 00:00:00`,
-    purpose: String(payload.purpose).trim(),
+    purpose,
     scheduleStatus: allowedStatuses.includes(String(payload.scheduleStatus || "").toLowerCase())
       ? String(payload.scheduleStatus).toLowerCase()
       : "scheduled",
@@ -444,8 +506,9 @@ app.put("/api/schedules/:id", async (req, res) => {
   const stopRecurring = req.query.stopRecurring === "true";
   const visitDate = normalizeScheduleDate(payload.visitDate);
   const visitTime = String(payload.visitTime || "").trim();
+  const purpose = normalizeSchedulePurpose(payload.purpose);
   const allowedStatuses = ["scheduled", "completed", "missed", "cancelled"];
-  const errors = validateSchedulePayload(payload, visitDate, visitTime);
+  const errors = validateSchedulePayload({ ...payload, purpose }, visitDate, visitTime);
 
   if (!Number.isInteger(id) || id <= 0) {
     res.status(400).json({ error: "Invalid schedule id." });
@@ -471,9 +534,10 @@ app.put("/api/schedules/:id", async (req, res) => {
       elderlyId: payload.elderlyId,
       visitDate,
       visitTime,
-      purpose: payload.purpose,
+      purpose,
       scheduleStatus: payload.scheduleStatus || "scheduled",
       allowPastDateTime: dateTimeUnchanged ? "Y" : "N",
+      recurrenceIntervalDays: payload.recurrenceIntervalDays,
     });
 
     if (!validation.valid) {
@@ -487,7 +551,7 @@ app.put("/api/schedules/:id", async (req, res) => {
       elderlyId: String(payload.elderlyId).trim(),
       visitTime: `${visitDate} ${visitTime.length === 5 ? `${visitTime}:00` : visitTime}`,
       visitDate: `${visitDate} 00:00:00`,
-      purpose: String(payload.purpose).trim(),
+      purpose,
       scheduleStatus: allowedStatuses.includes(String(payload.scheduleStatus || "").toLowerCase())
         ? String(payload.scheduleStatus).toLowerCase()
         : "scheduled",
@@ -703,6 +767,7 @@ app.get("/api/profiles", async (_req, res) => {
     );
 
     let nurses = [];
+    let nurseElderlyAssignments = [];
 
     try {
       const [nurseRows] = await pool.query(
@@ -714,10 +779,118 @@ app.get("/api/profiles", async (_req, res) => {
       console.warn("nurse table not found. Returning elderly profiles only.");
     }
 
-    res.json({ elderly, nurses });
+    try {
+      const [assignmentRows] = await pool.query(
+        `SELECT
+           nurse_id AS nurseId,
+           elderly_id AS elderlyId
+         FROM nurse_elderly_assignments
+         WHERE status = 'active'
+         ORDER BY nurse_id, elderly_id`
+      );
+      nurseElderlyAssignments = assignmentRows;
+    } catch (error) {
+      if (error.code !== "ER_NO_SUCH_TABLE") throw error;
+    }
+
+    res.json({ elderly, nurses, nurseElderlyAssignments });
   } catch (error) {
     res.status(500).json({
       error: "Failed to load profiles",
+      details: error.message,
+    });
+  }
+});
+
+app.get("/api/nurses/:id/elderly-assignments", async (req, res) => {
+  const nurseId = getNurseDbId(req.params.id);
+
+  if (!Number.isInteger(nurseId) || nurseId <= 0) {
+    res.status(400).json({ error: "Valid nurse id is required." });
+    return;
+  }
+
+  try {
+    const [assignments] = await pool.query(
+      `SELECT
+         nea.nurse_id AS nurseId,
+         nea.elderly_id AS elderlyId,
+         ${elderlyColumns}
+       FROM nurse_elderly_assignments nea
+       INNER JOIN ${elderlyTable} ON ${elderlyTable}.elderly_id = nea.elderly_id
+       WHERE nea.nurse_id = :nurseId
+         AND nea.status = 'active'
+       ORDER BY ${elderlyTable}.name`,
+      { nurseId }
+    );
+
+    res.json({ assignments });
+  } catch (error) {
+    res.status(500).json({
+      error: "Failed to load nurse elderly assignments.",
+      details: error.message,
+    });
+  }
+});
+
+app.put("/api/nurses/:id/elderly-assignments", async (req, res) => {
+  const nurseId = getNurseDbId(req.params.id);
+  const elderlyIds = Array.isArray(req.body.elderlyIds)
+    ? Array.from(new Set(req.body.elderlyIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0)))
+    : [];
+
+  if (!Number.isInteger(nurseId) || nurseId <= 0) {
+    res.status(400).json({ error: "Valid nurse id is required." });
+    return;
+  }
+
+  try {
+    const [nurseRows] = await pool.query("SELECT nurse_id FROM nurse WHERE nurse_id = :nurseId", { nurseId });
+
+    if (!nurseRows[0]) {
+      res.status(404).json({ error: "Nurse profile not found." });
+      return;
+    }
+
+    if (elderlyIds.length > 0) {
+      const [elderlyRows] = await pool.query(
+        `SELECT elderly_id AS id FROM ${elderlyTable} WHERE elderly_id IN (:elderlyIds)`,
+        { elderlyIds }
+      );
+
+      if (elderlyRows.length !== elderlyIds.length) {
+        res.status(422).json({ error: "One or more elderly profiles do not exist." });
+        return;
+      }
+    }
+
+    await pool.query(
+      "UPDATE nurse_elderly_assignments SET status = 'inactive' WHERE nurse_id = :nurseId",
+      { nurseId }
+    );
+
+    for (const elderlyId of elderlyIds) {
+      await pool.query(
+        `INSERT INTO nurse_elderly_assignments (nurse_id, elderly_id, status)
+         VALUES (:nurseId, :elderlyId, 'active')
+         ON DUPLICATE KEY UPDATE status = 'active', assigned_at = CURRENT_TIMESTAMP`,
+        { nurseId, elderlyId }
+      );
+    }
+
+    const [assignments] = await pool.query(
+      `SELECT nurse_id AS nurseId, elderly_id AS elderlyId
+       FROM nurse_elderly_assignments
+       WHERE nurse_id = :nurseId
+         AND status = 'active'
+       ORDER BY elderly_id`,
+      { nurseId }
+    );
+
+    res.json({ assignments });
+  } catch (error) {
+    res.status(500).json({
+      error: "Failed to save nurse elderly assignments.",
       details: error.message,
     });
   }
@@ -1550,6 +1723,8 @@ app.listen(port, async () => {
     await ensureElderlyAvatarColumn();
     await ensureAdminProfileColumns();
     await ensureNurseColumns();
+    await ensureNurseElderlyAssignmentsTable();
+    await ensureScheduleColumns();
     await ensureMedicationAssignmentsTable();
     console.log(`API server running at http://localhost:${port}`);
   } catch (error) {

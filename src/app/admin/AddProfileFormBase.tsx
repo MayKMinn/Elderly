@@ -130,6 +130,38 @@ function getElderlyBirthdateLimits() {
   };
 }
 
+const sharedRequiredFields: Array<keyof NewProfilePayload> = [
+  "name",
+  "age",
+  "gender",
+  "phone",
+  "address",
+];
+
+const elderlyRequiredFields: Array<keyof NewProfilePayload> = [
+  ...sharedRequiredFields,
+  "birthdate",
+  "medicalCondition",
+  "bloodType",
+  "allergies",
+  "emergencyName",
+  "emergencyPhone",
+  "emergencyAddress",
+];
+
+const nurseRequiredFields: Array<keyof NewProfilePayload> = [
+  ...sharedRequiredFields,
+  "email",
+  "licenseNumber",
+  "position",
+  "workArea",
+  "hireDate",
+  "nurseStatus",
+  "username",
+  "password",
+  "confirmPassword",
+];
+
 export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseProps) {
   const isNurse = type === "nurse";
   const elderlyBirthdateLimits = getElderlyBirthdateLimits();
@@ -259,9 +291,9 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
 
   const validateForm = (currentForm: NewProfilePayload) => {
     const nextErrors: ValidationErrors = {};
+    const fieldsToValidate = currentForm.type === "nurse" ? nurseRequiredFields : elderlyRequiredFields;
 
-    (Object.keys(currentForm) as Array<keyof NewProfilePayload>).forEach((field) => {
-      if (field === "type") return;
+    fieldsToValidate.forEach((field) => {
       const error = validateField(field, currentForm[field], currentForm);
       if (error) nextErrors[field] = error;
     });

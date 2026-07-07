@@ -44,13 +44,24 @@ CREATE TABLE IF NOT EXISTS schedule (
   elderly_id INT NOT NULL,
   visit_time DATETIME DEFAULT CURRENT_TIMESTAMP,
   visit_date DATETIME DEFAULT CURRENT_TIMESTAMP,
-  purpose ENUM('Vitals Check', 'Medication Check', 'Emergency Follow-up', 'Routine Visit') NOT NULL,
+  purpose ENUM('Blood Pressure', 'Blood Glucose', 'Medication', 'Routine Visit', 'Vitals Check', 'Medication Check', 'Emergency Follow-up') NOT NULL,
   schedule_status ENUM('scheduled', 'completed', 'missed', 'cancelled') DEFAULT 'scheduled',
   recurring_group_id VARCHAR(40) NULL,
   recurring_sequence INT NULL,
   INDEX fk_schedule_nurse (nurse_id),
   INDEX fk_schedule_elderly (elderly_id),
   INDEX idx_schedule_recurring_group_id (recurring_group_id)
+);
+
+CREATE TABLE IF NOT EXISTS nurse_elderly_assignments (
+  assignment_id INT AUTO_INCREMENT PRIMARY KEY,
+  nurse_id INT NOT NULL,
+  elderly_id INT NOT NULL,
+  assigned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  status ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+  UNIQUE KEY unique_nurse_elderly_assignment (nurse_id, elderly_id),
+  INDEX idx_assignment_nurse_id (nurse_id),
+  INDEX idx_assignment_elderly_id (elderly_id)
 );
 
 CREATE TABLE IF NOT EXISTS admin (

@@ -22,6 +22,7 @@ import { createSchedule, deleteSchedule, getSchedules, updateSchedule } from "..
 import type { ScheduleAssignment } from "../api/schedules";
 
 type SelectOption = { id: string; name: string; avatar: string };
+type NurseElderlyAssignment = { nurseId: string | number; elderlyId: string | number };
 
 const FALLBACK_NURSES = [
   { id: "NUR-001", name: "Sarah Johnson", avatar: "https://i.pravatar.cc/32?img=49" },
@@ -227,6 +228,16 @@ function scheduleColor(purpose: string) {
   return "#dbeafe";
 }
 
+function toAssignmentMap(assignments: NurseElderlyAssignment[] = []) {
+  return assignments.reduce<Record<string, string[]>>((map, assignment) => {
+    const nurseId = String(assignment.nurseId);
+    const elderlyId = String(assignment.elderlyId);
+
+    map[nurseId] = [...(map[nurseId] || []), elderlyId];
+    return map;
+  }, {});
+}
+
 function toDisplayDate(value: string) {
   if (!value) return "-";
   const date = dateFromKey(value);
@@ -245,6 +256,7 @@ export function Schedules() {
   const scheduleFormRef = useRef<HTMLDivElement | null>(null);
   const [nurses, setNurses] = useState<SelectOption[]>([]);
   const [elders, setElders] = useState<SelectOption[]>([]);
+  const [assignmentMap, setAssignmentMap] = useState<Record<string, string[]>>({});
   const [schedules, setSchedules] = useState<ScheduleAssignment[]>([]);
   const [nurse, setNurse] = useState("");
   const [elder, setElder] = useState("");
@@ -319,6 +331,14 @@ export function Schedules() {
       .sort((a, b) => a.visitDate.localeCompare(b.visitDate) || a.visitTime.localeCompare(b.visitTime));
   }, [filteredSchedules]);
   const tableSchedules = showAllSchedules ? filteredSchedules : currentWeekSchedules;
+  const elderlyOptionsForNurse = useMemo(() => {
+    const assignedIds = assignmentMap[nurse] || [];
+
+    if (assignedIds.length === 0) return elders;
+
+    const assignedSet = new Set(assignedIds.map(String));
+    return elders.filter((elderly) => assignedSet.has(String(elderly.id)));
+  }, [assignmentMap, elders, nurse]);
 
   function hydrateScheduleNames(schedule: ScheduleAssignment): ScheduleAssignment {
     const matchingNurse = nurses.find((item) => item.id === String(schedule.nurseId));
@@ -393,7 +413,7 @@ export function Schedules() {
     try {
       const [profileResponse, scheduleResponse] = await Promise.all([getProfiles(), getSchedules()]);
       const nextNurses = profileResponse.nurses.map((profile) => ({
-        id: String(profile.id),
+        id: String(profile.nurseId || profile.id),
         name: profile.name,
         avatar: profile.avatar,
       }));
@@ -408,6 +428,7 @@ export function Schedules() {
 
       setElders(nextElders);
       setElder((current) => nextElders.some((item) => item.id === current) ? current : nextElders[0]?.id || "");
+      setAssignmentMap(toAssignmentMap(profileResponse.nurseElderlyAssignments || []));
 
       setSchedules(scheduleResponse.schedules);
     } catch (loadError) {
@@ -421,6 +442,12 @@ export function Schedules() {
   useEffect(() => {
     loadScheduleData();
   }, []);
+
+  useEffect(() => {
+    setElder((current) => elderlyOptionsForNurse.some((item) => item.id === current)
+      ? current
+      : elderlyOptionsForNurse[0]?.id || "");
+  }, [elderlyOptionsForNurse]);
 
   function resetForm() {
     setNurse(nurses[0]?.id || "");
@@ -544,11 +571,6 @@ export function Schedules() {
         return;
       }
 
-      if (recurring) {
-        setSaving(false);
-        setError("Recurring schedules cannot be added from a single calendar time slot.");
-        return;
-      }
     }
 
     try {
@@ -655,12 +677,21 @@ export function Schedules() {
         }
       } else {
         const recurringGroupId = recurring && visitDates.length > 1 ? newRecurringGroupId() : null;
-        for (const nextVisitDate of visitDates) {
-          savedSchedules.push(await createSchedule({
+        for (const [index, nextVisitDate] of visitDates.entries()) {
+          const occurrencePayload = {
             ...payload,
             visitDate: nextVisitDate,
             recurringGroupId,
             recurringSequence: recurringGroupId ? savedSchedules.length + 1 : null,
+          };
+
+          if (index > 0) {
+            delete occurrencePayload.slotLockDate;
+            delete occurrencePayload.slotLockHour;
+          }
+
+          savedSchedules.push(await createSchedule({
+            ...occurrencePayload,
           }));
         }
       }
@@ -821,16 +852,24 @@ export function Schedules() {
               <AvatarSelect
                 value={nurse}
                 options={nurses}
-                onChange={setNurse}
+                onChange={(value) => {
+                  setNurse(value);
+                  setElder("");
+                }}
               />
             </FormGroup>
 
             <FormGroup label="Select Elderly">
               <AvatarSelect
                 value={elder}
-                options={elders}
+                options={elderlyOptionsForNurse}
                 onChange={setElder}
               />
+              {(assignmentMap[nurse] || []).length > 0 && (
+                <p className="mt-1 text-xs" style={{ color: "#6b7a99" }}>
+                  Showing elderly assigned to this caregiver.
+                </p>
+              )}
             </FormGroup>
 
             <div className="grid grid-cols-1 gap-3">
@@ -903,11 +942,10 @@ export function Schedules() {
                 <button
                   type="button"
                   onClick={() => {
-                    if (createSlotLock && !editingSchedule) return;
                     setRecurring(!recurring);
                   }}
                   className="relative w-9 h-5 rounded-full transition-colors"
-                  style={{ backgroundColor: recurring ? "#2563eb" : "#d1d5db", opacity: createSlotLock && !editingSchedule ? 0.65 : 1 }}
+                  style={{ backgroundColor: recurring ? "#2563eb" : "#d1d5db" }}
                 >
                   <span
                     className="absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all"
