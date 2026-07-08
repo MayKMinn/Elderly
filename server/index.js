@@ -1,5 +1,5 @@
 import express from "express";
-import { checkDatabase, pool } from "./db.js";
+import { checkDatabase, pool, transaction } from "./db.js";
 import { validateProfileWithCobol } from "./profileValidator.js";
 import { validateScheduleWithCobol } from "./scheduleValidator.js";
 
@@ -234,6 +234,14 @@ function toDbNurseStatus(status) {
   return "active";
 }
 
+function isActiveElderlyStatus(status) {
+  return String(status || "").trim().toLowerCase() === "active";
+}
+
+function isActiveNurseStatus(status) {
+  return String(status || "").trim().toLowerCase() === "active";
+}
+
 function normalizeHireDate(value) {
   const raw = String(value || "").trim();
 
@@ -296,9 +304,11 @@ app.get("/api/schedules", async (req, res) => {
     const [schedules] = await pool.query(
       `SELECT ${scheduleColumns}
        FROM \`schedule\` s
-       LEFT JOIN nurse n ON CAST(n.nurse_id AS CHAR) = CAST(s.nurse_id AS CHAR)
-       LEFT JOIN ${elderlyTable} e ON CAST(e.elderly_id AS CHAR) = CAST(s.elderly_id AS CHAR)
+       INNER JOIN nurse n ON CAST(n.nurse_id AS CHAR) = CAST(s.nurse_id AS CHAR)
+       INNER JOIN ${elderlyTable} e ON CAST(e.elderly_id AS CHAR) = CAST(s.elderly_id AS CHAR)
        ${where}
+       ${where ? "AND" : "WHERE"} COALESCE(n.nurse_status, 'active') = 'active'
+         AND COALESCE(e.elderly_status, 'active') = 'active'
        ORDER BY s.visit_date ASC, s.visit_time ASC, s.schedule_id DESC
        LIMIT 100`,
       params
@@ -362,12 +372,39 @@ function validateSchedulePayload(payload, visitDate, visitTime) {
   return errors;
 }
 
+async function validateActiveScheduleParticipants({ nurseId, elderlyId }) {
+  const errors = {};
+
+  const [nurses] = await pool.query(
+    "SELECT nurse_status AS status FROM nurse WHERE nurse_id = :nurseId",
+    { nurseId }
+  );
+  const [elderly] = await pool.query(
+    `SELECT elderly_status AS status FROM ${elderlyTable} WHERE elderly_id = :elderlyId`,
+    { elderlyId }
+  );
+
+  if (!nurses[0]) {
+    errors.nurseId = "Select an existing caregiver or nurse.";
+  } else if (!isActiveNurseStatus(nurses[0].status || "active")) {
+    errors.nurseId = "Select an active caregiver or nurse.";
+  }
+
+  if (!elderly[0]) {
+    errors.elderlyId = "Select an existing elderly profile.";
+  } else if (!isActiveElderlyStatus(elderly[0].status || "active")) {
+    errors.elderlyId = "Select an active elderly profile.";
+  }
+
+  return errors;
+}
+
 async function selectScheduleById(id) {
   const [rows] = await pool.query(
     `SELECT ${scheduleColumns}
      FROM \`schedule\` s
-     LEFT JOIN nurse n ON CAST(n.nurse_id AS CHAR) = CAST(s.nurse_id AS CHAR)
-     LEFT JOIN ${elderlyTable} e ON CAST(e.elderly_id AS CHAR) = CAST(s.elderly_id AS CHAR)
+     INNER JOIN nurse n ON CAST(n.nurse_id AS CHAR) = CAST(s.nurse_id AS CHAR)
+     INNER JOIN ${elderlyTable} e ON CAST(e.elderly_id AS CHAR) = CAST(s.elderly_id AS CHAR)
      WHERE s.schedule_id = :id
      LIMIT 1`,
     { id }
@@ -393,11 +430,13 @@ async function findNurseScheduleConflict({
   const [rows] = await pool.query(
     `SELECT ${scheduleColumns}
      FROM \`schedule\` s
-     LEFT JOIN nurse n ON CAST(n.nurse_id AS CHAR) = CAST(s.nurse_id AS CHAR)
-     LEFT JOIN ${elderlyTable} e ON CAST(e.elderly_id AS CHAR) = CAST(s.elderly_id AS CHAR)
+     INNER JOIN nurse n ON CAST(n.nurse_id AS CHAR) = CAST(s.nurse_id AS CHAR)
+     INNER JOIN ${elderlyTable} e ON CAST(e.elderly_id AS CHAR) = CAST(s.elderly_id AS CHAR)
      WHERE CAST(s.nurse_id AS CHAR) = :nurseId
        AND s.visit_time = :visitTime
        AND s.schedule_status <> 'cancelled'
+       AND COALESCE(n.nurse_status, 'active') = 'active'
+       AND COALESCE(e.elderly_status, 'active') = 'active'
        AND (:excludeScheduleId IS NULL OR s.schedule_id <> :excludeScheduleId)
        AND (:excludeRecurringGroupId IS NULL OR s.recurring_group_id IS NULL OR s.recurring_group_id <> :excludeRecurringGroupId)
      LIMIT 1`,
@@ -462,6 +501,13 @@ app.post("/api/schedules", async (req, res) => {
   };
 
   try {
+    const activeParticipantErrors = await validateActiveScheduleParticipants(data);
+
+    if (Object.keys(activeParticipantErrors).length > 0) {
+      res.status(422).json({ valid: false, errors: activeParticipantErrors });
+      return;
+    }
+
     const conflict = await findNurseScheduleConflict({
       nurseId: data.nurseId,
       visitDate,
@@ -561,6 +607,13 @@ app.put("/api/schedules/:id", async (req, res) => {
         : null,
     };
 
+    const activeParticipantErrors = await validateActiveScheduleParticipants(baseData);
+
+    if (Object.keys(activeParticipantErrors).length > 0) {
+      res.status(422).json({ valid: false, errors: activeParticipantErrors });
+      return;
+    }
+
     if (stopRecurring && existingSchedule.recurringGroupId) {
       const conflict = await findNurseScheduleConflict({
         nurseId: baseData.nurseId,
@@ -648,9 +701,11 @@ app.put("/api/schedules/:id", async (req, res) => {
       const [updatedSchedules] = await pool.query(
         `SELECT ${scheduleColumns}
          FROM \`schedule\` s
-         LEFT JOIN nurse n ON CAST(n.nurse_id AS CHAR) = CAST(s.nurse_id AS CHAR)
-         LEFT JOIN ${elderlyTable} e ON CAST(e.elderly_id AS CHAR) = CAST(s.elderly_id AS CHAR)
+         INNER JOIN nurse n ON CAST(n.nurse_id AS CHAR) = CAST(s.nurse_id AS CHAR)
+         INNER JOIN ${elderlyTable} e ON CAST(e.elderly_id AS CHAR) = CAST(s.elderly_id AS CHAR)
          WHERE s.recurring_group_id = :recurringGroupId
+           AND COALESCE(n.nurse_status, 'active') = 'active'
+           AND COALESCE(e.elderly_status, 'active') = 'active'
          ORDER BY s.recurring_sequence ASC, s.visit_date ASC`,
         { recurringGroupId: existingSchedule.recurringGroupId }
       );
@@ -1329,25 +1384,32 @@ app.put("/api/elderly/:id", async (req, res) => {
       avatar: profile.avatar || "",
     };
 
-    await pool.query(
-      `UPDATE ${elderlyTable}
-       SET name = :name,
-           age = :age,
-           gender = :gender,
-           phone = :phone,
-           medical_conditions = :medicalCondition,
-           emergency_name = :emergencyName,
-           birthdate = :birthdate,
-           address = :address,
-           blood_type = :bloodType,
-           allergies = :allergies,
-           emergency_phone = :emergencyPhone,
-           emergency_address = :emergencyAddress,
-           elderly_status = :elderlyStatus,
-           avatar = :avatar
-       WHERE elderly_id = :id`,
-      data
-    );
+    await transaction(async (connection) => {
+      await connection.query(
+        `UPDATE ${elderlyTable}
+         SET name = :name,
+             age = :age,
+             gender = :gender,
+             phone = :phone,
+             medical_conditions = :medicalCondition,
+             emergency_name = :emergencyName,
+             birthdate = :birthdate,
+             address = :address,
+             blood_type = :bloodType,
+             allergies = :allergies,
+             emergency_phone = :emergencyPhone,
+             emergency_address = :emergencyAddress,
+             elderly_status = :elderlyStatus,
+             avatar = :avatar
+         WHERE elderly_id = :id`,
+        data
+      );
+
+      if (!isActiveElderlyStatus(data.elderlyStatus)) {
+        await connection.query("DELETE FROM `schedule` WHERE elderly_id = :id", data);
+        await connection.query("UPDATE nurse_elderly_assignments SET status = 'inactive' WHERE elderly_id = :id", data);
+      }
+    });
 
     const [rows] = await pool.query(
       `SELECT ${elderlyColumns} FROM ${elderlyTable} WHERE elderly_id = :id`,
@@ -1365,10 +1427,11 @@ app.put("/api/elderly/:id", async (req, res) => {
 
 app.delete("/api/elderly/:id", async (req, res) => {
   try {
-    await pool.query(
-      `DELETE FROM ${elderlyTable} WHERE elderly_id = :id`,
-      { id: req.params.id }
-    );
+    await transaction(async (connection) => {
+      await connection.query("DELETE FROM `schedule` WHERE elderly_id = :id", { id: req.params.id });
+      await connection.query("DELETE FROM nurse_elderly_assignments WHERE elderly_id = :id", { id: req.params.id });
+      await connection.query(`DELETE FROM ${elderlyTable} WHERE elderly_id = :id`, { id: req.params.id });
+    });
 
     res.status(204).end();
   } catch (error) {
@@ -1654,27 +1717,34 @@ app.put("/api/nurses/:id", async (req, res) => {
       nurseStatus: toDbNurseStatus(profile.nurseStatus || profile.status),
     };
 
-    await pool.query(
-      `UPDATE nurse
-       SET
-         name = :name,
-         age = :age,
-         gender = :gender,
-         phone = :phone,
-         email = :email,
-         license_number = :licenseNumber,
-         position = :position,
-         shift_schedule = :shiftSchedule,
-         work_area = :workArea,
-         username = :username,
-         password = :password,
-         address = :address,
-         avatar = :avatar,
-         hire_date = :hireDate,
-         nurse_status = :nurseStatus
-       WHERE nurse_id = :nurseId`,
-      data
-    );
+    await transaction(async (connection) => {
+      await connection.query(
+        `UPDATE nurse
+         SET
+           name = :name,
+           age = :age,
+           gender = :gender,
+           phone = :phone,
+           email = :email,
+           license_number = :licenseNumber,
+           position = :position,
+           shift_schedule = :shiftSchedule,
+           work_area = :workArea,
+           username = :username,
+           password = :password,
+           address = :address,
+           avatar = :avatar,
+           hire_date = :hireDate,
+           nurse_status = :nurseStatus
+         WHERE nurse_id = :nurseId`,
+        data
+      );
+
+      if (!isActiveNurseStatus(data.nurseStatus)) {
+        await connection.query("DELETE FROM `schedule` WHERE nurse_id = :nurseId", data);
+        await connection.query("UPDATE nurse_elderly_assignments SET status = 'inactive' WHERE nurse_id = :nurseId", data);
+      }
+    });
 
     const [rows] = await pool.query(`SELECT ${nurseColumns} FROM nurse WHERE nurse_id = :nurseId`, { nurseId });
 
@@ -1701,7 +1771,12 @@ app.delete("/api/nurses/:id", async (req, res) => {
   }
 
   try {
-    const [result] = await pool.query("DELETE FROM nurse WHERE nurse_id = :nurseId", { nurseId });
+    const result = await transaction(async (connection) => {
+      await connection.query("DELETE FROM `schedule` WHERE nurse_id = :nurseId", { nurseId });
+      await connection.query("DELETE FROM nurse_elderly_assignments WHERE nurse_id = :nurseId", { nurseId });
+      const [deleteResult] = await connection.query("DELETE FROM nurse WHERE nurse_id = :nurseId", { nurseId });
+      return deleteResult;
+    });
 
     if (result.affectedRows === 0) {
       res.status(404).json({ error: "Nurse profile not found." });
