@@ -1,12 +1,12 @@
 import mysql from "mysql2/promise";
 import "dotenv/config";
 
-const defaultSocketPath = "/Applications/XAMPP/xamppfiles/var/mysql/mysql.sock";
-const useSocket = Boolean(process.env.DB_SOCKET) || !process.env.DB_HOST || process.env.DB_HOST === "localhost" || process.env.DB_HOST === "127.0.0.1";
-
-const connectionConfig = useSocket
-  ? { socketPath: process.env.DB_SOCKET || defaultSocketPath }
-  : { host: process.env.DB_HOST, port: Number(process.env.DB_PORT || 3306) };
+const connectionConfig = process.env.DB_SOCKET
+  ? { socketPath: process.env.DB_SOCKET }
+  : {
+      host: process.env.DB_HOST || "127.0.0.1",
+      port: Number(process.env.DB_PORT || 3306),
+    };
 
 export const databaseConfig = {
   ...connectionConfig,
