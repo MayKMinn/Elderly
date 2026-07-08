@@ -151,6 +151,47 @@ async function ensureNurseElderlyAssignmentsTable() {
       INDEX idx_assignment_elderly_id (elderly_id)
     )`
   );
+
+  try {
+    await pool.query("ALTER TABLE nurse_elderly_assignments ADD COLUMN assigned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP");
+  } catch (error) {
+    if (error.code !== "ER_DUP_FIELDNAME") throw error;
+  }
+
+  try {
+    await pool.query("ALTER TABLE nurse_elderly_assignments ADD COLUMN status ENUM('active', 'inactive') NOT NULL DEFAULT 'active'");
+  } catch (error) {
+    if (error.code !== "ER_DUP_FIELDNAME") throw error;
+  }
+
+  await pool.query(
+    `DELETE older
+     FROM nurse_elderly_assignments older
+     INNER JOIN nurse_elderly_assignments newer
+       ON older.nurse_id = newer.nurse_id
+      AND older.elderly_id = newer.elderly_id
+      AND older.assignment_id > newer.assignment_id`
+  );
+
+  try {
+    await pool.query(
+      "ALTER TABLE nurse_elderly_assignments ADD UNIQUE KEY unique_nurse_elderly_assignment (nurse_id, elderly_id)"
+    );
+  } catch (error) {
+    if (error.code !== "ER_DUP_KEYNAME") throw error;
+  }
+
+  try {
+    await pool.query("ALTER TABLE nurse_elderly_assignments ADD INDEX idx_assignment_nurse_id (nurse_id)");
+  } catch (error) {
+    if (error.code !== "ER_DUP_KEYNAME") throw error;
+  }
+
+  try {
+    await pool.query("ALTER TABLE nurse_elderly_assignments ADD INDEX idx_assignment_elderly_id (elderly_id)");
+  } catch (error) {
+    if (error.code !== "ER_DUP_KEYNAME") throw error;
+  }
 }
 
 const elderlyColumns = `
@@ -217,9 +258,11 @@ age,
 function getNurseDbId(id) {
   const value = String(id || "").trim();
 
-  if (value.startsWith("NRS-")) {
-    return Number(value.replace("NRS-", ""));
-  }
+  return Number(value);
+}
+
+function getElderlyDbId(id) {
+  const value = String(id || "").trim();
 
   return Number(value);
 }
@@ -890,42 +933,56 @@ app.get("/api/nurses/:id/elderly-assignments", async (req, res) => {
 
 app.put("/api/nurses/:id/elderly-assignments", async (req, res) => {
   const nurseId = getNurseDbId(req.params.id);
-  const elderlyIds = Array.isArray(req.body.elderlyIds)
-    ? Array.from(new Set(req.body.elderlyIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0)))
-    : [];
+  const requestedElderlyIds = Array.isArray(req.body.elderlyIds) ? req.body.elderlyIds : [];
+  const parsedElderlyIds = requestedElderlyIds.map(getElderlyDbId);
+  const elderlyIds = Array.from(new Set(parsedElderlyIds));
 
   if (!Number.isInteger(nurseId) || nurseId <= 0) {
     res.status(400).json({ error: "Valid nurse id is required." });
     return;
   }
 
+  if (!parsedElderlyIds.every((id) => Number.isInteger(id) && id > 0)) {
+    res.status(400).json({ error: "Elderly ids must be positive numbers." });
+    return;
+  }
+
+  let connection;
+
   try {
-    const [nurseRows] = await pool.query("SELECT nurse_id FROM nurse WHERE nurse_id = :nurseId", { nurseId });
+    await ensureNurseElderlyAssignmentsTable();
+
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+
+    const [nurseRows] = await connection.query("SELECT nurse_id FROM nurse WHERE nurse_id = :nurseId", { nurseId });
 
     if (!nurseRows[0]) {
+      await connection.rollback();
       res.status(404).json({ error: "Nurse profile not found." });
       return;
     }
 
     if (elderlyIds.length > 0) {
-      const [elderlyRows] = await pool.query(
+      const [elderlyRows] = await connection.query(
         `SELECT elderly_id AS id FROM ${elderlyTable} WHERE elderly_id IN (:elderlyIds)`,
         { elderlyIds }
       );
 
       if (elderlyRows.length !== elderlyIds.length) {
+        await connection.rollback();
         res.status(422).json({ error: "One or more elderly profiles do not exist." });
         return;
       }
     }
 
-    await pool.query(
+    await connection.query(
       "UPDATE nurse_elderly_assignments SET status = 'inactive' WHERE nurse_id = :nurseId",
       { nurseId }
     );
 
     for (const elderlyId of elderlyIds) {
-      await pool.query(
+      await connection.query(
         `INSERT INTO nurse_elderly_assignments (nurse_id, elderly_id, status)
          VALUES (:nurseId, :elderlyId, 'active')
          ON DUPLICATE KEY UPDATE status = 'active', assigned_at = CURRENT_TIMESTAMP`,
@@ -933,7 +990,7 @@ app.put("/api/nurses/:id/elderly-assignments", async (req, res) => {
       );
     }
 
-    const [assignments] = await pool.query(
+    const [assignments] = await connection.query(
       `SELECT nurse_id AS nurseId, elderly_id AS elderlyId
        FROM nurse_elderly_assignments
        WHERE nurse_id = :nurseId
@@ -942,12 +999,16 @@ app.put("/api/nurses/:id/elderly-assignments", async (req, res) => {
       { nurseId }
     );
 
+    await connection.commit();
     res.json({ assignments });
   } catch (error) {
+    if (connection) await connection.rollback();
     res.status(500).json({
       error: "Failed to save nurse elderly assignments.",
       details: error.message,
     });
+  } finally {
+    if (connection) connection.release();
   }
 });
 

@@ -17,10 +17,7 @@
        01  USERNAME-TEXT      PIC X(80).
        01  PASSWORD-TEXT      PIC X(80).
        01  CONFIRM-TEXT       PIC X(80).
-       01  POSITION-TEXT      PIC X(120).
-       01  WORK-AREA-TEXT     PIC X(120).
-       01  HIRE-DATE-TEXT     PIC X(80).
-       01  NURSE-STATUS-TEXT  PIC X(80).
+       01  DISCARD-TEXT       PIC X(120).
        01  BIRTHDATE-TEXT     PIC X(80).
        01  EMERGENCY-NAME     PIC X(100).
        01  EMERGENCY-PHONE    PIC X(40).
@@ -65,10 +62,10 @@
            ACCEPT USERNAME-TEXT.
            ACCEPT PASSWORD-TEXT.
            ACCEPT CONFIRM-TEXT.
-           ACCEPT POSITION-TEXT.
-           ACCEPT WORK-AREA-TEXT.
-           ACCEPT HIRE-DATE-TEXT.
-           ACCEPT NURSE-STATUS-TEXT.
+           ACCEPT DISCARD-TEXT.
+           ACCEPT DISCARD-TEXT.
+           ACCEPT DISCARD-TEXT.
+           ACCEPT DISCARD-TEXT.
            ACCEPT BIRTHDATE-TEXT.
            ACCEPT EMERGENCY-NAME.
            ACCEPT EMERGENCY-PHONE.
@@ -106,14 +103,8 @@
            ELSE
                IF FUNCTION TEST-NUMVAL(FUNCTION TRIM(AGE-TEXT)) = 0
                    MOVE FUNCTION NUMVAL(AGE-TEXT) TO AGE-NUMBER
-                   IF FUNCTION TRIM(PROFILE-TYPE) = "nurse"
-                       IF AGE-NUMBER < 18 OR AGE-NUMBER > 80
-                           PERFORM ADD-AGE-RANGE-NURSE
-                       END-IF
-                   ELSE
-                       IF AGE-NUMBER < 50 OR AGE-NUMBER > 120
-                           PERFORM ADD-AGE-RANGE-ELDERLY
-                       END-IF
+                   IF AGE-NUMBER < 50 OR AGE-NUMBER > 120
+                       PERFORM ADD-AGE-RANGE-ELDERLY
                    END-IF
                ELSE
                    PERFORM ADD-AGE-NUMBER
@@ -231,40 +222,9 @@
                        END-IF
                    END-IF
                END-IF
-           ELSE
-               IF FUNCTION TRIM(POSITION-TEXT) = SPACES
-                   PERFORM ADD-POSITION-REQUIRED
-               END-IF
-               IF FUNCTION TRIM(WORK-AREA-TEXT) = SPACES
-                   PERFORM ADD-WORK-AREA-REQUIRED
-               END-IF
-               IF FUNCTION TRIM(HIRE-DATE-TEXT) = SPACES
-                   PERFORM ADD-HIRE-DATE-REQUIRED
-               END-IF
-               IF FUNCTION TRIM(NURSE-STATUS-TEXT) = SPACES
-                   PERFORM ADD-NURSE-STATUS-REQUIRED
-               END-IF
            END-IF.
 
-           IF FUNCTION TRIM(USERNAME-TEXT) NOT = SPACES
-               IF FUNCTION LENGTH(FUNCTION TRIM(USERNAME-TEXT)) < 4
-                   PERFORM ADD-USERNAME-LENGTH
-               END-IF
-           END-IF.
-
-           IF FUNCTION TRIM(PASSWORD-TEXT) NOT = SPACES
-               IF FUNCTION LENGTH(FUNCTION TRIM(PASSWORD-TEXT)) < 8
-                   PERFORM ADD-PASSWORD-LENGTH
-               END-IF
-               IF FUNCTION TRIM(PASSWORD-TEXT)
-                   NOT = FUNCTION TRIM(CONFIRM-TEXT)
-                   PERFORM ADD-CONFIRM-MATCH
-               END-IF
-           ELSE
-               IF FUNCTION TRIM(CONFIRM-TEXT) NOT = SPACES
-                   PERFORM ADD-CONFIRM-MATCH
-               END-IF
-           END-IF.
+         
 
            IF ERROR-COUNT = 0
                DISPLAY '{"valid":true,"errors":{}}'
@@ -395,11 +355,6 @@
                TO FIELD-ERROR.
            PERFORM APPEND-ERROR.
 
-       ADD-AGE-RANGE-NURSE.
-           MOVE '"age":"Caregiver age must be between 18 and 80."'
-               TO FIELD-ERROR.
-           PERFORM APPEND-ERROR.
-
        ADD-AGE-BIRTHDATE-MATCH.
            MOVE '"age":"Age must match birthdate."'
                TO FIELD-ERROR.
@@ -510,37 +465,7 @@
                TO FIELD-ERROR.
            PERFORM APPEND-ERROR.
 
-       ADD-POSITION-REQUIRED.
-           MOVE '"position":"Position is required."' TO FIELD-ERROR.
-           PERFORM APPEND-ERROR.
-
-       ADD-WORK-AREA-REQUIRED.
-           MOVE '"workArea":"Work area is required."' TO FIELD-ERROR.
-           PERFORM APPEND-ERROR.
-
-       ADD-HIRE-DATE-REQUIRED.
-           MOVE '"hireDate":"Hire date is required."' TO FIELD-ERROR.
-           PERFORM APPEND-ERROR.
-
-       ADD-NURSE-STATUS-REQUIRED.
-           MOVE '"nurseStatus":"Nurse status is required."'
-            TO FIELD-ERROR.
-           PERFORM APPEND-ERROR.
-
-       ADD-USERNAME-LENGTH.
-           MOVE '"username":"Username must be at least 4 characters."'
-               TO FIELD-ERROR.
-           PERFORM APPEND-ERROR.
-
-       ADD-PASSWORD-LENGTH.
-           MOVE '"password":"Password must be at least 8 characters."'
-               TO FIELD-ERROR.
-           PERFORM APPEND-ERROR.
-
-       ADD-CONFIRM-MATCH.
-           MOVE '"confirmPassword":"Passwords must match."'
-               TO FIELD-ERROR.
-           PERFORM APPEND-ERROR.
+       
 
        APPEND-ERROR.
            IF ERROR-COUNT > 0
