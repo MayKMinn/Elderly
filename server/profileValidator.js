@@ -4,8 +4,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const cobolSource = path.join(__dirname, "cobol", "validate-profile.cob");
-const cobolBinary = path.join(__dirname, "cobol", "validate-profile");
+const cobolSource = path.join(__dirname, "cobol", "nurseValidate.cob");
+const cobolBinary = path.join(__dirname, "cobol", "nurseValidate");
 
 const fieldOrder = [
   "type",
