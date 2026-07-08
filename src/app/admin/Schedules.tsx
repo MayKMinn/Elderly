@@ -412,16 +412,20 @@ export function Schedules() {
 
     try {
       const [profileResponse, scheduleResponse] = await Promise.all([getProfiles(), getSchedules()]);
-      const nextNurses = profileResponse.nurses.map((profile) => ({
-        id: String(profile.nurseId || profile.id),
-        name: profile.name,
-        avatar: profile.avatar,
-      }));
-      const nextElders = profileResponse.elderly.map((profile) => ({
-        id: String(profile.id),
-        name: profile.name,
-        avatar: profile.avatar,
-      }));
+      const nextNurses = profileResponse.nurses
+        .filter((profile) => profile.status === "Active" && String(profile.nurseStatus || "Active") === "Active")
+        .map((profile) => ({
+          id: String(profile.nurseId || profile.id),
+          name: profile.name,
+          avatar: profile.avatar,
+        }));
+      const nextElders = profileResponse.elderly
+        .filter((profile) => profile.status === "Active")
+        .map((profile) => ({
+          id: String(profile.id),
+          name: profile.name,
+          avatar: profile.avatar,
+        }));
 
       setNurses(nextNurses);
       setNurse((current) => nextNurses.some((item) => item.id === current) ? current : nextNurses[0]?.id || "");
