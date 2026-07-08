@@ -1669,9 +1669,8 @@ app.post("/api/nurses", async (req, res) => {
       data
     );
 
-    const [rows] = await pool.query(`SELECT ${nurseColumns} FROM nurse WHERE nurse_id = :nurseId`, {
-      nurseId: Number(result.insertId),
-    });
+    const createdNurseId = Number(result.insertId);
+    const [rows] = await pool.query(`SELECT ${nurseColumns} FROM nurse WHERE nurse_id = ${createdNurseId}`);
     res.status(201).json(rows[0]);
   } catch (error) {
     res.status(500).json({
@@ -1746,7 +1745,7 @@ app.put("/api/nurses/:id", async (req, res) => {
       }
     });
 
-    const [rows] = await pool.query(`SELECT ${nurseColumns} FROM nurse WHERE nurse_id = :nurseId`, { nurseId });
+    const [rows] = await pool.query(`SELECT ${nurseColumns} FROM nurse WHERE nurse_id = ${nurseId}`);
 
     if (!rows[0]) {
       res.status(404).json({ error: "Nurse profile not found." });

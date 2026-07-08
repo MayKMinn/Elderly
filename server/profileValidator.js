@@ -112,6 +112,13 @@ function runProcess(command, args, input = "") {
     const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"], env: getCobolEnv(command) });
     let stdout = "";
     let stderr = "";
+    let settled = false;
+
+    const fail = (error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
 
     child.stdout.on("data", (chunk) => {
       stdout += chunk;
@@ -121,12 +128,22 @@ function runProcess(command, args, input = "") {
       stderr += chunk;
     });
 
-    child.on("error", reject);
+    child.on("error", fail);
+
+    child.stdin.on("error", (error) => {
+      if (error.code === "EPIPE") return;
+      fail(error);
+    });
+
     child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+
       if (code === 0) {
         resolve(stdout.trim());
         return;
       }
+
       reject(new Error(stderr || `${command} exited with code ${code}`));
     });
 

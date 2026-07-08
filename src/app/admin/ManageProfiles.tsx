@@ -216,12 +216,18 @@ function normalizeElderlyProfile(profile: Partial<ElderlyProfile>): ElderlyProfi
   };
 }
 
-function normalizeNurseProfile(profile: Partial<NurseProfile>): NurseProfile {
-  const status = profile.status === "On Leave" ? "On Leave" : "Active";
+function normalizeNurseProfile(profile: Partial<NurseProfile> & {
+  license_number?: string | number;
+  shift_schedule?: string;
+  work_area?: string;
+  nurse_status?: string;
+}): NurseProfile {
+  const rawStatus = String(profile.nurseStatus ?? profile.nurse_status ?? profile.status ?? "Active");
+  const status = rawStatus === "On Leave" ? "On Leave" : "Active";
 
   return {
     id: String(profile.id ?? profile.nurseId ?? ""),
-    nurseId: profile.nurseId,
+    nurseId: profile.nurseId ?? profile.id,
     name: String(profile.name ?? ""),
     age: Number(profile.age) || 0,
     gender: String(profile.gender ?? ""),
@@ -233,8 +239,12 @@ function normalizeNurseProfile(profile: Partial<NurseProfile>): NurseProfile {
     status,
     avatar: String(profile.avatar ?? ""),
     assignedElders: Number(profile.assignedElders) || 0,
-    workArea: String(profile.workArea ?? ""),
-    nurseStatus: String(profile.nurseStatus ?? status),
+    workArea: String(profile.workArea ?? profile.work_area ?? ""),
+    nurseStatus: rawStatus,
+    licenseNumber: String(profile.licenseNumber ?? profile.license_number ?? ""),
+    shiftSchedule: String(profile.shiftSchedule ?? profile.shift_schedule ?? ""),
+    username: String(profile.username ?? ""),
+    password: String(profile.password ?? ""),
   };
 }
 
@@ -1780,7 +1790,7 @@ function NurseEditPanel({
 }: {
   profile: NurseProfile;
   onClose: () => void;
-  onSave: (p: NurseProfile) => void;
+  onSave: (p: NurseProfile) => Promise<void> | void;
 }) {
   const [form, setForm] = useState({ ...profile });
   const update = (field: keyof NurseProfile, value: string) =>
