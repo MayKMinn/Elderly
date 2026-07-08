@@ -3,6 +3,12 @@ import type { ElderlyProfile, NurseProfile } from "../admin/data";
 type ProfilesResponse = {
   elderly: ElderlyProfile[];
   nurses: NurseProfile[];
+  nurseElderlyAssignments?: NurseElderlyAssignment[];
+};
+
+export type NurseElderlyAssignment = {
+  nurseId: string | number;
+  elderlyId: string | number;
 };
 
 export type NewProfilePayload = {
@@ -97,6 +103,13 @@ export function updateNurseProfile(profile: NurseProfile) {
 export function deleteNurseProfile(id: string) {
   return request<void>(`/api/nurses/${id}`, {
     method: "DELETE",
+  });
+}
+
+export function updateNurseElderlyAssignments(nurseId: string, elderlyIds: string[]) {
+  return request<{ assignments: NurseElderlyAssignment[] }>(`/api/nurses/${nurseId}/elderly-assignments`, {
+    method: "PUT",
+    body: JSON.stringify({ elderlyIds }),
   });
 }
 

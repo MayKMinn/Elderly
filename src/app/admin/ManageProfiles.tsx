@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import {
   Search,
-  Filter,
   Plus,
   Eye,
   Pencil,
@@ -35,9 +35,11 @@ import {
   deleteNurseProfile,
   getProfiles,
   updateElderlyProfile,
+  updateNurseElderlyAssignments,
   updateNurseProfile,
 } from "../api/profiles";
 import type { NewProfilePayload, ValidationErrors } from "../api/profiles";
+import type { NurseElderlyAssignment } from "../api/profiles";
 
 type ProfileTab = "elderly" | "nurse";
 
@@ -52,9 +54,12 @@ type Modal =
   | { type: "delete"; profile: ElderlyProfile }
   | { type: "viewNurse"; profile: NurseProfile }
   | { type: "editNurse"; profile: NurseProfile }
+  | { type: "assignElders"; profile: NurseProfile }
   | { type: "deleteNurse"; profile: NurseProfile }
   | { type: "addForm"; formType: "elderly" | "nurse" }
   | null;
+
+const PROFILE_NAME_MAX_LENGTH = 100;
 
 function validateElderlyBirthdate(value: string) {
   if (!value) return undefined;
@@ -84,7 +89,9 @@ function validateElderlyProfile(profile: ElderlyProfile): ValidationErrors {
   const age = Number(profile.age);
 
   if (!name.trim()) errors.name = "Full name is required.";
-  else if (name.trim().length > 10) errors.name = "Full name must be 10 characters or fewer.";
+  else if (name.trim().length > PROFILE_NAME_MAX_LENGTH) {
+    errors.name = `Full name must be ${PROFILE_NAME_MAX_LENGTH} characters or fewer.`;
+  }
   else if (name.startsWith(" ")) errors.name = "Full name cannot start with a space.";
   else if (name.includes("  ")) errors.name = "Full name cannot contain double spaces.";
   else if (!/[A-Za-z]/.test(name)) errors.name = "Full name must contain at least one letter.";
@@ -185,6 +192,118 @@ function countRegistrationsThisWeek<T>(profiles: T[], getDate: (profile: T) => s
   }).length;
 }
 
+function normalizeElderlyProfile(profile: Partial<ElderlyProfile>): ElderlyProfile {
+  return {
+    id: String(profile.id ?? ""),
+    name: String(profile.name ?? ""),
+    age: Number(profile.age) || 0,
+    gender: String(profile.gender ?? ""),
+    phone: String(profile.phone ?? ""),
+    medicalCondition: String(profile.medicalCondition ?? ""),
+    emergencyContact: String(profile.emergencyContact ?? ""),
+    emergencyAddress: String(profile.emergencyAddress ?? ""),
+    status: profile.status === "Inactive" ? "Inactive" : "Active",
+    avatar: String(profile.avatar ?? ""),
+    dob: String(profile.dob ?? ""),
+    address: String(profile.address ?? ""),
+    bloodType: String(profile.bloodType ?? ""),
+    allergies: String(profile.allergies ?? ""),
+    doctorName: String(profile.doctorName ?? ""),
+    relationship: String(profile.relationship ?? ""),
+    emergencyPhone: String(profile.emergencyPhone ?? ""),
+    admissionDate: String(profile.admissionDate ?? ""),
+    notes: String(profile.notes ?? ""),
+  };
+}
+
+function normalizeNurseProfile(profile: Partial<NurseProfile>): NurseProfile {
+  const status = profile.status === "On Leave" ? "On Leave" : "Active";
+
+  return {
+    id: String(profile.id ?? profile.nurseId ?? ""),
+    nurseId: profile.nurseId,
+    name: String(profile.name ?? ""),
+    age: Number(profile.age) || 0,
+    gender: String(profile.gender ?? ""),
+    phone: String(profile.phone ?? ""),
+    email: String(profile.email ?? ""),
+    address: String(profile.address ?? ""),
+    position: String(profile.position ?? ""),
+    hireDate: String(profile.hireDate ?? ""),
+    status,
+    avatar: String(profile.avatar ?? ""),
+    assignedElders: Number(profile.assignedElders) || 0,
+    workArea: String(profile.workArea ?? ""),
+    nurseStatus: String(profile.nurseStatus ?? status),
+  };
+}
+
+function ProfileAvatar({
+  src,
+  name,
+  className,
+  iconSize = 16,
+}: {
+  src?: string;
+  name: string;
+  className?: string;
+  iconSize?: number;
+}) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const imageSrc = String(src || "").trim();
+  const showImage = imageSrc && !imageFailed;
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [imageSrc]);
+
+  return (
+    <div
+      className={`flex flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-blue-50 text-blue-600 ${className || ""}`}
+      title={name}
+    >
+      {showImage ? (
+        <img
+          src={imageSrc}
+          alt={name ? `${name} avatar` : "Profile avatar"}
+          className="h-full w-full object-cover"
+          onError={() => setImageFailed(true)}
+        />
+      ) : (
+        <User size={iconSize} />
+      )}
+    </div>
+  );
+}
+
+function toAssignmentMap(assignments: NurseElderlyAssignment[]) {
+  return assignments.reduce<Record<string, string[]>>((map, assignment) => {
+    const nurseId = String(assignment.nurseId);
+    const elderlyId = String(assignment.elderlyId);
+
+    map[nurseId] = [...(map[nurseId] || []), elderlyId];
+    return map;
+  }, {});
+}
+
+function getAssignedElderly(
+  nurse: NurseProfile,
+  assignmentMap: Record<string, string[]>,
+  elderlyList: ElderlyProfile[]
+) {
+  const nurseId = String(nurse.nurseId || nurse.id);
+  const assignedIds = new Set(assignmentMap[nurseId] || []);
+
+  return elderlyList.filter((profile) => assignedIds.has(String(profile.id)));
+}
+
+function getNurseSqlDisplayId(profile: NurseProfile) {
+  const value = String(profile.nurseId ?? profile.id ?? "").trim();
+  const formattedMatch = value.match(/^(?:NRS|NUR|N)-0*(\d+)$/i);
+
+  return formattedMatch ? formattedMatch[1] : value;
+}
+
 export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) {
   const useApi = import.meta.env.VITE_USE_API !== "false";
   const [modal, setModal] = useState<Modal>(null);
@@ -196,6 +315,11 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
   const [loading, setLoading] = useState(useApi);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [assignmentMap, setAssignmentMap] = useState<Record<string, string[]>>({});
+  const [elderlyStatusFilter, setElderlyStatusFilter] = useState<"all" | "Active" | "Inactive">("all");
+  const [elderlyGenderFilter, setElderlyGenderFilter] = useState<"all" | "male" | "female" | "other">("all");
+  const [elderlyMinAge, setElderlyMinAge] = useState("");
+  const [elderlyMaxAge, setElderlyMaxAge] = useState("");
 
   const perPage = 8;
 
@@ -207,8 +331,9 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
     getProfiles()
       .then((profiles) => {
         if (ignore) return;
-        setElderlyList(profiles.elderly);
-        setNurseList(profiles.nurses);
+        setElderlyList(profiles.elderly.map(normalizeElderlyProfile));
+        setNurseList(profiles.nurses.map(normalizeNurseProfile));
+        setAssignmentMap(toAssignmentMap(profiles.nurseElderlyAssignments || []));
         setError(null);
       })
       .catch((err) => {
@@ -236,18 +361,63 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
     return () => window.clearTimeout(timer);
   }, [successMessage]);
 
-  const filteredElderly = elderlyList.filter(
-    (e) =>
-      e.name.toLowerCase().includes(search.toLowerCase()) ||
-      e.medicalCondition.toLowerCase().includes(search.toLowerCase()) ||
-      e.phone.includes(search)
-  );
+  useEffect(() => {
+    setPage(1);
+    setSelectedRow(null);
+
+    if (modal?.type === "addForm" && modal.formType !== activeTab) {
+      setModal(null);
+    }
+  }, [activeTab]);
+
+  const handleProfileTabChange = (tab: ProfileTab) => {
+    onTabChange(tab);
+    setPage(1);
+    setSelectedRow(null);
+    setModal(null);
+  };
+
+  const resetElderlyTable = () => {
+    setPage(1);
+    setSelectedRow(null);
+  };
+
+  const clearElderlyFilters = () => {
+    setElderlyStatusFilter("all");
+    setElderlyGenderFilter("all");
+    setElderlyMinAge("");
+    setElderlyMaxAge("");
+    resetElderlyTable();
+  };
+
+  const searchText = search.toLowerCase();
+  const safeText = (value: unknown) => String(value ?? "").toLowerCase();
+  const minAgeFilter = elderlyMinAge === "" ? null : Number(elderlyMinAge);
+  const maxAgeFilter = elderlyMaxAge === "" ? null : Number(elderlyMaxAge);
+  const hasElderlyFilters =
+    elderlyStatusFilter !== "all" ||
+    elderlyGenderFilter !== "all" ||
+    elderlyMinAge !== "" ||
+    elderlyMaxAge !== "";
+
+  const filteredElderly = elderlyList.filter((e) => {
+    const matchesSearch =
+      safeText(e.name).includes(searchText) ||
+      safeText(e.medicalCondition).includes(searchText) ||
+      safeText(e.phone).includes(searchText);
+    const matchesStatus = elderlyStatusFilter === "all" || e.status === elderlyStatusFilter;
+    const matchesGender = elderlyGenderFilter === "all" || safeText(e.gender) === elderlyGenderFilter;
+    const matchesMinAge = minAgeFilter === null || Number(e.age) >= minAgeFilter;
+    const matchesMaxAge = maxAgeFilter === null || Number(e.age) <= maxAgeFilter;
+
+    return matchesSearch && matchesStatus && matchesGender && matchesMinAge && matchesMaxAge;
+  });
 
   const filteredNurse = nurseList.filter(
     (n) =>
-      n.name.toLowerCase().includes(search.toLowerCase()) ||
-      n.position.toLowerCase().includes(search.toLowerCase()) ||
-      n.email.toLowerCase().includes(search.toLowerCase())
+      safeText(n.name).includes(searchText) ||
+      safeText(n.position).includes(searchText) ||
+      safeText(n.email).includes(searchText)
   );
 
   const elderlyPages = Math.ceil(filteredElderly.length / perPage);
@@ -268,7 +438,7 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
     }
 
     try {
-      const saved = await updateElderlyProfile(updated);
+      const saved = normalizeElderlyProfile(await updateElderlyProfile(updated));
       setElderlyList((prev) => prev.map((e) => (e.id === saved.id ? saved : e)));
       setModal(null);
       setError(null);
@@ -317,7 +487,7 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
     }
 
     try {
-      const saved = await updateNurseProfile(updated);
+      const saved = normalizeNurseProfile(await updateNurseProfile(updated));
       setNurseList((prev) => prev.map((n) => (n.id === saved.id ? saved : n)));
       setModal(null);
       setError(null);
@@ -355,7 +525,9 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
     const age = Number(profile.age);
 
     if (!name.trim()) errors.name = "Full name is required.";
-    else if (name.trim().length > 10) errors.name = "Full name must be 10 characters or fewer.";
+    else if (name.trim().length > PROFILE_NAME_MAX_LENGTH) {
+      errors.name = `Full name must be ${PROFILE_NAME_MAX_LENGTH} characters or fewer.`;
+    }
     else if (name.startsWith(" ")) errors.name = "Full name cannot start with a space.";
     else if (name.includes("  ")) errors.name = "Full name cannot contain double spaces.";
     else if (!/[A-Za-z]/.test(name)) errors.name = "Full name must contain at least one letter.";
@@ -449,6 +621,37 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
     }
   };
 
+  const handleSaveAssignments = async (profile: NurseProfile, elderlyIds: string[]) => {
+    const nurseId = String(profile.nurseId || profile.id);
+    const uniqueElderlyIds = Array.from(new Set(elderlyIds.map(String)));
+
+    if (!useApi) {
+      setAssignmentMap((prev) => ({ ...prev, [nurseId]: uniqueElderlyIds }));
+      setNurseList((prev) => prev.map((n) => (
+        String(n.nurseId || n.id) === nurseId ? { ...n, assignedElders: uniqueElderlyIds.length } : n
+      )));
+      setModal({ type: "viewNurse", profile: { ...profile, assignedElders: uniqueElderlyIds.length } });
+      setSuccessMessage("Assigned elderly updated successfully.");
+      return;
+    }
+
+    try {
+      const response = await updateNurseElderlyAssignments(nurseId, uniqueElderlyIds);
+      const savedIds = response.assignments.map((assignment) => String(assignment.elderlyId));
+
+      setAssignmentMap((prev) => ({ ...prev, [nurseId]: savedIds }));
+      setNurseList((prev) => prev.map((n) => (
+        String(n.nurseId || n.id) === nurseId ? { ...n, assignedElders: savedIds.length } : n
+      )));
+      setModal({ type: "viewNurse", profile: { ...profile, assignedElders: savedIds.length } });
+      setError(null);
+      setSuccessMessage("Assigned elderly updated successfully.");
+    } catch (err) {
+      setError("Failed to save assigned elderly.");
+      console.error(err);
+    }
+  };
+
   const handleAddProfile = async (profile: NewProfilePayload): Promise<ValidationErrors | void> => {
     if (!useApi) {
       const validationErrors = validateNewProfile(profile);
@@ -505,11 +708,11 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
 
     try {
       if (profile.type === "elderly") {
-        const created = await createElderlyProfile(profile);
+        const created = normalizeElderlyProfile(await createElderlyProfile(profile));
         setElderlyList((prev) => [created, ...prev]);
         setSuccessMessage("Elderly profile added successfully.");
       } else {
-        const created = await createNurseProfile(profile);
+        const created = normalizeNurseProfile(await createNurseProfile(profile));
         setNurseList((prev) => [created, ...prev]);
         setSuccessMessage("Caregiver profile added successfully.");
       }
@@ -632,7 +835,7 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
           {(["elderly", "nurse"] as ProfileTab[]).map((tab) => (
             <button
               key={tab}
-              onClick={() => { onTabChange(tab); setPage(1); setSelectedRow(null); }}
+              onClick={() => handleProfileTabChange(tab)}
               className="px-4 py-1.5 rounded-lg text-xs transition-colors"
               style={{
                 backgroundColor: activeTab === tab ? "#2563eb" : "transparent",
@@ -649,8 +852,8 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
           {/* Main table area */}
           <div className="flex-1 bg-white rounded-xl border overflow-hidden" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
             {/* Table Header */}
-            <div className="flex items-center justify-between p-4 border-b" style={{ borderColor: "rgba(0,0,0,0.06)" }}>
-              <div className="relative flex-1 max-w-xs">
+            <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-b" style={{ borderColor: "rgba(0,0,0,0.06)" }}>
+              <div className="relative min-w-[220px] flex-1 max-w-xs">
                 <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "#6b7a99" }} />
                 <input
                   value={search}
@@ -661,16 +864,66 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
                 />
               </div>
 
-              <div className="flex items-center gap-2 ml-3">
-                <FilterPill label="All Status" />
-                {activeTab === "elderly" && <FilterPill label="All Members" />}
-                <FilterPill label="All Conditions" />
-                <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border" style={{ borderColor: "rgba(0,0,0,0.1)", color: "#6b7a99" }}>
-                  <Filter size={12} /> More Filters
-                </button>
+              <div className="flex flex-wrap items-center gap-2">
+                {activeTab === "elderly" && (
+                  <>
+                    <FilterSelect
+                      label="Status"
+                      value={elderlyStatusFilter}
+                      onChange={(value) => {
+                        setElderlyStatusFilter(value as "all" | "Active" | "Inactive");
+                        resetElderlyTable();
+                      }}
+                      options={[
+                        { value: "all", label: "All Status" },
+                        { value: "Active", label: "Active" },
+                        { value: "Inactive", label: "Inactive" },
+                      ]}
+                    />
+                    <FilterSelect
+                      label="Gender"
+                      value={elderlyGenderFilter}
+                      onChange={(value) => {
+                        setElderlyGenderFilter(value as "all" | "male" | "female" | "other");
+                        resetElderlyTable();
+                      }}
+                      options={[
+                        { value: "all", label: "All Gender" },
+                        { value: "male", label: "Male" },
+                        { value: "female", label: "Female" },
+                        { value: "other", label: "Other" },
+                      ]}
+                    />
+                    <AgeFilterInput
+                      label="Min Age"
+                      value={elderlyMinAge}
+                      onChange={(value) => {
+                        setElderlyMinAge(value);
+                        resetElderlyTable();
+                      }}
+                    />
+                    <AgeFilterInput
+                      label="Max Age"
+                      value={elderlyMaxAge}
+                      onChange={(value) => {
+                        setElderlyMaxAge(value);
+                        resetElderlyTable();
+                      }}
+                    />
+                    {hasElderlyFilters && (
+                      <button
+                        onClick={clearElderlyFilters}
+                        className="flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs transition-colors hover:bg-gray-50"
+                        style={{ borderColor: "rgba(0,0,0,0.1)", color: "#6b7a99" }}
+                      >
+                        <X size={12} /> Clear
+                      </button>
+                    )}
+                  </>
+                )}
                 <button
                   onClick={() => setModal({ type: "addForm", formType: activeTab })}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-white"
+                  className="flex h-8 items-center gap-1.5 px-3 rounded-lg text-xs text-white"
                   style={{ backgroundColor: "#2563eb" }}
                 >
                   <Plus size={12} /> Add New Profile
@@ -761,7 +1014,12 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
         />
       )}
       {modal?.type === "viewNurse" && (
-        <NurseViewModal profile={modal.profile} onClose={() => setModal(null)} />
+        <NurseViewModal
+          profile={modal.profile}
+          assignedElderly={getAssignedElderly(modal.profile, assignmentMap, elderlyList)}
+          onAssign={() => setModal({ type: "assignElders", profile: modal.profile })}
+          onClose={() => setModal(null)}
+        />
       )}
       {modal?.type === "editNurse" && (
         <NurseEditPanel
@@ -775,6 +1033,15 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
           name={modal.profile.name}
           onConfirm={handleDeleteNurseConfirm}
           onCancel={() => setModal(null)}
+        />
+      )}
+      {modal?.type === "assignElders" && (
+        <AssignEldersModal
+          nurse={modal.profile}
+          elderlyList={elderlyList}
+          selectedIds={assignmentMap[String(modal.profile.nurseId || modal.profile.id)] || []}
+          onCancel={() => setModal({ type: "viewNurse", profile: modal.profile })}
+          onSave={(elderlyIds) => handleSaveAssignments(modal.profile, elderlyIds)}
         />
       )}
     </div>
@@ -812,6 +1079,13 @@ function ElderlyTable({
           </tr>
         </thead>
         <tbody>
+          {data.length === 0 && (
+            <tr>
+              <td colSpan={cols.length} className="px-3 py-10 text-center text-xs" style={{ color: "#6b7a99" }}>
+                No elderly profiles found.
+              </td>
+            </tr>
+          )}
           {data.map((row) => (
             <tr
               key={row.id}
@@ -827,7 +1101,7 @@ function ElderlyTable({
               <td className="px-3 py-2.5 text-xs" style={{ color: "#6b7a99" }}>{row.id}</td>
               <td className="px-3 py-2.5">
                 <div className="flex items-center gap-2">
-                  <img src={row.avatar} alt={row.name} className="w-7 h-7 rounded-full object-cover" />
+                  <ProfileAvatar src={row.avatar} name={row.name} className="w-7 h-7" iconSize={13} />
                   <span className="text-xs" style={{ color: "#1a2b42", fontWeight: 500 }}>{row.name}</span>
                 </div>
               </td>
@@ -893,6 +1167,13 @@ function NurseTable({
           </tr>
         </thead>
         <tbody>
+          {data.length === 0 && (
+            <tr>
+              <td colSpan={cols.length} className="px-3 py-10 text-center text-xs" style={{ color: "#6b7a99" }}>
+                No caregiver or nurse profiles found.
+              </td>
+            </tr>
+          )}
           {data.map((row) => (
             <tr
               key={row.id}
@@ -905,10 +1186,10 @@ function NurseTable({
               onMouseEnter={(e) => { if (selectedRow !== row.id) e.currentTarget.style.backgroundColor = "#f8fafc"; }}
               onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = selectedRow === row.id ? "#eff6ff" : "transparent"; }}
             >
-              <td className="px-3 py-2.5 text-xs" style={{ color: "#6b7a99" }}>{row.id}</td>
+              <td className="px-3 py-2.5 text-xs" style={{ color: "#6b7a99" }}>{getNurseSqlDisplayId(row)}</td>
               <td className="px-3 py-2.5">
                 <div className="flex items-center gap-2">
-                  <img src={row.avatar} alt={row.name} className="w-7 h-7 rounded-full object-cover" />
+                  <ProfileAvatar src={row.avatar} name={row.name} className="w-7 h-7" iconSize={13} />
                   <span className="text-xs" style={{ color: "#1a2b42", fontWeight: 500 }}>{row.name}</span>
                 </div>
               </td>
@@ -970,7 +1251,7 @@ function SideProfile({
       <div className="p-4 overflow-y-auto max-h-[600px]">
         {/* Avatar */}
         <div className="flex flex-col items-center mb-4">
-          <img src={profile.avatar} alt={profile.name} className="w-14 h-14 rounded-full object-cover mb-2" />
+          <ProfileAvatar src={profile.avatar} name={profile.name} className="w-14 h-14 mb-2" iconSize={22} />
           <div className="text-sm text-center" style={{ color: "#1a2b42", fontWeight: 700 }}>{profile.name}</div>
           <div className="text-xs" style={{ color: "#6b7a99" }}>{profile.id}</div>
           <span
@@ -1034,9 +1315,9 @@ function NurseSideProfile({
 
       <div className="p-4 overflow-y-auto max-h-[600px]">
         <div className="flex flex-col items-center mb-4">
-          <img src={profile.avatar} alt={profile.name} className="w-14 h-14 rounded-full object-cover mb-2" />
+          <ProfileAvatar src={profile.avatar} name={profile.name} className="w-14 h-14 mb-2" iconSize={22} />
           <div className="text-sm text-center" style={{ color: "#1a2b42", fontWeight: 700 }}>{profile.name}</div>
-          <div className="text-xs" style={{ color: "#6b7a99" }}>{profile.id}</div>
+          <div className="text-xs" style={{ color: "#6b7a99" }}>{getNurseSqlDisplayId(profile)}</div>
           <span
             className="text-xs px-2 py-0.5 rounded-full mt-1"
             style={{
@@ -1065,7 +1346,7 @@ function NurseSideProfile({
   );
 }
 
-function SideSection({ title, children }: { title: string; children: React.ReactNode }) {
+function SideSection({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="mb-3">
       <div className="text-xs pb-1 mb-2 border-b" style={{ color: "#2563eb", fontWeight: 700, borderColor: "rgba(0,0,0,0.07)" }}>
@@ -1115,7 +1396,7 @@ function ViewModal({
 
         <div className="p-5 overflow-y-auto max-h-[65vh]">
           <div className="flex items-center gap-3 mb-5">
-            <img src={profile.avatar} alt={profile.name} className="w-14 h-14 rounded-full object-cover border-2" style={{ borderColor: "#dbeafe" }} />
+            <ProfileAvatar src={profile.avatar} name={profile.name} className="w-14 h-14 border-2" iconSize={22} />
             <div>
               <div style={{ color: "#1a2b42", fontWeight: 700 }}>{profile.name}</div>
               <div className="text-xs" style={{ color: "#6b7a99" }}>{profile.age} yrs · {profile.gender}</div>
@@ -1163,7 +1444,17 @@ function ViewModal({
   );
 }
 
-function NurseViewModal({ profile, onClose }: { profile: NurseProfile; onClose: () => void }) {
+function NurseViewModal({
+  profile,
+  assignedElderly,
+  onAssign,
+  onClose,
+}: {
+  profile: NurseProfile;
+  assignedElderly: ElderlyProfile[];
+  onAssign: () => void;
+  onClose: () => void;
+}) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -1174,7 +1465,7 @@ function NurseViewModal({ profile, onClose }: { profile: NurseProfile; onClose: 
         <div className="flex items-center justify-between p-5 border-b" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
           <div>
             <h2 style={{ color: "#1a2b42", fontWeight: 700 }}>View Nurse Profile</h2>
-            <p className="text-xs mt-0.5" style={{ color: "#6b7a99" }}>{profile.id}</p>
+            <p className="text-xs mt-0.5" style={{ color: "#6b7a99" }}>{getNurseSqlDisplayId(profile)}</p>
           </div>
           <button onClick={onClose} className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-gray-100">
             <X size={16} style={{ color: "#6b7a99" }} />
@@ -1182,7 +1473,7 @@ function NurseViewModal({ profile, onClose }: { profile: NurseProfile; onClose: 
         </div>
         <div className="p-5 overflow-y-auto max-h-[65vh]">
           <div className="flex items-center gap-3 mb-5">
-            <img src={profile.avatar} alt={profile.name} className="w-14 h-14 rounded-full object-cover border-2" style={{ borderColor: "#dbeafe" }} />
+            <ProfileAvatar src={profile.avatar} name={profile.name} className="w-14 h-14 border-2" iconSize={22} />
             <div>
               <div style={{ color: "#1a2b42", fontWeight: 700 }}>{profile.name}</div>
               <div className="text-xs" style={{ color: "#6b7a99" }}>{profile.age} yrs · {profile.gender}</div>
@@ -1199,13 +1490,162 @@ function NurseViewModal({ profile, onClose }: { profile: NurseProfile; onClose: 
             <ModalRow label="Position" value={profile.position} />
             <ModalRow label="Work Area" value={profile.workArea} />
             <ModalRow label="Hire Date" value={profile.hireDate} />
-            <ModalRow label="Assigned Elders" value={String(profile.assignedElders)} />
+            <ModalRow label="Assigned Elders" value={String(assignedElderly.length)} />
+          </ModalSection>
+
+          <ModalSection title="Assigned Elderly">
+            {assignedElderly.length > 0 ? (
+              <div className="space-y-2">
+                {assignedElderly.map((elderly) => (
+                  <div key={elderly.id} className="flex items-center gap-2 rounded-lg border px-2 py-2" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
+                    <ProfileAvatar src={elderly.avatar} name={elderly.name} className="h-8 w-8" iconSize={14} />
+                    <div className="min-w-0">
+                      <div className="truncate text-xs" style={{ color: "#1a2b42", fontWeight: 700 }}>{elderly.name}</div>
+                      <div className="truncate text-xs" style={{ color: "#6b7a99" }}>{elderly.id} · {elderly.medicalCondition}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs" style={{ color: "#6b7a99" }}>
+                No elderly assigned yet.
+              </p>
+            )}
           </ModalSection>
         </div>
         <div className="flex gap-2 p-4 border-t" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
           <button onClick={onClose} className="flex-1 py-2 rounded-lg border text-sm hover:bg-gray-50" style={{ borderColor: "rgba(0,0,0,0.12)", color: "#6b7a99" }}>
             Close
           </button>
+          <button onClick={onAssign} className="flex-1 py-2 rounded-lg text-sm text-white hover:opacity-90" style={{ backgroundColor: "#2563eb" }}>
+            Assign Elderly
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AssignEldersModal({
+  nurse,
+  elderlyList,
+  selectedIds,
+  onCancel,
+  onSave,
+}: {
+  nurse: NurseProfile;
+  elderlyList: ElderlyProfile[];
+  selectedIds: string[];
+  onCancel: () => void;
+  onSave: (elderlyIds: string[]) => Promise<void> | void;
+}) {
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(selectedIds.map(String)));
+  const [query, setQuery] = useState("");
+  const [saving, setSaving] = useState(false);
+  const filteredElderly = elderlyList.filter((elderly) => {
+    const text = `${elderly.name} ${elderly.id} ${elderly.medicalCondition}`.toLowerCase();
+    return text.includes(query.trim().toLowerCase());
+  });
+
+  const toggleElderly = (id: string) => {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await onSave(Array.from(selected));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[90] flex items-center justify-center p-4"
+      style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+      onClick={(e) => e.target === e.currentTarget && onCancel()}
+    >
+      <div className="flex max-h-[86vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b p-5" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
+          <div>
+            <h2 style={{ color: "#1a2b42", fontWeight: 700 }}>Assign Elderly</h2>
+            <p className="text-xs mt-0.5" style={{ color: "#6b7a99" }}>{nurse.name}</p>
+          </div>
+          <button onClick={onCancel} className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-gray-100">
+            <X size={16} style={{ color: "#6b7a99" }} />
+          </button>
+        </div>
+
+        <div className="border-b p-4" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "#6b7a99" }} />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search elderly by name, ID, or condition"
+              className="w-full rounded-lg border py-2 pl-9 pr-3 text-sm outline-none"
+              style={{ borderColor: "rgba(0,0,0,0.12)", color: "#1a2b42" }}
+            />
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4">
+          {filteredElderly.length === 0 ? (
+            <div className="py-10 text-center text-xs" style={{ color: "#6b7a99" }}>
+              No elderly profiles found.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {filteredElderly.map((elderly) => {
+                const checked = selected.has(String(elderly.id));
+
+                return (
+                  <label
+                    key={elderly.id}
+                    className="flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2.5 hover:bg-slate-50"
+                    style={{ borderColor: checked ? "#93c5fd" : "rgba(0,0,0,0.07)", backgroundColor: checked ? "#eff6ff" : "#fff" }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleElderly(String(elderly.id))}
+                      className="h-4 w-4"
+                    />
+                    <ProfileAvatar src={elderly.avatar} name={elderly.name} className="h-9 w-9" iconSize={15} />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm" style={{ color: "#1a2b42", fontWeight: 700 }}>{elderly.name}</div>
+                      <div className="truncate text-xs" style={{ color: "#6b7a99" }}>{elderly.id} · {elderly.medicalCondition}</div>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between gap-3 border-t p-4" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
+          <span className="text-xs" style={{ color: "#6b7a99" }}>
+            {selected.size} elderly selected
+          </span>
+          <div className="flex gap-2">
+            <button onClick={onCancel} className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50" style={{ borderColor: "rgba(0,0,0,0.12)", color: "#6b7a99" }}>
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="rounded-lg px-4 py-2 text-sm text-white disabled:opacity-70"
+              style={{ backgroundColor: "#2563eb" }}
+            >
+              {saving ? "Saving..." : "Save Assignments"}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -1450,15 +1890,58 @@ function ModalRow({ label, value, highlight }: { label: string; value: string; h
   );
 }
 
-function FilterPill({ label }: { label: string }) {
+function FilterSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (value: string) => void;
+}) {
   return (
-    <button
-      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs transition-colors hover:bg-gray-50"
-      style={{ borderColor: "rgba(0,0,0,0.1)", color: "#6b7a99" }}
-    >
-      {label}
-      <ChevronRight size={10} className="rotate-90" />
-    </button>
+    <label className="flex h-8 items-center gap-1.5 rounded-lg border bg-white px-2.5 text-xs" style={{ borderColor: "rgba(0,0,0,0.1)", color: "#6b7a99" }}>
+      <span>{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="bg-transparent text-xs outline-none"
+        style={{ color: "#1a2b42" }}
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function AgeFilterInput({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="flex h-8 items-center gap-1.5 rounded-lg border bg-white px-2.5 text-xs" style={{ borderColor: "rgba(0,0,0,0.1)", color: "#6b7a99" }}>
+      <span>{label}</span>
+      <input
+        type="number"
+        min={50}
+        max={120}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-14 bg-transparent text-xs outline-none"
+        style={{ color: "#1a2b42" }}
+      />
+    </label>
   );
 }
 

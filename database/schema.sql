@@ -1,42 +1,67 @@
 CREATE DATABASE IF NOT EXISTS eldercare;
 USE eldercare;
 
-CREATE TABLE IF NOT EXISTS elderly_profiles (
-  id VARCHAR(20) PRIMARY KEY,
-  name VARCHAR(120) NOT NULL,
+CREATE TABLE IF NOT EXISTS elderly (
+  elderly_id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
   age INT NOT NULL,
-  gender VARCHAR(30) NOT NULL,
-  phone VARCHAR(40),
-  medical_condition VARCHAR(160),
-  emergency_contact VARCHAR(120),
+  gender ENUM('male', 'female', 'other') NOT NULL,
+  birthdate DATETIME DEFAULT CURRENT_TIMESTAMP,
+  address VARCHAR(500) NOT NULL,
+  phone VARCHAR(20) NOT NULL,
+  medical_conditions VARCHAR(500) NOT NULL,
+  allergies VARCHAR(300) NOT NULL,
+  blood_type VARCHAR(10) NOT NULL,
+  emergency_name VARCHAR(100) NOT NULL,
+  emergency_phone VARCHAR(20) NOT NULL,
   emergency_address VARCHAR(500),
-  status ENUM('Active', 'Inactive') NOT NULL DEFAULT 'Active',
-  avatar MEDIUMTEXT,
-  dob VARCHAR(80),
-  address VARCHAR(255),
-  blood_type VARCHAR(10),
-  allergies VARCHAR(160),
-  doctor_name VARCHAR(120),
-  relationship VARCHAR(80),
-  emergency_phone VARCHAR(40),
-  admission_date VARCHAR(80),
-  notes TEXT
+  elderly_status ENUM('active', 'passed away') DEFAULT 'active',
+  enroll_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+  avatar MEDIUMTEXT
 );
 
-CREATE TABLE IF NOT EXISTS nurse_profiles (
-  id VARCHAR(20) PRIMARY KEY,
-  name VARCHAR(120) NOT NULL,
+CREATE TABLE IF NOT EXISTS nurse (
+  nurse_id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
   age INT NOT NULL,
-  gender VARCHAR(30) NOT NULL,
-  phone VARCHAR(40),
-  email VARCHAR(160),
-  position VARCHAR(120),
-  hire_date VARCHAR(80),
-  status ENUM('Active', 'On Leave') NOT NULL DEFAULT 'Active',
-  avatar VARCHAR(255),
-  assigned_elders INT NOT NULL DEFAULT 0,
-  work_area VARCHAR(120),
-  nurse_status VARCHAR(80)
+  gender ENUM('male', 'female', 'other') NOT NULL,
+  phone VARCHAR(20) NOT NULL,
+  email VARCHAR(30) NOT NULL,
+  license_number INT NOT NULL,
+  position VARCHAR(20) NOT NULL,
+  shift_schedule VARCHAR(50) NOT NULL,
+  work_area VARCHAR(400) NOT NULL,
+  username VARCHAR(30) NOT NULL,
+  password VARCHAR(100) NOT NULL,
+  address VARCHAR(500) NOT NULL,
+  hire_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+  nurse_status ENUM('active', 'suspended', 'resigned') DEFAULT 'active'
+);
+
+CREATE TABLE IF NOT EXISTS schedule (
+  schedule_id INT AUTO_INCREMENT PRIMARY KEY,
+  nurse_id INT NOT NULL,
+  elderly_id INT NOT NULL,
+  visit_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+  visit_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+  purpose ENUM('Blood Pressure', 'Blood Glucose', 'Medication', 'Routine Visit', 'Vitals Check', 'Medication Check', 'Emergency Follow-up') NOT NULL,
+  schedule_status ENUM('scheduled', 'completed', 'missed', 'cancelled') DEFAULT 'scheduled',
+  recurring_group_id VARCHAR(40) NULL,
+  recurring_sequence INT NULL,
+  INDEX fk_schedule_nurse (nurse_id),
+  INDEX fk_schedule_elderly (elderly_id),
+  INDEX idx_schedule_recurring_group_id (recurring_group_id)
+);
+
+CREATE TABLE IF NOT EXISTS nurse_elderly_assignments (
+  assignment_id INT AUTO_INCREMENT PRIMARY KEY,
+  nurse_id INT NOT NULL,
+  elderly_id INT NOT NULL,
+  assigned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  status ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+  UNIQUE KEY unique_nurse_elderly_assignment (nurse_id, elderly_id),
+  INDEX idx_assignment_nurse_id (nurse_id),
+  INDEX idx_assignment_elderly_id (elderly_id)
 );
 
 CREATE TABLE IF NOT EXISTS admin (
@@ -81,21 +106,21 @@ CREATE TABLE IF NOT EXISTS medication_assignments (
   INDEX idx_medication_assignments_scheduled_date (scheduled_date)
 );
 
-INSERT INTO elderly_profiles (
-  id, name, age, gender, phone, medical_condition, emergency_contact, status,
-  avatar, dob, address, blood_type, allergies, doctor_name, relationship,
-  emergency_phone, admission_date, notes
+INSERT INTO elderly (
+  elderly_id, name, age, gender, birthdate, address, phone, medical_conditions, allergies,
+  blood_type, emergency_name, emergency_phone, emergency_address, elderly_status,
+  enroll_date, avatar
 ) VALUES
-('ELD-0001', 'Mary Wilson', 78, 'Female', '(555) 234-5678', 'Hypertension', 'James Wilson', 'Active', 'https://i.pravatar.cc/40?img=47', 'June 12, 1946', '123 Maple Street, Springfield, IL 62701', 'A+', 'Penicillin', 'Dr. Patricia Moore', 'Son', '(555) 987-6543', 'February 3, 2022', 'Requires daily blood pressure monitoring. Walks with assistance.'),
-('ELD-0002', 'Robert Brown', 82, 'Male', '(555) 345-6789', 'Diabetes Type 2', 'Patricia Brown', 'Active', 'https://i.pravatar.cc/40?img=12', 'March 8, 1942', '456 Oak Avenue, Springfield, IL 62702', 'B+', 'Sulfa drugs', 'Dr. James Carter', 'Daughter', '(555) 876-5432', 'April 15, 2021', 'Insulin-dependent. Low-sugar diet required.'),
-('ELD-0003', 'Penney Smith', 75, 'Female', '(555) 456-7890', 'Alzheimer''s', 'Michael Smith', 'Active', 'https://i.pravatar.cc/40?img=45', 'September 20, 1949', '789 Elm Street, Springfield, IL 62703', 'O+', 'None', 'Dr. Susan Lee', 'Son', '(555) 765-4321', 'January 10, 2023', 'Requires constant supervision. Memory care unit.')
+('1', 'Mary Wilson', 78, 'female', '1946-06-12', '123 Maple Street, Springfield, IL 62701', '(555) 234-5678', 'Hypertension', 'Penicillin', 'A+', 'James Wilson', '(555) 987-6543', '', 'active', '2022-02-03', 'https://i.pravatar.cc/40?img=47'),
+('2', 'Robert Brown', 82, 'male', '1942-03-08', '456 Oak Avenue, Springfield, IL 62702', '(555) 345-6789', 'Diabetes Type 2', 'Sulfa drugs', 'B+', 'Patricia Brown', '(555) 876-5432', '', 'active', '2021-04-15', 'https://i.pravatar.cc/40?img=12'),
+('3', 'Penney Smith', 75, 'female', '1949-09-20', '789 Elm Street, Springfield, IL 62703', '(555) 456-7890', 'Alzheimer''s', 'None', 'O+', 'Michael Smith', '(555) 765-4321', '', 'active', '2023-01-10', 'https://i.pravatar.cc/40?img=45')
 ON DUPLICATE KEY UPDATE name = VALUES(name);
 
-INSERT INTO nurse_profiles (
-  id, name, age, gender, phone, email, position, hire_date, status,
-  avatar, assigned_elders, work_area, nurse_status
+INSERT INTO nurse (
+  nurse_id, name, age, gender, phone, email, license_number, position, shift_schedule,
+  work_area, username, password, address, hire_date, nurse_status
 ) VALUES
-('NRS-0001', 'Emily Clark', 34, 'Female', '(555) 111-2233', 'emily.clark@elderease.com', 'Senior Nurse', 'March 15, 2020', 'Active', 'https://i.pravatar.cc/40?img=49', 8, 'Memory Care Unit', 'Active'),
-('NRS-0002', 'James Lee', 29, 'Male', '(555) 222-3344', 'james.lee@elderease.com', 'Registered Nurse', 'June 10, 2021', 'Active', 'https://i.pravatar.cc/40?img=53', 6, 'General Ward', 'Active'),
-('NRS-0003', 'Sophia Martinez', 38, 'Female', '(555) 333-4455', 'sophia.martinez@elderease.com', 'Charge Nurse', 'January 5, 2019', 'Active', 'https://i.pravatar.cc/40?img=46', 10, 'Cardiac Care', 'Active')
+('1', 'Emily Clark', 34, 'female', '(555) 111-2233', 'emily.clark@elderease.com', 1001, 'Senior Nurse', 'Morning', 'Memory Care Unit', 'emilyclark', 'password123', 'Yangon', '2020-03-15', 'active'),
+('2', 'James Lee', 29, 'male', '(555) 222-3344', 'james.lee@elderease.com', 1002, 'Registered Nurse', 'Morning', 'General Ward', 'jameslee', 'password123', 'Yangon', '2021-06-10', 'active'),
+('3', 'Sophia Martinez', 38, 'female', '(555) 333-4455', 'sophia.martinez@elderease.com', 1003, 'Charge Nurse', 'Morning', 'Cardiac Care', 'sophiamartinez', 'password123', 'Yangon', '2019-01-05', 'active')
 ON DUPLICATE KEY UPDATE name = VALUES(name);

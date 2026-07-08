@@ -34,12 +34,22 @@ export function ViewProfileModal({ profile, onClose, onEdit }: ViewProfileModalP
         <div className="p-5 overflow-y-auto max-h-[70vh]">
           {/* Profile Header */}
           <div className="flex items-center gap-3 mb-5">
-            <img
-              src={profile.avatar}
-              alt={profile.name}
-              className="w-14 h-14 rounded-full object-cover border-2"
-              style={{ borderColor: "#dbeafe" }}
-            />
+            {profile.avatar?.trim() ? (
+              <img
+                src={profile.avatar}
+                alt={profile.name}
+                className="w-14 h-14 rounded-full object-cover border-2"
+                style={{ borderColor: "#dbeafe" }}
+              />
+            ) : (
+              <div
+                className="flex h-14 w-14 items-center justify-center rounded-full border-2"
+                style={{ borderColor: "#dbeafe", backgroundColor: "#eff6ff", color: "#2563eb" }}
+                aria-label={profile.name}
+              >
+                <User size={22} />
+              </div>
+            )}
             <div>
               <div style={{ color: "#1a2b42", fontWeight: 700 }}>{profile.name}</div>
               <div className="text-xs" style={{ color: "#6b7a99" }}>
