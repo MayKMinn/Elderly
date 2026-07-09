@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState, FormEvent } from "react";
-import { CalendarDays, Search } from "lucide-react";
+import { CalendarDays, Clock3, User, HeartPulse } from "lucide-react";
 import type { ScheduleAssignment } from "../api/schedules";
 import { updateScheduleStatus } from "../api/schedules";
+import { createHealthLog } from "../api/health";
+import { fetchHealthLogs } from "../api/health";
 
 interface MySchedulesProps {
   nurseName?: string;
@@ -9,20 +11,9 @@ interface MySchedulesProps {
   selectedScheduleId?: number | null;
 }
 
-interface VisitRecord {
-  status: string;
-  details: string;
-}
-
-function toDateKey(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
 export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: selectedScheduleIdProp = null }: MySchedulesProps) {
   const [schedules, setSchedules] = useState<ScheduleAssignment[]>([]);
+  const [searchText, setSearchText] = useState("");
   const [loading, setLoading] = useState(false);
   const [selectedScheduleId, setSelectedScheduleId] = useState<number | null>(selectedScheduleIdProp);
   const [formMessage, setFormMessage] = useState<string | null>(null);
@@ -31,18 +22,6 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
   const [diastolic, setDiastolic] = useState("");
   const [glucoseValue, setGlucoseValue] = useState("");
   const [notes, setNotes] = useState("");
-  const [elderlySearch, setElderlySearch] = useState("");
-  const [showTodayOnly, setShowTodayOnly] = useState(false);
-  const [visitRecords, setVisitRecords] = useState<Record<number, VisitRecord>>(() => {
-    if (typeof window === "undefined") return {};
-
-    try {
-      const stored = window.localStorage.getItem("nurse-schedule-records");
-      return stored ? JSON.parse(stored) : {};
-    } catch {
-      return {};
-    }
-  });
   const inputCls = "w-full px-3 py-2.5 bg-muted/60 border border-border rounded-xl outline-none focus:ring-2 focus:ring-primary/30 transition-all";
 
   useEffect(() => {
@@ -82,44 +61,71 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
     setSelectedScheduleId(selectedScheduleIdProp);
   }, [selectedScheduleIdProp]);
 
+  // Periodically check for schedules that have passed without completion
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem("nurse-schedule-records", JSON.stringify(visitRecords));
-    }
-  }, [visitRecords]);
+    if (!schedules || schedules.length === 0) return;
+
+    const graceMinutes = 15; // minutes after scheduled time to mark as missed
+
+    const checkMissed = async () => {
+      const now = new Date();
+      for (const sch of schedules) {
+        try {
+          if (String(sch.scheduleStatus).toLowerCase() !== "scheduled") continue;
+
+          const datePart = String(sch.visitDate || "").slice(0, 10); // YYYY-MM-DD
+          const timePart = String(sch.visitTime || "").split(" ").pop() || ""; // HH:MM or HH:MM:SS
+          const [h, m, s] = timePart.split(":").map((v) => Number(v || 0));
+          const [yyyy, mm, dd] = (datePart || "").split("-").map((v) => Number(v || 0));
+          if (!yyyy || !mm || !dd) continue;
+
+          const scheduledDate = new Date(yyyy, mm - 1, dd, Number.isFinite(h) ? h : 0, Number.isFinite(m) ? m : 0, Number.isFinite(s) ? s : 0);
+
+          const diffMinutes = (now.getTime() - scheduledDate.getTime()) / 60000;
+          if (diffMinutes > graceMinutes) {
+            // mark missed
+            try {
+              await updateScheduleStatus(sch.id, "missed");
+              setSchedules((prev) => prev.map((it) => (it.id === sch.id ? { ...it, scheduleStatus: "missed" } : it)));
+            } catch (err) {
+              console.error("Failed to mark schedule missed", sch.id, err);
+            }
+          }
+        } catch (err) {
+          console.error("Error checking schedule", sch.id, err);
+        }
+      }
+    };
+
+    const id = setInterval(checkMissed, 60 * 1000);
+    // run once now
+    checkMissed().catch(() => {});
+
+    return () => clearInterval(id);
+  }, [schedules]);
+
+  const filteredSchedules = useMemo(() => {
+    const q = String(searchText || "").trim().toLowerCase();
+    if (!q) return schedules;
+    return schedules.filter((s) => {
+      return (
+        String(s.elderlyName || "").toLowerCase().includes(q) ||
+        String(s.purpose || "").toLowerCase().includes(q) ||
+        String(s.visitDate || "").toLowerCase().includes(q) ||
+        String(s.visitTime || "").toLowerCase().includes(q)
+      );
+    });
+  }, [schedules, searchText]);
 
   const groupedSchedules = useMemo(() => {
-    return schedules.reduce<Record<string, ScheduleAssignment[]>>((groups, schedule) => {
+    return filteredSchedules.reduce<Record<string, ScheduleAssignment[]>>((groups, schedule) => {
       const key = schedule.elderlyName || "Unassigned elderly";
       const list = groups[key] || [];
       list.push(schedule);
       groups[key] = list;
       return groups;
     }, {});
-  }, [schedules]);
-
-  const filteredGroupedSchedules = useMemo(() => {
-    const query = elderlySearch.trim().toLowerCase();
-    const todayKey = toDateKey(new Date());
-
-    return Object.entries(groupedSchedules).reduce<Record<string, ScheduleAssignment[]>>((groups, [elderlyName, items]) => {
-      const filteredItems = showTodayOnly ? items.filter((item) => item.visitDate === todayKey) : items;
-
-      if (filteredItems.length === 0) {
-        return groups;
-      }
-
-      const matchesSearch = !query || [elderlyName, ...filteredItems.map((item) => [item.purpose, item.visitDate, item.visitTime].join(" "))].some((value) =>
-        String(value || "").toLowerCase().includes(query)
-      );
-
-      if (matchesSearch) {
-        groups[elderlyName] = [...filteredItems].sort((a, b) => a.visitDate.localeCompare(b.visitDate) || a.visitTime.localeCompare(b.visitTime));
-      }
-
-      return groups;
-    }, {});
-  }, [elderlySearch, groupedSchedules, showTodayOnly]);
+  }, [filteredSchedules]);
 
   const selectedSchedule = schedules.find((item) => item.id === selectedScheduleId) || null;
   const currentDate = new Date();
@@ -132,12 +138,13 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
     return date;
   });
 
-  const dayKey = (date: Date) => toDateKey(date);
+  const dayKey = (date: Date) => date.toISOString().slice(0, 10);
   const dayLabel = (date: Date) => date.toLocaleDateString(undefined, { weekday: "short" });
+
   const schedulesByDay = useMemo(() => {
     return weekDays.reduce<Record<string, ScheduleAssignment[]>>((groups, date) => {
       const key = dayKey(date);
-      groups[key] = schedules.filter((schedule) => schedule.visitDate === key);
+      groups[key] = filteredSchedules.filter((schedule) => schedule.visitDate === key);
       return groups;
     }, {} as Record<string, ScheduleAssignment[]>);
   }, [schedules, weekDays]);
@@ -150,30 +157,6 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
     setFormMessage(null);
   }
 
-  function getStatusClass(status: string) {
-    if (status === "completed") return "bg-emerald-50 text-emerald-700";
-    if (status === "missed") return "bg-amber-50 text-amber-700";
-    return "bg-indigo-50 text-indigo-700";
-  }
-
-  function buildVisitSummary(purpose: string) {
-    if (purpose === "Blood Pressure") {
-      if (!systolic || !diastolic) return "";
-      return `Blood Pressure: ${systolic}/${diastolic} mmHg`;
-    }
-
-    if (purpose === "Blood Glucose") {
-      if (!glucoseValue) return "";
-      return `Blood Glucose: ${glucoseValue} mg/dL`;
-    }
-
-    if (purpose === "Routine Visit") {
-      return notes.trim() ? `Notes: ${notes.trim()}` : "";
-    }
-
-    return "";
-  }
-
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedSchedule) {
@@ -181,19 +164,28 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
       return;
     }
 
-    const summary = buildVisitSummary(selectedSchedule.purpose);
-    if (!summary) {
-      setFormMessage("Please fill the required details before completing the visit.");
-      return;
-    }
-
     setSubmitLoading(true);
     setFormMessage(null);
 
     try {
+      // Save measurement record first
+      const created = await createHealthLog({
+        nurseId: Number(nurseId || 0),
+        elderlyId: Number(selectedSchedule.elderlyId || 0),
+        scheduleId: selectedSchedule.id,
+        systolic: systolic ? Number(systolic) : null,
+        diastolic: diastolic ? Number(diastolic) : null,
+        bloodSugar: glucoseValue ? Number(glucoseValue) : null,
+        notes,
+      });
+
+      // show the created record in the UI immediately
+      if (created && typeof created.log_id !== "undefined") {
+        setLatestRecord(created as any);
+      }
+
       await updateScheduleStatus(selectedSchedule.id, "completed");
       setSchedules((prev) => prev.map((item) => item.id === selectedSchedule.id ? { ...item, scheduleStatus: "completed" } : item));
-      setVisitRecords((prev) => ({ ...prev, [selectedSchedule.id]: { status: "completed", details: summary } }));
       setFormMessage("Visit completed.");
       resetFormFields();
     } catch (error) {
@@ -204,26 +196,42 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
     }
   }
 
-  async function handleMarkMissed() {
-    if (!selectedSchedule) {
-      setFormMessage("No schedule selected.");
-      return;
+  const [latestRecord, setLatestRecord] = useState<any | null>(null);
+
+  // Load latest record when a schedule is selected and it's completed
+  useEffect(() => {
+    let ignore = false;
+    async function loadLatest() {
+      if (!selectedSchedule) return;
+      if (selectedSchedule.scheduleStatus !== "completed") {
+        setLatestRecord(null);
+        return;
+      }
+
+      try {
+        const res = await fetchHealthLogs({ scheduleId: selectedSchedule.id, limit: 1 });
+        if (!ignore && res?.logs?.length) {
+          setLatestRecord(res.logs[0]);
+        }
+      } catch (err) {
+        console.error("Failed to load latest health log", err);
+      }
     }
 
-    setSubmitLoading(true);
-    setFormMessage(null);
+    loadLatest();
+    return () => { ignore = true; };
+  }, [selectedSchedule, nurseId]);
 
-    try {
-      await updateScheduleStatus(selectedSchedule.id, "missed");
-      setSchedules((prev) => prev.map((item) => item.id === selectedSchedule.id ? { ...item, scheduleStatus: "missed" } : item));
-      setVisitRecords((prev) => ({ ...prev, [selectedSchedule.id]: { status: "missed", details: "Marked as missed" } }));
-      setFormMessage("Visit marked as missed.");
-      resetFormFields();
-    } catch (error) {
-      console.error(error);
-      setFormMessage("Failed to mark visit as missed.");
-    } finally {
-      setSubmitLoading(false);
+  function statusBadgeClasses(status: string) {
+    const s = String(status || "").toLowerCase();
+    switch (s) {
+      case "completed":
+        return "rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700";
+      case "missed":
+        return "rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700";
+      case "scheduled":
+      default:
+        return "rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-700";
     }
   }
 
@@ -237,65 +245,77 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
           <h3 className="text-xl font-semibold text-foreground">{selectedPurpose}</h3>
           <p className="text-sm text-muted-foreground">{selectedElderlyName} · {selectedSchedule.visitDate} · {selectedSchedule.visitTime}</p>
         </div>
-        <span className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-wide ${getStatusClass(selectedSchedule.scheduleStatus)}`}>
+        <span className={statusBadgeClasses(selectedSchedule.scheduleStatus)}>
           {selectedSchedule.scheduleStatus}
         </span>
       </div>
 
-      {visitRecords[selectedSchedule.id] && (
-        <div className={`mt-4 rounded-xl border px-3 py-3 text-sm ${visitRecords[selectedSchedule.id].status === "completed" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>
-          <p className="font-semibold">{visitRecords[selectedSchedule.id].status === "completed" ? "Recorded result" : "Visit status"}</p>
-          <p className="mt-1">{visitRecords[selectedSchedule.id].details}</p>
-        </div>
-      )}
-
-      {selectedSchedule.scheduleStatus === "scheduled" ? (
-        <form onSubmit={handleSubmit} className="mt-5 space-y-4">
-          {selectedPurpose === "Blood Pressure" && (
-            <div className="grid gap-3 md:grid-cols-2">
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Systolic (mmHg)</label>
-                <input type="number" className={inputCls} placeholder="e.g. 120" value={systolic} onChange={(e) => setSystolic(e.target.value)} required />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Diastolic (mmHg)</label>
-                <input type="number" className={inputCls} placeholder="e.g. 80" value={diastolic} onChange={(e) => setDiastolic(e.target.value)} required />
-              </div>
+      <form onSubmit={handleSubmit} className="mt-5 space-y-4">
+        {/* If schedule already completed, show last saved record instead of form inputs */}
+        {selectedSchedule.scheduleStatus === "completed" && (
+          <div className="mb-4 rounded-lg border border-border bg-muted/5 p-3">
+            <h4 className="text-sm font-semibold">Last recorded vitals</h4>
+            <div id="last-record" className="mt-2 text-sm text-muted-foreground">
+              {latestRecord ? (
+                <div className="space-y-1">
+                  <div><strong>Recorded at:</strong> {new Date(latestRecord.visit_time).toLocaleString()}</div>
+                  {typeof latestRecord.bloodpressure_systolic !== "undefined" && (
+                    <div><strong>Blood Pressure:</strong> {latestRecord.bloodpressure_systolic}/{latestRecord.bloodpressure_diastolic} mmHg</div>
+                  )}
+                  {typeof latestRecord.blood_sugar !== "undefined" && latestRecord.blood_sugar > 0 && (
+                    <div><strong>Blood Glucose:</strong> {latestRecord.blood_sugar} mg/dL</div>
+                  )}
+                  {latestRecord.condition_notes && (
+                    <div><strong>Notes:</strong> {latestRecord.condition_notes}</div>
+                  )}
+                </div>
+              ) : (
+                <div>No record found for this visit.</div>
+              )}
             </div>
-          )}
-
-          {selectedPurpose === "Blood Glucose" && (
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Blood Glucose (mg/dL)</label>
-              <input type="number" className={inputCls} placeholder="e.g. 100" value={glucoseValue} onChange={(e) => setGlucoseValue(e.target.value)} required />
-            </div>
-          )}
-
-          {selectedPurpose === "Routine Visit" && (
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Visit notes</label>
-              <textarea className={`${inputCls} resize-none`} rows={4} placeholder="Enter observations or care notes" value={notes} onChange={(e) => setNotes(e.target.value)} required />
-            </div>
-          )}
-
-          <div className="flex flex-wrap gap-3">
-            <button type="submit" disabled={submitLoading} className="inline-flex items-center justify-center rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-60">
-              {submitLoading ? "Saving…" : selectedPurpose === "Routine Visit" ? "Finish Visit" : "Complete Visit"}
-            </button>
-
-            <button type="button" onClick={handleMarkMissed} disabled={submitLoading} className="inline-flex items-center justify-center rounded-xl border border-border bg-background px-4 py-2 text-sm font-semibold text-foreground hover:bg-muted disabled:opacity-60">
-              {submitLoading ? "Saving…" : "Mark as Missed"}
-            </button>
           </div>
+        )}
+        {selectedPurpose === "Blood Pressure" && selectedSchedule.scheduleStatus === "scheduled" && (
+          <div className="grid gap-3 md:grid-cols-2">
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Systolic (mmHg)</label>
+              <input type="number" className={inputCls} placeholder="e.g. 120" value={systolic} onChange={(e) => setSystolic(e.target.value)} required />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Diastolic (mmHg)</label>
+              <input type="number" className={inputCls} placeholder="e.g. 80" value={diastolic} onChange={(e) => setDiastolic(e.target.value)} required />
+            </div>
+          </div>
+        )}
 
-          {formMessage && <p className="text-sm text-muted-foreground">{formMessage}</p>}
-        </form>
-      ) : (
-        <div className="mt-5 rounded-xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
-          <p className="font-semibold text-foreground">This visit is already {selectedSchedule.scheduleStatus}.</p>
-          <p className="mt-1">No form is needed for this visit anymore.</p>
-        </div>
-      )}
+        {selectedPurpose === "Blood Glucose" && selectedSchedule.scheduleStatus === "scheduled" && (
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Blood Glucose (mg/dL)</label>
+            <input type="number" className={inputCls} placeholder="e.g. 100" value={glucoseValue} onChange={(e) => setGlucoseValue(e.target.value)} required />
+          </div>
+        )}
+
+        {selectedPurpose === "Routine Visit" && selectedSchedule.scheduleStatus === "scheduled" && (
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Visit notes</label>
+            <textarea className={`${inputCls} resize-none`} rows={4} placeholder="Enter observations or care notes" value={notes} onChange={(e) => setNotes(e.target.value)} required />
+          </div>
+        )}
+
+        {selectedSchedule.scheduleStatus === "scheduled" && (
+          <button
+            type="submit"
+            disabled={submitLoading}
+            className="inline-flex items-center justify-center rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-60"
+          >
+            {submitLoading ? "Saving…" : selectedPurpose === "Routine Visit" ? "Finish Visit" : "Complete Visit"}
+          </button>
+        )}
+
+        {formMessage && (
+          <p className="text-sm text-muted-foreground">{formMessage}</p>
+        )}
+      </form>
     </div>
   ) : null;
 
@@ -306,85 +326,41 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
           <div>
             <h3 className="text-lg font-semibold text-foreground">My Assigned Elderly</h3>
             <p className="text-sm text-muted-foreground">
-              {nurseName} · {schedules.length} scheduled visit{schedules.length === 1 ? "" : "s"}
+              {nurseName} · {filteredSchedules.length} scheduled visit{filteredSchedules.length === 1 ? "" : "s"}
             </p>
           </div>
-          <div className="rounded-full bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary">
-            {schedules.filter((item) => item.scheduleStatus === "scheduled").length} active
+          <div className="flex items-center gap-3">
+            <input
+              placeholder="Search elder or purpose (e.g. Mary, Blood Pressure)"
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              className="px-3 py-2 rounded-md border border-border bg-muted/50 text-sm w-72 outline-none"
+            />
+            <div className="rounded-full bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary">
+              {filteredSchedules.filter((item) => item.scheduleStatus === "scheduled").length} active
+            </div>
           </div>
         </div>
       </div>
 
       {loading ? (
-        <div className="rounded-2xl border border-border bg-card p-6 text-sm text-muted-foreground">Loading schedule details...</div>
+        <div className="rounded-2xl border border-border bg-card p-6 text-sm text-muted-foreground">
+          Loading schedule details...
+        </div>
       ) : schedules.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border bg-card p-8 text-center text-sm text-muted-foreground">No schedules are currently assigned to this nurse.</div>
+        <div className="rounded-2xl border border-dashed border-border bg-card p-8 text-center text-sm text-muted-foreground">
+          No schedules are currently assigned to this nurse.
+        </div>
       ) : (
         <div className="space-y-4">
           <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-sm text-muted-foreground">Assigned records</p>
-                <h3 className="text-lg font-semibold text-foreground">Assigned elderly records</h3>
-              </div>
-              <div className="rounded-full bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary">
-                {Object.keys(filteredGroupedSchedules).length} records
-              </div>
-            </div>
-
-            <div className="mb-4 flex flex-wrap items-center gap-3">
-              <div className="flex-1 min-w-[240px]">
-                <label className="mb-2 flex items-center gap-2 text-sm font-medium text-foreground">
-                  <Search size={16} className="text-muted-foreground" />
-                  Search elderly or visit type
-                </label>
-                <input type="text" className={inputCls} placeholder="Search by elderly name, visit purpose, or time" value={elderlySearch} onChange={(event) => setElderlySearch(event.target.value)} />
-              </div>
-              <button type="button" onClick={() => setShowTodayOnly((value) => !value)} className={`rounded-xl px-3 py-2 text-sm font-medium transition ${showTodayOnly ? "bg-primary text-white" : "border border-border bg-background text-foreground hover:bg-muted"}`}>
-                {showTodayOnly ? "Showing Today" : "Today Records"}
-              </button>
-            </div>
-
-            {Object.keys(filteredGroupedSchedules).length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-border bg-background/70 p-4 text-sm text-muted-foreground">No assigned elderly records match your search.</div>
-            ) : (
-              <div className="space-y-3">
-                {Object.entries(filteredGroupedSchedules).map(([elderlyName, items]) => (
-                  <div key={elderlyName} className="rounded-2xl border border-border/70 bg-background/70 p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <p className="font-semibold text-foreground">{elderlyName}</p>
-                        <p className="text-xs text-muted-foreground">{items.length} assigned visit{items.length === 1 ? "" : "s"}</p>
-                      </div>
-                      <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-primary">
-                        {items[0]?.scheduleStatus || "scheduled"}
-                      </span>
-                    </div>
-                    <div className="mt-3 space-y-2">
-                      {items.map((item) => (
-                        <button key={item.id} type="button" onClick={() => setSelectedScheduleId(item.id)} className={`flex w-full items-center justify-between rounded-2xl border px-3 py-2 text-left transition ${selectedScheduleId === item.id ? "border-primary bg-primary/5" : "border-border/70 bg-white hover:bg-slate-50"}`}>
-                          <div>
-                            <div className="text-sm font-semibold text-foreground">{item.purpose}</div>
-                            <div className="text-xs text-muted-foreground">{item.visitDate} · {item.visitTime}</div>
-                          </div>
-                          <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${getStatusClass(item.scheduleStatus)}`}>
-                            {item.scheduleStatus}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <div>
                 <p className="text-sm text-muted-foreground">This week</p>
                 <h3 className="text-lg font-semibold text-foreground">Weekly schedule</h3>
-                <p className="text-xs text-muted-foreground mt-1">{weekDays[0].toLocaleDateString(undefined, { month: "short", day: "numeric" })} – {weekDays[6].toLocaleDateString(undefined, { month: "short", day: "numeric" })}</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {weekDays[0].toLocaleDateString(undefined, { month: "short", day: "numeric" })} – {weekDays[6].toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                </p>
               </div>
               <div className="rounded-full bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary">
                 {schedules.filter((item) => item.scheduleStatus === "scheduled").length} active
@@ -396,20 +372,29 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
                 const daySchedules = schedulesByDay[key] || [];
                 return (
                   <div key={key} className="rounded-2xl border border-border bg-background p-3">
-                    <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{dayLabel(date)}</div>
-                    <div className="text-sm font-semibold text-foreground">{date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}</div>
+                    <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {dayLabel(date)}
+                    </div>
+                    <div className="text-sm font-semibold text-foreground">
+                      {date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                    </div>
                     <div className="mt-3 space-y-2">
                       {daySchedules.length === 0 ? (
                         <div className="text-xs text-muted-foreground">No visits</div>
                       ) : daySchedules.map((item) => (
-                        <button key={item.id} type="button" onClick={() => setSelectedScheduleId(item.id)} className={`w-full rounded-2xl border px-3 py-2 text-left transition ${selectedScheduleId === item.id ? "border-primary bg-primary/5" : "border-border/70 bg-white hover:bg-slate-50"}`}>
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => setSelectedScheduleId(item.id)}
+                          className={`w-full rounded-2xl border px-3 py-2 text-left transition ${selectedScheduleId === item.id ? "border-primary bg-primary/5" : "border-border/70 bg-white hover:bg-slate-50"}`}
+                        >
                           <div className="flex justify-between gap-2">
                             <div>
                               <div className="text-xs font-semibold text-foreground">{item.purpose}</div>
                               <div className="text-[11px] text-muted-foreground">{item.elderlyName}</div>
                               <div className="text-[11px] text-muted-foreground">{item.visitTime}</div>
                             </div>
-                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${getStatusClass(item.scheduleStatus)}`}>
+                            <span className={statusBadgeClasses(item.scheduleStatus)}>
                               {item.scheduleStatus}
                             </span>
                           </div>
@@ -423,9 +408,13 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
           </div>
 
           {selectedSchedule ? (
-            <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">{selectedDetails}</div>
+            <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+              {selectedDetails}
+            </div>
           ) : (
-            <div className="rounded-2xl border border-border bg-card p-6 text-sm text-muted-foreground">Select a schedule from the week to open the form.</div>
+            <div className="rounded-2xl border border-border bg-card p-6 text-sm text-muted-foreground">
+              Select a schedule from the week to open the form.
+            </div>
           )}
         </div>
       )}

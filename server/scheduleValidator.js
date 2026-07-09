@@ -120,7 +120,17 @@ function isPastScheduleDateTime(visitDate, visitTime) {
   const dateTime = new Date(`${visitDate}T${visitTime}`);
   if (Number.isNaN(dateTime.getTime())) return false;
 
-  return dateTime.getTime() < Date.now();
+  // Respect FORCE_SYSTEM_DATE if provided: use forced date with current time as 'now'
+  const forced = String(process.env.FORCE_SYSTEM_DATE || "").trim();
+  let nowTs = Date.now();
+  if (forced) {
+    const now = new Date();
+    const timePart = now.toTimeString().split(' ')[0];
+    const forcedNow = new Date(`${forced}T${timePart}`);
+    if (!Number.isNaN(forcedNow.getTime())) nowTs = forcedNow.getTime();
+  }
+
+  return dateTime.getTime() < nowTs;
 }
 
 function fallbackValidate(schedule) {
