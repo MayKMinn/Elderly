@@ -194,6 +194,16 @@ async function ensureNurseElderlyAssignmentsTable() {
   }
 }
 
+async function ensureNurseCreatedAtColumn() {
+  try {
+    await pool.query("ALTER TABLE nurse ADD COLUMN created_at DATETIME NULL");
+  } catch (error) {
+    if (!/Duplicate column name/i.test(error.message)) {
+      throw error;
+    }
+  }
+}
+
 const elderlyColumns = `
   elderly_id AS id,
   name,
@@ -1717,6 +1727,7 @@ app.post("/api/nurses", async (req, res) => {
         address,
         avatar,
         hire_date,
+        created_at,
         nurse_status
       ) VALUES (
         :name,
@@ -1733,6 +1744,7 @@ app.post("/api/nurses", async (req, res) => {
         :address,
         :avatar,
         :hireDate,
+        CURRENT_TIMESTAMP,
         :nurseStatus
       )`,
       data
@@ -1913,6 +1925,7 @@ app.listen(port, async () => {
     await ensureElderlyAvatarColumn();
     await ensureAdminProfileColumns();
     await ensureNurseColumns();
+    await ensureNurseCreatedAtColumn();
     await ensureNurseElderlyAssignmentsTable();
     await ensureScheduleColumns();
     await ensureMedicationAssignmentsTable();
