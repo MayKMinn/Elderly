@@ -6,6 +6,9 @@ type HealthLogPayload = {
   diastolic?: number | null;
   bloodSugar?: number | null;
   notes?: string;
+  purpose?: string;
+  complianceStatus?: string;
+  medicationName?: string;
 };
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {

@@ -9,6 +9,7 @@ import { getMedicationAssignments, updateMedicationAssignmentStatus } from "../a
 import type { MedicationAssignment } from "../api/medications";
 import { getNurseElderlyAssignments, getProfiles } from "../api/profiles";
 import type { ScheduleAssignment } from "../api/schedules";
+import { updateScheduleStatus } from "../api/schedules";
 import { MySchedules } from "./MySchedules";
 import { AssignedResidentsSidebar, ResidentDetailsPanel, type Resident, type Status } from "./Residents";
 
@@ -903,15 +904,12 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
   const morningPending = checks.filter((c) => c.slot === "morning" && !c.done).length;
   const eveningPending = checks.filter((c) => c.slot === "evening" && !c.done).length;
   const criticalCount = residents.filter((r) => r.status === "critical").length;
-  const medicationNotificationCount = medicationAssignments.filter((item) =>
-    item.complianceStatus === "Pending" || item.complianceStatus === "Due Soon"
-  ).length;
   const todayKey = new Date().toISOString().slice(0, 10);
   const visibleScheduleNotifications = scheduleAssignments.filter((item) =>
     item.scheduleStatus === "scheduled" && (!item.visitDate || item.visitDate >= todayKey) && !hiddenScheduleNotificationIds.includes(item.id)
   );
   const scheduleNotificationCount = visibleScheduleNotifications.length;
-  const notificationCount = medicationNotificationCount + scheduleNotificationCount;
+  const notificationCount = scheduleNotificationCount;
 
   useEffect(() => {
     let ignore = false;
@@ -1075,6 +1073,19 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
     }
   }
 
+  async function markScheduleMissed(id: number) {
+    setNotificationMessage("");
+
+    try {
+      const updated = await updateScheduleStatus(id, "missed");
+      setScheduleAssignments((prev) => prev.map((item) => (item.id === id ? updated : item)));
+      setNotificationMessage("Schedule marked as missed.");
+    } catch (error) {
+      setNotificationMessage("Failed to mark schedule as missed.");
+      console.error(error);
+    }
+  }
+
   const nav: { id: Page; label: string; icon: React.ElementType }[] = [
     { id: "overview",     label: "Overview",      icon: LayoutDashboard },
     { id: "schedule",     label: "My Schedule",   icon: Calendar },
@@ -1209,18 +1220,27 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
                     </div>
                   )}
                   <div className="max-h-96 overflow-y-auto p-2">
-                    {medicationAssignments.length === 0 && scheduleAssignments.length === 0 ? (
+                    {visibleScheduleNotifications.length === 0 ? (
                       <div className="px-3 py-6 text-center text-xs" style={{ color: "#6b7a99" }}>
-                        No notifications for {nurseName}.
+                        No schedule notifications for {nurseName}.
                       </div>
                     ) : (
-                      <>
-                                        {visibleScheduleNotifications.length > 0 && (
-                          <div className="mb-3">
-                            <div className="px-2 pb-2 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "#6b7a99" }}>Schedules</div>
-                            {visibleScheduleNotifications.map((item) => (
+                      <div className="mb-3">
+                        <div className="px-2 pb-2 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "#6b7a99" }}>Schedules</div>
+                        {visibleScheduleNotifications.map((item) => (
+                          <div key={item.id} className="w-full rounded-lg border p-3 mb-2 text-left" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <div className="text-xs" style={{ color: "#1a2b42", fontWeight: 700 }}>{item.purpose}</div>
+                                <div className="text-xs" style={{ color: "#6b7a99" }}>{item.elderlyName}</div>
+                                <div className="text-xs" style={{ color: "#6b7a99" }}>{item.visitDate} at {item.visitTime}</div>
+                              </div>
+                              <span className="rounded-full px-2 py-0.5 text-[10px]" style={{ backgroundColor: "#dbeafe", color: "#1d4ed8", fontWeight: 700 }}>
+                                Open
+                              </span>
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-2">
                               <button
-                                key={item.id}
                                 type="button"
                                 onClick={() => {
                                   setHiddenScheduleNotificationIds((prev) => [...prev, item.id]);
@@ -1228,68 +1248,23 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
                                   setPage("schedule");
                                   setSelectedScheduleId(item.id);
                                 }}
-                                className="w-full rounded-lg border p-3 mb-2 text-left hover:bg-slate-50"
-                                style={{ borderColor: "rgba(0,0,0,0.07)" }}
+                                className="rounded-lg border px-2 py-1.5 text-[11px] font-semibold hover:bg-slate-50"
+                                style={{ borderColor: "rgba(0,0,0,0.08)", color: "#1d4ed8" }}
                               >
-                                <div className="flex items-start justify-between gap-2">
-                                  <div>
-                                    <div className="text-xs" style={{ color: "#1a2b42", fontWeight: 700 }}>{item.purpose}</div>
-                                    <div className="text-xs" style={{ color: "#6b7a99" }}>{item.elderlyName}</div>
-                                    <div className="text-xs" style={{ color: "#6b7a99" }}>{item.visitDate} at {item.visitTime}</div>
-                                  </div>
-                                  <span className="rounded-full px-2 py-0.5 text-[10px]" style={{ backgroundColor: "#dbeafe", color: "#1d4ed8", fontWeight: 700 }}>
-                                    Open
-                                  </span>
-                                </div>
-                                <div className="mt-2 text-[11px]" style={{ color: "#6b7a99" }}>Click to open the form and clear this notification.</div>
+                                Open
                               </button>
-                            ))}
+                              <button
+                                type="button"
+                                onClick={() => markScheduleMissed(item.id)}
+                                className="rounded-lg border px-2 py-1.5 text-[11px] font-semibold hover:bg-red-50"
+                                style={{ borderColor: "#fecaca", color: "#dc2626" }}
+                              >
+                                Missed
+                              </button>
+                            </div>
                           </div>
-                        )}
-
-                        {medicationAssignments.length > 0 && (
-                          <div>
-                            <div className="px-2 pb-2 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "#6b7a99" }}>Medications</div>
-                            {medicationAssignments.map((item) => (
-                              <div key={item.id} className="rounded-lg border p-3 mb-2" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
-                                <div className="flex items-start justify-between gap-2">
-                                  <div>
-                                    <div className="text-xs" style={{ color: "#1a2b42", fontWeight: 700 }}>{item.medicationName}</div>
-                                    <div className="text-xs" style={{ color: "#6b7a99" }}>{item.elderlyName} · {item.dosage}</div>
-                                    <div className="text-xs" style={{ color: "#6b7a99" }}>{item.scheduledDate} at {item.scheduledTime}</div>
-                                  </div>
-                                  <span className="rounded-full px-2 py-0.5 text-[10px]" style={{
-                                    backgroundColor: item.complianceStatus === "Taken" ? "#dcfce7" : item.complianceStatus === "Missed" ? "#fee2e2" : "#fef3c7",
-                                    color: item.complianceStatus === "Taken" ? "#15803d" : item.complianceStatus === "Missed" ? "#dc2626" : "#d97706",
-                                    fontWeight: 700,
-                                  }}>
-                                    {item.complianceStatus}
-                                  </span>
-                                </div>
-                                <div className="mt-2 text-xs" style={{ color: "#1a2b42" }}>{item.instructions}</div>
-                                {(item.complianceStatus === "Pending" || item.complianceStatus === "Due Soon") && (
-                                  <div className="mt-3 grid grid-cols-2 gap-2">
-                                    <button
-                                      onClick={() => reportMedicationStatus(item.id, "Taken")}
-                                      className="rounded-lg border px-2 py-1.5 text-xs font-semibold hover:bg-emerald-50"
-                                      style={{ borderColor: "#bbf7d0", color: "#15803d" }}
-                                    >
-                                      Given
-                                    </button>
-                                    <button
-                                      onClick={() => reportMedicationStatus(item.id, "Missed")}
-                                      className="rounded-lg border px-2 py-1.5 text-xs font-semibold hover:bg-red-50"
-                                      style={{ borderColor: "#fecaca", color: "#dc2626" }}
-                                    >
-                                      Missed
-                                    </button>
-                                  </div>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </>
+                        ))}
+                      </div>
                     )}
                   </div>
                 </div>

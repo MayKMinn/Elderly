@@ -3,7 +3,6 @@ import { CalendarDays, Clock3, User, HeartPulse } from "lucide-react";
 import type { ScheduleAssignment } from "../api/schedules";
 import { updateScheduleStatus } from "../api/schedules";
 import { createHealthLog } from "../api/health";
-import { fetchHealthLogs } from "../api/health";
 
 interface MySchedulesProps {
   nurseName?: string;
@@ -22,6 +21,7 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
   const [diastolic, setDiastolic] = useState("");
   const [glucoseValue, setGlucoseValue] = useState("");
   const [notes, setNotes] = useState("");
+  const [medicationDetails, setMedicationDetails] = useState<any[]>([]);
   const inputCls = "w-full px-3 py-2.5 bg-muted/60 border border-border rounded-xl outline-none focus:ring-2 focus:ring-primary/30 transition-all";
 
   useEffect(() => {
@@ -87,6 +87,9 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
             try {
               await updateScheduleStatus(sch.id, "missed");
               setSchedules((prev) => prev.map((it) => (it.id === sch.id ? { ...it, scheduleStatus: "missed" } : it)));
+              if (selectedScheduleId === sch.id) {
+                setSelectedScheduleId((prev) => prev === sch.id ? prev : prev);
+              }
             } catch (err) {
               console.error("Failed to mark schedule missed", sch.id, err);
             }
@@ -177,6 +180,9 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
         diastolic: diastolic ? Number(diastolic) : null,
         bloodSugar: glucoseValue ? Number(glucoseValue) : null,
         notes,
+        purpose: selectedSchedule.purpose,
+        complianceStatus: selectedSchedule.purpose === "Medication" ? "Taken" : undefined,
+        medicationName: selectedSchedule.purpose === "Medication" ? selectedSchedule.purpose : undefined,
       });
 
       // show the created record in the UI immediately
@@ -198,20 +204,51 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
 
   const [latestRecord, setLatestRecord] = useState<any | null>(null);
 
+  useEffect(() => {
+    let ignore = false;
+    async function loadMedicationDetails() {
+      if (!selectedSchedule || selectedSchedule.purpose !== "Medication") {
+        if (!ignore) setMedicationDetails([]);
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/elderly-medications?elderlyId=${encodeURIComponent(String(selectedSchedule.elderlyId || ""))}`);
+        if (!res.ok) {
+          throw new Error(await res.text());
+        }
+        const data = await res.json();
+        if (!ignore) {
+          setMedicationDetails(Array.isArray(data?.medications) ? data.medications : []);
+        }
+      } catch (err) {
+        console.error("Failed to load medication details", err);
+        if (!ignore) setMedicationDetails([]);
+      }
+    }
+
+    loadMedicationDetails();
+    return () => { ignore = true; };
+  }, [selectedSchedule]);
+
   // Load latest record when a schedule is selected and it's completed
   useEffect(() => {
     let ignore = false;
     async function loadLatest() {
-      if (!selectedSchedule) return;
-      if (selectedSchedule.scheduleStatus !== "completed") {
+      if (!selectedSchedule || selectedSchedule.scheduleStatus !== "completed") {
         setLatestRecord(null);
         return;
       }
 
       try {
-        const res = await fetchHealthLogs({ scheduleId: selectedSchedule.id, limit: 1 });
-        if (!ignore && res?.logs?.length) {
-          setLatestRecord(res.logs[0]);
+        const params = new URLSearchParams({ scheduleId: String(selectedSchedule.id), limit: "1" });
+        const res = await fetch(`/api/health/logs?${params.toString()}`);
+        if (!res.ok) {
+          throw new Error(await res.text());
+        }
+        const data = await res.json();
+        if (!ignore && data?.logs?.length) {
+          setLatestRecord(data.logs[0]);
         }
       } catch (err) {
         console.error("Failed to load latest health log", err);
@@ -251,6 +288,11 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
       </div>
 
       <form onSubmit={handleSubmit} className="mt-5 space-y-4">
+        {selectedSchedule.scheduleStatus === "missed" && (
+          <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            This visit was marked missed because it was not completed on time.
+          </div>
+        )}
         {/* If schedule already completed, show last saved record instead of form inputs */}
         {selectedSchedule.scheduleStatus === "completed" && (
           <div className="mb-4 rounded-lg border border-border bg-muted/5 p-3">
@@ -259,7 +301,7 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
               {latestRecord ? (
                 <div className="space-y-1">
                   <div><strong>Recorded at:</strong> {new Date(latestRecord.visit_time).toLocaleString()}</div>
-                  {typeof latestRecord.bloodpressure_systolic !== "undefined" && (
+                  {typeof latestRecord.bloodpressure_systolic !== "undefined" && latestRecord.bloodpressure_systolic > 0 && (
                     <div><strong>Blood Pressure:</strong> {latestRecord.bloodpressure_systolic}/{latestRecord.bloodpressure_diastolic} mmHg</div>
                   )}
                   {typeof latestRecord.blood_sugar !== "undefined" && latestRecord.blood_sugar > 0 && (
@@ -299,6 +341,28 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Visit notes</label>
             <textarea className={`${inputCls} resize-none`} rows={4} placeholder="Enter observations or care notes" value={notes} onChange={(e) => setNotes(e.target.value)} required />
+          </div>
+        )}
+
+        {selectedPurpose === "Medication" && selectedSchedule.scheduleStatus === "scheduled" && (
+          <div className="space-y-3 rounded-lg border border-border bg-muted/5 p-3">
+            <div className="text-sm text-muted-foreground">
+              This medication visit will be recorded as completed and the medication status will be saved.
+            </div>
+            {medicationDetails.length > 0 ? (
+              <div className="space-y-2">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Medicine & dosage</div>
+                {medicationDetails.map((item) => (
+                  <div key={item.id} className="rounded-lg border border-border bg-background/70 p-2.5">
+                    <div className="text-sm font-semibold text-foreground">{item.medicationName}</div>
+                    <div className="text-sm text-muted-foreground">{item.dosage}</div>
+                    {item.instructions ? <div className="mt-1 text-xs text-muted-foreground">{item.instructions}</div> : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground">No medication details found for this resident.</div>
+            )}
           </div>
         )}
 
