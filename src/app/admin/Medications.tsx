@@ -399,6 +399,13 @@ function MedicationList({
   onDelete: (medication: ElderlyMedication) => void;
   onRefresh: () => void;
 }) {
+  const elderlyProfileMap = useMemo(() => {
+    return elderlyProfiles.reduce<Record<string, ElderlyProfile>>((map, elderly) => {
+      map[String(elderly.id)] = elderly;
+      return map;
+    }, {});
+  }, [elderlyProfiles]);
+
   return (
     <div className="rounded-xl border bg-white" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4" style={{ borderColor: "rgba(0,0,0,0.06)" }}>
@@ -462,39 +469,57 @@ function MedicationList({
               </tr>
             </thead>
             <tbody>
-              {medications.map((medication) => (
-                <tr key={medication.id} className="border-t" style={{ borderColor: "rgba(0,0,0,0.06)" }}>
-                  <td className="px-5 py-3">
-                    <div style={{ color: "#1a2b42", fontWeight: 700 }}>{medication.medicationName}</div>
-                    <div className="mt-0.5 max-w-xs truncate" style={{ color: "#6b7a99" }}>{medication.notes || "-"}</div>
-                  </td>
-                  <td className="px-5 py-3" style={{ color: "#1a2b42" }}>{medication.elderlyName}</td>
-                  <td className="px-5 py-3" style={{ color: "#1a2b42" }}>{medication.dosage}</td>
-                  <td className="px-5 py-3" style={{ color: "#1a2b42" }}>{medication.instructions}</td>
-                  <td className="px-5 py-3">
-                    <span
-                      className="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold"
-                      style={{
-                        backgroundColor: medication.status === "Active" ? "#dcfce7" : "#fee2e2",
-                        color: medication.status === "Active" ? "#16a34a" : "#dc2626",
-                      }}
-                    >
-                      {medication.status}
-                    </span>
-                  </td>
-                  <td className="px-5 py-3" style={{ color: "#6b7a99" }}>{medication.updatedAt || medication.createdAt}</td>
-                  <td className="px-5 py-3">
-                    <div className="flex items-center gap-1">
-                      <ActionIcon color="#22c55e" label="Edit medication" onClick={() => onEdit(medication)}>
-                        <Pencil size={13} />
-                      </ActionIcon>
-                      <ActionIcon color="#ef4444" label="Delete medication" onClick={() => onDelete(medication)}>
-                        <Trash2 size={13} />
-                      </ActionIcon>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {medications.map((medication) => {
+                const elderlyProfile = elderlyProfileMap[String(medication.elderlyId)];
+
+                return (
+                  <tr key={medication.id} className="border-t" style={{ borderColor: "rgba(0,0,0,0.06)" }}>
+                    <td className="px-5 py-3">
+                      <div style={{ color: "#1a2b42", fontWeight: 700 }}>{medication.medicationName}</div>
+                      <div className="mt-0.5 max-w-xs truncate" style={{ color: "#6b7a99" }}>{medication.notes || "-"}</div>
+                    </td>
+                    <td className="px-5 py-3">
+                      <div className="flex items-center gap-2">
+                        {elderlyProfile?.avatar ? (
+                          <img src={elderlyProfile.avatar} className="h-8 w-8 rounded-full object-cover" alt="" />
+                        ) : (
+                          <div className="flex h-8 w-8 items-center justify-center rounded-full" style={{ backgroundColor: "#eff6ff", color: "#2563eb" }}>
+                            <User size={14} />
+                          </div>
+                        )}
+                        <div>
+                          <div style={{ color: "#1a2b42", fontWeight: 700 }}>{medication.elderlyName}</div>
+                          <div className="text-xs" style={{ color: "#6b7a99" }}>{medication.elderlyId}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-5 py-3" style={{ color: "#1a2b42" }}>{medication.dosage}</td>
+                    <td className="px-5 py-3" style={{ color: "#1a2b42" }}>{medication.instructions}</td>
+                    <td className="px-5 py-3">
+                      <span
+                        className="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold"
+                        style={{
+                          backgroundColor: medication.status === "Active" ? "#dcfce7" : "#fee2e2",
+                          color: medication.status === "Active" ? "#16a34a" : "#dc2626",
+                        }}
+                      >
+                        {medication.status}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3" style={{ color: "#6b7a99" }}>{medication.updatedAt || medication.createdAt}</td>
+                    <td className="px-5 py-3">
+                      <div className="flex items-center gap-1">
+                        <ActionIcon color="#22c55e" label="Edit medication" onClick={() => onEdit(medication)}>
+                          <Pencil size={13} />
+                        </ActionIcon>
+                        <ActionIcon color="#ef4444" label="Delete medication" onClick={() => onDelete(medication)}>
+                          <Trash2 size={13} />
+                        </ActionIcon>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
