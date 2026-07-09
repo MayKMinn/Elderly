@@ -225,7 +225,9 @@ function normalizeElderlyProfile(profile: Partial<ElderlyProfile>): ElderlyProfi
 }
 
 function normalizeNurseProfile(profile: Partial<NurseProfile>): NurseProfile {
-  const status = profile.status === "On Leave" ? "On Leave" : "Active";
+  const rawStatus = String(profile.nurseStatus ?? profile.status ?? "Active");
+  const normalizedStatus = rawStatus.toLowerCase();
+  const status = normalizedStatus === "on leave" || normalizedStatus === "suspended" ? "On Leave" : "Active";
 
   return {
     id: String(profile.id ?? profile.nurseId ?? ""),
@@ -528,8 +530,10 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
       setNurseList((prev) => prev.map((n) => (n.id === saved.id ? saved : n)));
       setModal(null);
       setError(null);
+      setSuccessMessage("Caregiver profile updated successfully.");
     } catch (err) {
-      setError("Failed to save nurse changes to MySQL.");
+      const message = err instanceof Error ? err.message : String(err);
+      setError(`Failed to save nurse changes to MySQL. ${message}`);
       console.error(err);
     }
   };
@@ -1882,11 +1886,7 @@ function NurseEditPanel({
               <EditField label="Position" value={form.position} onChange={(v) => update("position", v)} />
               <EditField label="Work Area" value={form.workArea} onChange={(v) => update("workArea", v)} />
             </EditRow2>
-            <EditRow2>
-              <EditField label="Hire Date" value={form.hireDate} onChange={(v) => update("hireDate", v)} />
-              <EditField label="Assigned Elders" value={String(form.assignedElders)} onChange={(v) => update("assignedElders" as any, v)} />
-            </EditRow2>
-            <EditField label="Nurse Status" value={form.nurseStatus} onChange={(v) => update("nurseStatus", v)} />
+            <EditField label="Hire Date" value={form.hireDate} onChange={(v) => update("hireDate", v)} />
           </EditSection>
         </div>
 
@@ -1910,6 +1910,7 @@ function NurseEditPanel({
                 ...form,
                 age: Number(form.age) || 0,
                 assignedElders: Number(form.assignedElders) || 0,
+                nurseStatus: form.status,
               });
             }}
             className="relative z-[9999] flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm text-white hover:opacity-90"

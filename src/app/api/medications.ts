@@ -1,5 +1,6 @@
 export type MedicationAssignmentPayload = {
   scheduleId?: number | null;
+  medicationId?: number | null;
   nurseId?: string;
   elderlyId: string;
   elderlyName: string;
