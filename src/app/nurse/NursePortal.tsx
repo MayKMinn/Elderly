@@ -872,16 +872,41 @@ type Page = "overview" | "schedule" | "residents" | "weeklyReport";
 
 interface NursePortalProps {
   nurseName?: string;
+  nurseProfile?: {
+    id?: number;
+    name?: string;
+    username?: string;
+    email?: string | null;
+    licenseNumber?: string | null;
+    workArea?: string | null;
+    position?: string | null;
+    avatar?: string | null;
+  } | null;
   onSignOut?: () => void;
 }
 
-export function NursePortal({ nurseName = "Nurse", onSignOut }: NursePortalProps) {
+export function NursePortal({ nurseName = "Nurse", nurseProfile, onSignOut }: NursePortalProps) {
   const [page, setPage] = useState<Page>("schedule");
   const [collapsed, setCollapsed] = useState(false);
   const [checks, setChecks] = useState<CheckEntry[]>(makeChecks);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [medicationAssignments, setMedicationAssignments] = useState<MedicationAssignment[]>([]);
   const [notificationMessage, setNotificationMessage] = useState("");
+  const [profileOpen, setProfileOpen] = useState(false);
+
+  const displayName = nurseProfile?.name || nurseName || "Nurse";
+  const displayUsername = nurseProfile?.username || "-";
+  const displayEmail = nurseProfile?.email || "-";
+  const displayLicenseNumber = nurseProfile?.licenseNumber || "-";
+  const displayWorkArea = nurseProfile?.workArea || "-";
+  const displayPosition = nurseProfile?.position || "Registered Nurse";
+  const displayAvatar = String(nurseProfile?.avatar || "").trim();
+  const currentDateLabel = new Date().toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
 
   const totalChecks = checks.length;
   const doneChecks = checks.filter((c) => c.done).length;
@@ -1030,7 +1055,7 @@ export function NursePortal({ nurseName = "Nurse", onSignOut }: NursePortalProps
           </h2>
           <div className="flex items-center gap-3">
             <div className="hidden md:flex items-center gap-1.5 text-xs text-muted-foreground bg-muted px-3 py-1.5 rounded-full">
-              <Clock size={11} /> Mon, June 16, 2026
+              <Clock size={11} /> {currentDateLabel}
             </div>
             <div className="relative">
               <button
@@ -1108,18 +1133,82 @@ export function NursePortal({ nurseName = "Nurse", onSignOut }: NursePortalProps
                 </div>
               )}
             </div>
-            <div className="flex items-center gap-2 cursor-pointer pl-1">
-              <div
-                className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs flex-shrink-0 border-2"
-                style={{ backgroundColor: "#2563eb", borderColor: "#dbeafe" }}
-              >
-                {initials(nurseName)}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setProfileOpen((open) => !open)}
+                  className="flex items-center gap-2 rounded-2xl pl-1 pr-2 py-1 hover:bg-white"
+                  title="Nurse profile"
+                >
+                  <div
+                    className="w-9 h-9 rounded-full flex items-center justify-center overflow-hidden text-white font-bold text-xs flex-shrink-0 border-2"
+                    style={{ backgroundColor: "#2563eb", borderColor: "#dbeafe" }}
+                  >
+                    {displayAvatar ? (
+                      <img src={displayAvatar} alt={displayName} className="h-full w-full object-cover" />
+                    ) : (
+                      initials(displayName)
+                    )}
+                  </div>
+
+                  <div className="hidden sm:block text-left">
+                    <div className="text-xs" style={{ color: "#1a2b42", fontWeight: 600 }}>{displayName}</div>
+                    <div className="text-xs" style={{ color: "#6b7a99" }}>{displayPosition}</div>
+                  </div>
+                </button>
+
+                {profileOpen && (
+                  <div
+                    className="absolute right-0 top-full z-50 mt-3 w-80 overflow-hidden rounded-2xl border bg-white shadow-2xl"
+                    style={{ borderColor: "rgba(0,0,0,0.08)" }}
+                  >
+                    <div className="flex items-center gap-3 p-5">
+                      <div
+                        className="h-16 w-16 rounded-full flex items-center justify-center overflow-hidden text-white text-lg font-bold border-2"
+                        style={{ backgroundColor: "#2563eb", borderColor: "#dbeafe" }}
+                      >
+                        {displayAvatar ? (
+                          <img src={displayAvatar} alt={displayName} className="h-full w-full object-cover" />
+                        ) : (
+                          initials(displayName)
+                        )}
+                      </div>
+
+                      <div className="min-w-0">
+                        <div className="text-sm" style={{ color: "#1a2b42", fontWeight: 700 }}>{displayName}</div>
+                        <div className="text-xs" style={{ color: "#6b7a99" }}>{displayPosition}</div>
+                      </div>
+                    </div>
+
+                    <div className="border-t px-5 py-4" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
+                      <div className="mb-2 text-sm" style={{ color: "#1a2b42", fontWeight: 700 }}>
+                        Nurse profile details
+                      </div>
+
+                      <NurseProfileRow label="Username" value={displayUsername} />
+                      <NurseProfileRow label="Name" value={displayName} />
+                      <NurseProfileRow label="Email" value={displayEmail} />
+                      <NurseProfileRow label="License Number" value={displayLicenseNumber} />
+                      <NurseProfileRow label="Work Area" value={displayWorkArea} />
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProfileOpen(false);
+                        setChecks(makeChecks());
+                        setPage("schedule");
+                        onSignOut?.();
+                      }}
+                      className="flex w-full items-center gap-2 border-t px-5 py-4 text-sm font-semibold hover:bg-red-50"
+                      style={{ borderColor: "rgba(0,0,0,0.07)", color: "#dc2626" }}
+                    >
+                      <LogOut size={16} />
+                      Log out
+                    </button>
+                  </div>
+                )}
               </div>
-              <div className="hidden sm:block">
-                <div className="text-xs" style={{ color: "#1a2b42", fontWeight: 600 }}>{nurseName}</div>
-                <div className="text-xs" style={{ color: "#6b7a99" }}>Registered Nurse</div>
-              </div>
-            </div>
           </div>
         </div>
 
@@ -1207,6 +1296,16 @@ export function NursePortal({ nurseName = "Nurse", onSignOut }: NursePortalProps
           {page === "weeklyReport" && <WeeklyReportPage checks={checks} />}
         </div>
       </main>
+    </div>
+  );
+}
+
+
+function NurseProfileRow({ label, value }: { label: string; value: string | number | null | undefined }) {
+  return (
+    <div className="flex justify-between gap-4 py-2 text-sm">
+      <span style={{ color: "#6b7a99" }}>{label}</span>
+      <span className="text-right" style={{ color: "#1a2b42", fontWeight: 600 }}>{value || "-"}</span>
     </div>
   );
 }

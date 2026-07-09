@@ -15,6 +15,10 @@ export type AdminProfile = {
   email: string | null;
   avatar: string;
   status: string;
+  licenseNumber?: string;
+  workArea?: string;
+  position?: string;
+  avatar?: string;
 };
 
 export type AdminLoginHistoryItem = {
