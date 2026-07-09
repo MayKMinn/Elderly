@@ -236,7 +236,7 @@ age,
   DATE_FORMAT(hire_date, '%Y-%m-%d') AS hireDate,
   CASE nurse_status
     WHEN 'active' THEN 'Active'
-    WHEN 'suspended' THEN 'Suspended'
+    WHEN 'suspended' THEN 'On Leave'
     WHEN 'resigned' THEN 'Resigned'
     ELSE 'Active'
   END AS status,
@@ -249,7 +249,7 @@ age,
   ) AS assignedElders,
   CASE nurse_status
     WHEN 'active' THEN 'Active'
-    WHEN 'suspended' THEN 'Suspended'
+    WHEN 'suspended' THEN 'On Leave'
     WHEN 'resigned' THEN 'Resigned'
     ELSE 'Active'
   END AS nurseStatus
@@ -1209,6 +1209,10 @@ app.post("/api/auth/nurse-login", async (req, res) => {
          name,
          email,
          username,
+         license_number AS licenseNumber,
+         work_area AS workArea,
+         position,
+         COALESCE(avatar, '') AS avatar,
          nurse_status
        FROM nurse
        WHERE (username = :login OR email = :login)
@@ -1235,6 +1239,10 @@ app.post("/api/auth/nurse-login", async (req, res) => {
       username: nurse.username,
       name: nurse.name,
       email: nurse.email,
+      licenseNumber: nurse.licenseNumber || "",
+      workArea: nurse.workArea || "",
+      position: nurse.position || "Registered Nurse",
+      avatar: nurse.avatar || "",
       status: nurse.nurse_status,
     });
   } catch (error) {
@@ -1730,9 +1738,8 @@ app.post("/api/nurses", async (req, res) => {
       data
     );
 
-    const [rows] = await pool.query(`SELECT ${nurseColumns} FROM nurse WHERE nurse_id = :nurseId`, {
-      nurseId: Number(result.insertId),
-    });
+    const createdNurseId = Number(result.insertId);
+    const [rows] = await pool.query(`SELECT ${nurseColumns} FROM nurse WHERE nurse_id = ${createdNurseId}`);
     res.status(201).json(rows[0]);
   } catch (error) {
     res.status(500).json({
@@ -1750,11 +1757,62 @@ app.put("/api/nurses/:id", async (req, res) => {
     return;
   }
 
-  const profile = { ...req.body, type: "nurse" };
-  const validation = await validateProfileWithCobol(profile);
+  let existingNurse;
 
-  if (!validation.valid) {
-    res.status(422).json(validation);
+  try {
+    const [existingRows] = await pool.query(
+      `SELECT
+         username,
+         password,
+         license_number AS licenseNumber,
+         shift_schedule AS shiftSchedule
+       FROM nurse
+       WHERE nurse_id = ${nurseId}
+       LIMIT 1`
+    );
+
+    existingNurse = existingRows[0];
+
+    if (!existingNurse) {
+      res.status(404).json({ error: "Nurse profile not found." });
+      return;
+    }
+  } catch (error) {
+    console.error("Failed to load nurse profile:", error);
+    res.status(500).json({
+      error: "Failed to load nurse profile",
+      details: error.message,
+    });
+    return;
+  }
+
+  const profile = {
+    ...req.body,
+    licenseNumber: req.body.licenseNumber ?? req.body.license_number ?? existingNurse.licenseNumber ?? "",
+    shiftSchedule: req.body.shiftSchedule ?? req.body.shift_schedule ?? existingNurse.shiftSchedule ?? "",
+    username: String(req.body.username || existingNurse.username || "").trim(),
+    password: String(req.body.password || existingNurse.password || "").trim(),
+    nurseStatus: req.body.status || req.body.nurseStatus || "Active",
+    status: req.body.status || req.body.nurseStatus || "Active",
+  };
+
+  const errors = {};
+  const age = Number(profile.age);
+
+  if (!String(profile.name || "").trim()) errors.name = "Full name is required.";
+  if (!Number.isInteger(age) || age < 18 || age > 80) errors.age = "Caregiver age must be between 18 and 80.";
+  if (!String(profile.gender || "").trim()) errors.gender = "Gender is required.";
+  if (!/^09-\d{9}$/.test(String(profile.phone || "").trim())) errors.phone = "Phone must use format 09-#########.";
+  if (!/^[A-Za-z][A-Za-z0-9._%+-]*@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(String(profile.email || "").trim())) {
+    errors.email = "Email must include @ and a valid domain.";
+  }
+  if (!String(profile.address || "").trim()) errors.address = "Address is required.";
+  if (!String(profile.position || "").trim()) errors.position = "Position is required.";
+  if (!String(profile.workArea || profile.work_area || "").trim()) errors.workArea = "Work area is required.";
+  if (!String(profile.hireDate || profile.hire_date || "").trim()) errors.hireDate = "Hire date is required.";
+
+  if (Object.keys(errors).length > 0) {
+    res.status(422).json({ valid: false, errors });
     return;
   }
 
@@ -1762,13 +1820,13 @@ app.put("/api/nurses/:id", async (req, res) => {
     const data = {
       nurseId,
       name: String(profile.name || "").trim(),
-      age: Number(profile.age) || 0,
+      age,
       gender: String(profile.gender || "").toLowerCase(),
       phone: String(profile.phone || "").trim(),
       email: String(profile.email || "").trim(),
-      licenseNumber: Number(profile.licenseNumber || profile.license_number) || 0,
+      licenseNumber: String(profile.licenseNumber || "").trim(),
       position: String(profile.position || "").trim(),
-      shiftSchedule: String(profile.shiftSchedule || profile.shift_schedule || "").trim(),
+      shiftSchedule: String(profile.shiftSchedule || "").trim(),
       workArea: String(profile.workArea || profile.work_area || "").trim(),
       username: String(profile.username || "").trim(),
       password: String(profile.password || "").trim(),
@@ -1800,14 +1858,9 @@ app.put("/api/nurses/:id", async (req, res) => {
          WHERE nurse_id = :nurseId`,
         data
       );
-
-      if (!isActiveNurseStatus(data.nurseStatus)) {
-        await connection.query("DELETE FROM `schedule` WHERE nurse_id = :nurseId", data);
-        await connection.query("UPDATE nurse_elderly_assignments SET status = 'inactive' WHERE nurse_id = :nurseId", data);
-      }
     });
 
-    const [rows] = await pool.query(`SELECT ${nurseColumns} FROM nurse WHERE nurse_id = :nurseId`, { nurseId });
+    const [rows] = await pool.query(`SELECT ${nurseColumns} FROM nurse WHERE nurse_id = ${nurseId}`);
 
     if (!rows[0]) {
       res.status(404).json({ error: "Nurse profile not found." });
@@ -1816,6 +1869,7 @@ app.put("/api/nurses/:id", async (req, res) => {
 
     res.json(rows[0]);
   } catch (error) {
+    console.error("Failed to update nurse profile:", error);
     res.status(500).json({
       error: "Failed to update nurse profile",
       details: error.message,

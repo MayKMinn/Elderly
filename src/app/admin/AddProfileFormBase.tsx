@@ -10,7 +10,7 @@ export interface AddProfileFormBaseProps {
 
 const emailPattern = /^[A-Za-z][A-Za-z0-9._%+-]*@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
 
-const defaultNurseEmail = "ames.lee@eldercare.com";
+const defaultNurseEmail = "";
 
 const emptyProfile: NewProfilePayload = {
   type: "elderly",
@@ -38,7 +38,7 @@ const emptyProfile: NewProfilePayload = {
   position: "",
   workArea: "",
   hireDate: "",
-  nurseStatus: "",
+  nurseStatus: "Active",
   licenseNumber: "",
   shiftSchedule: "",
 };
@@ -168,7 +168,7 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
   const [form, setForm] = useState<NewProfilePayload>({
     ...emptyProfile,
     type,
-    email: type === "nurse" ? defaultNurseEmail : emptyProfile.email,
+    email: emptyProfile.email,
   });
   const [errors, setErrors] = useState<ValidationErrors>({});
   const [saving, setSaving] = useState(false);
@@ -414,7 +414,7 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
                   <FormRow2>
                     <FormField
                       label="Email *"
-                      placeholder={defaultNurseEmail}
+                      placeholder="Enter email"
                       value={form.email}
                       error={errors.email}
                       onChange={(value) => setField("email", value)}
@@ -496,7 +496,7 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
                   <FormFieldSelect
                     label="Nurse Status *"
                     placeholder="Select status"
-                    options={["Active", "On Leave", "Inactive"]}
+                    options={["Active"]}
                     value={form.nurseStatus}
                     error={errors.nurseStatus}
                     onChange={(value) => setField("nurseStatus", value)}
