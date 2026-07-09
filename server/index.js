@@ -11,6 +11,34 @@ const elderlyTable = process.env.ELDERLY_TABLE || "elderly";
 
 app.use(express.json({ limit: "5mb" }));
 
+function getForcedNow() {
+  const forced = String(process.env.FORCE_SYSTEM_DATE || "").trim();
+  if (!forced) return new Date();
+  // Use current time but replace the date portion with the forced date
+  const now = new Date();
+  const timePart = now.toTimeString().split(' ')[0]; // HH:MM:SS
+  const dt = new Date(`${forced}T${timePart}`);
+  if (Number.isNaN(dt.getTime())) return new Date();
+  return dt;
+}
+
+function formatDateTimeForSql(d) {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mi = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
+}
+
+function formatDateForSql(d) {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 async function ensureElderlyAvatarColumn() {
   try {
     await pool.query(`ALTER TABLE ${elderlyTable} ADD COLUMN avatar MEDIUMTEXT NULL`);
@@ -316,6 +344,14 @@ async function ensureNurseElderlyAssignmentsTable() {
     await pool.query("ALTER TABLE nurse_elderly_assignments ADD INDEX idx_assignment_elderly_id (elderly_id)");
   } catch (error) {
     if (error.code !== "ER_DUP_KEYNAME") throw error;
+  }
+}
+
+async function ensureHealthLogScheduleColumn() {
+  try {
+    await pool.query("ALTER TABLE health_log ADD COLUMN schedule_id INT NULL");
+  } catch (error) {
+    if (error.code !== "ER_DUP_FIELDNAME" && error.code !== "ER_DUP_FIELDNAME") throw error;
   }
 }
 
@@ -1165,6 +1201,102 @@ app.patch("/api/schedules/:id/status", async (req, res) => {
     res.json(await selectScheduleById(id));
   } catch (error) {
     res.status(500).json({ error: "Failed to update schedule.", details: error.message });
+  }
+});
+
+// Health log - save vitals/notes for a visit
+app.post("/api/health", async (req, res) => {
+  const nurseId = Number(req.body.nurseId);
+  const elderlyId = Number(req.body.elderlyId);
+  const scheduleId = req.body.scheduleId ? Number(req.body.scheduleId) : null;
+  let systolic = req.body.systolic !== undefined ? Number(req.body.systolic) : null;
+  let diastolic = req.body.diastolic !== undefined ? Number(req.body.diastolic) : null;
+  let bloodSugar = req.body.bloodSugar !== undefined ? Number(req.body.bloodSugar) : null;
+  let notes = String(req.body.notes || "").trim();
+
+  if (!Number.isInteger(nurseId) || nurseId <= 0) {
+    res.status(400).json({ error: "Valid nurseId is required." });
+    return;
+  }
+
+  if (!Number.isInteger(elderlyId) || elderlyId <= 0) {
+    res.status(400).json({ error: "Valid elderlyId is required." });
+    return;
+  }
+
+  if (systolic === null && diastolic === null && bloodSugar === null && !notes) {
+    res.status(422).json({ error: "At least one measurement or note is required." });
+    return;
+  }
+
+  try {
+    // Ensure DB NOT NULL columns receive defaults if omitted
+    if (systolic === null) systolic = 0;
+    if (diastolic === null) diastolic = 0;
+    if (bloodSugar === null) bloodSugar = 0;
+    if (!notes) notes = "";
+
+    // include schedule_id if provided
+    let result;
+    const nowDate = getForcedNow();
+    const nowDateTimeSql = formatDateTimeForSql(nowDate);
+    const nowDateOnlySql = formatDateForSql(nowDate);
+
+    if (Number.isInteger(scheduleId) && scheduleId > 0) {
+      [result] = await pool.query(
+        `INSERT INTO health_log (schedule_id, nurse_id, elderly_id, visit_time, visit_date, bloodpressure_systolic, bloodpressure_diastolic, blood_sugar, condition_notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [scheduleId, nurseId, elderlyId, nowDateTimeSql, nowDateOnlySql, systolic, diastolic, bloodSugar, notes]
+      );
+    } else {
+      [result] = await pool.query(
+        `INSERT INTO health_log (nurse_id, elderly_id, visit_time, visit_date, bloodpressure_systolic, bloodpressure_diastolic, blood_sugar, condition_notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [nurseId, elderlyId, nowDateTimeSql, nowDateOnlySql, systolic, diastolic, bloodSugar, notes]
+      );
+    }
+
+    const insertId = result.insertId;
+    const [rows] = await pool.query("SELECT * FROM health_log WHERE log_id = ?", [insertId]);
+    res.status(201).json(rows[0]);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to save health log.", details: error.message });
+  }
+});
+
+// Fetch health logs. Accepts query params: nurseId, elderlyId, limit
+app.get("/api/health/logs", async (req, res) => {
+  const nurseId = req.query.nurseId ? Number(req.query.nurseId) : null;
+  const elderlyId = req.query.elderlyId ? Number(req.query.elderlyId) : null;
+  const scheduleId = req.query.scheduleId ? Number(req.query.scheduleId) : null;
+  const limit = req.query.limit ? Math.min(100, Number(req.query.limit)) : 50;
+
+  try {
+    let sql = "SELECT * FROM health_log";
+    const params = [];
+    const where = [];
+    if (Number.isInteger(scheduleId) && scheduleId > 0) {
+      where.push("schedule_id = ?");
+      params.push(scheduleId);
+    } else {
+      if (Number.isInteger(nurseId) && nurseId > 0) {
+        where.push("nurse_id = ?");
+        params.push(nurseId);
+      }
+      if (Number.isInteger(elderlyId) && elderlyId > 0) {
+        where.push("elderly_id = ?");
+        params.push(elderlyId);
+      }
+    }
+
+    if (where.length > 0) sql += " WHERE " + where.join(" AND ");
+    sql += " ORDER BY visit_time DESC LIMIT ?";
+    params.push(limit);
+
+    const [rows] = await pool.query(sql, params);
+    res.json({ logs: rows });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch health logs.", details: error.message });
   }
 });
 
@@ -2661,9 +2793,12 @@ app.listen(port, async () => {
     await ensureElderlyMedicationsTable();
     await ensureMedicationLogsTable();
     await ensureBloodPressureAndGlucoseTables();
+    await ensureHealthLogScheduleColumn();
     console.log(`API server running at http://localhost:${port}`);
+    console.log("MySQL connection successful for database eldercare");
   } catch (error) {
     console.error("API server started, but MySQL connection failed:");
     console.error(error.message);
+    console.error("Verify XAMPP MySQL is running and that the root account can access the eldercare database.");
   }
 });

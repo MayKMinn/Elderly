@@ -467,7 +467,7 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
                   <FormFieldSelect
                     label="Position *"
                     placeholder="Select position"
-                    options={["Registered Nurse", "LPN", "Charge Nurse", "Senior Nurse", "Nurse Practitioner"]}
+                    options={["Registered Nurse", "LPN", "Geriatric Nurse", "Rehabilitation Nurse"]}
                     value={form.position}
                     error={errors.position}
                     onChange={(value) => setField("position", value)}

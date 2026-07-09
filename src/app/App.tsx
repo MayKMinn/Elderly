@@ -93,7 +93,14 @@ export default function App() {
     );
   }
 
-  return <NursePortal nurseName={session.name} onSignOut={handleSignOut}  nurseProfile={session} />;
+  return (
+    <NursePortal
+      nurseName={session.name}
+      nurseId={session.id ? String(session.id) : undefined}
+      nurseProfile={session}
+      onSignOut={handleSignOut}
+    />
+  );
 }
 
 function SignInScreen({
