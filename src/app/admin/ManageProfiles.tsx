@@ -294,7 +294,7 @@ function getAssignedElderly(
   const nurseId = String(nurse.nurseId || nurse.id);
   const assignedIds = new Set(assignmentMap[nurseId] || []);
 
-  return elderlyList.filter((profile) => assignedIds.has(String(profile.id)));
+  return elderlyList.filter((profile) => profile.status === "Active" && assignedIds.has(String(profile.id)));
 }
 
 function getNurseSqlDisplayId(profile: NurseProfile) {
@@ -429,9 +429,35 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
   const handleSaveEdit = async (updated: ElderlyProfile): Promise<ValidationErrors | void> => {
     const validationErrors = validateElderlyProfile(updated);
     if (Object.keys(validationErrors).length > 0) return validationErrors;
+    const removeInactiveAssignments = (elderlyId: string) => {
+      const affectedNurseIds = new Set(
+        Object.entries(assignmentMap)
+          .filter(([, elderlyIds]) => elderlyIds.map(String).includes(elderlyId))
+          .map(([nurseId]) => nurseId)
+      );
+
+      setAssignmentMap((prev) => Object.fromEntries(
+        Object.entries(prev).map(([nurseId, elderlyIds]) => [
+          nurseId,
+          elderlyIds.filter((id) => String(id) !== elderlyId),
+        ])
+      ));
+      setNurseList((prev) => prev.map((nurse) => {
+        const nurseId = String(nurse.nurseId || nurse.id);
+        if (!affectedNurseIds.has(nurseId)) return nurse;
+
+        return {
+          ...nurse,
+          assignedElders: Math.max(0, (assignmentMap[nurseId] || []).filter((id) => String(id) !== elderlyId).length),
+        };
+      }));
+    };
 
     if (!useApi) {
       setElderlyList((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
+      if (updated.status !== "Active") {
+        removeInactiveAssignments(String(updated.id));
+      }
       setModal(null);
       setSuccessMessage("Elderly profile updated successfully.");
       return;
@@ -440,6 +466,9 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
     try {
       const saved = normalizeElderlyProfile(await updateElderlyProfile(updated));
       setElderlyList((prev) => prev.map((e) => (e.id === saved.id ? saved : e)));
+      if (saved.status !== "Active") {
+        removeInactiveAssignments(String(saved.id));
+      }
       setModal(null);
       setError(null);
       setSuccessMessage("Elderly profile updated successfully.");
@@ -647,7 +676,18 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
       setError(null);
       setSuccessMessage("Assigned elderly updated successfully.");
     } catch (err) {
-      setError("Failed to save assigned elderly.");
+      let message = "Failed to save assigned elderly.";
+
+      if (err instanceof Error) {
+        try {
+          const parsed = JSON.parse(err.message);
+          message = parsed.error || message;
+        } catch {
+          message = err.message || message;
+        }
+      }
+
+      setError(message);
       console.error(err);
     }
   };
@@ -1539,10 +1579,17 @@ function AssignEldersModal({
   onCancel: () => void;
   onSave: (elderlyIds: string[]) => Promise<void> | void;
 }) {
-  const [selected, setSelected] = useState<Set<string>>(() => new Set(selectedIds.map(String)));
+  const activeElderlyIds = new Set(
+    elderlyList.filter((elderly) => elderly.status === "Active").map((elderly) => String(elderly.id))
+  );
+  const [selected, setSelected] = useState<Set<string>>(() => (
+    new Set(selectedIds.map(String).filter((id) => activeElderlyIds.has(id)))
+  ));
   const [query, setQuery] = useState("");
   const [saving, setSaving] = useState(false);
   const filteredElderly = elderlyList.filter((elderly) => {
+    if (elderly.status !== "Active") return false;
+
     const text = `${elderly.name} ${elderly.id} ${elderly.medicalCondition}`.toLowerCase();
     return text.includes(query.trim().toLowerCase());
   });

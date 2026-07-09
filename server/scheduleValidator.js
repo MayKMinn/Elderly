@@ -20,6 +20,7 @@ const fieldOrder = [
   "slotLockDate",
   "slotLockHour",
   "recurrenceIntervalDays",
+  "hasAssignedElder",
 ];
 const allowedPurposes = ["Blood Pressure", "Blood Glucose", "Medication", "Routine Visit"];
 const allowedStatuses = ["scheduled", "completed", "missed", "cancelled"];
@@ -161,6 +162,13 @@ function fallbackValidate(schedule) {
   const recurrenceIntervalDays = String(schedule.recurrenceIntervalDays || "").trim();
   if (recurrenceIntervalDays && !["1", "7"].includes(recurrenceIntervalDays)) {
     errors.recurrenceIntervalDays = "Recurring schedule must repeat daily or weekly.";
+  }
+  if (
+    !errors.nurseId &&
+    !errors.elderlyId &&
+    String(schedule.hasAssignedElder || "").trim().toUpperCase() !== "Y"
+  ) {
+    errors.elderlyId = "There is no assigned elder. Please assign first.";
   }
 
   return { valid: Object.keys(errors).length === 0, errors };

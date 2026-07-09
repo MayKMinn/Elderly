@@ -279,8 +279,11 @@ age,
   (
     SELECT COUNT(*)
     FROM nurse_elderly_assignments nea
+    INNER JOIN ${elderlyTable} assigned_elderly
+      ON assigned_elderly.elderly_id = nea.elderly_id
     WHERE nea.nurse_id = nurse.nurse_id
       AND nea.status = 'active'
+      AND COALESCE(assigned_elderly.elderly_status, 'active') = 'active'
   ) AS assignedElders,
   CASE nurse_status
     WHEN 'active' THEN 'Active'
@@ -474,7 +477,27 @@ async function validateActiveScheduleParticipants({ nurseId, elderlyId }) {
     errors.elderlyId = "Select an active elderly profile.";
   }
 
+  if (Object.keys(errors).length === 0) {
+    if (!(await hasActiveNurseElderlyAssignment({ nurseId, elderlyId }))) {
+      errors.elderlyId = "There is no assigned elder. Please assign first.";
+    }
+  }
+
   return errors;
+}
+
+async function hasActiveNurseElderlyAssignment({ nurseId, elderlyId }) {
+  const [assignments] = await pool.query(
+    `SELECT assignment_id
+     FROM nurse_elderly_assignments
+     WHERE nurse_id = :nurseId
+       AND elderly_id = :elderlyId
+       AND status = 'active'
+     LIMIT 1`,
+    { nurseId, elderlyId }
+  );
+
+  return Boolean(assignments[0]);
 }
 
 async function selectScheduleById(id) {
@@ -546,23 +569,6 @@ app.post("/api/schedules", async (req, res) => {
     return;
   }
 
-  const validation = await validateScheduleWithCobol({
-    nurseId: payload.nurseId,
-    elderlyId: payload.elderlyId,
-    visitDate,
-    visitTime,
-    purpose,
-    scheduleStatus: payload.scheduleStatus || "scheduled",
-    slotLockDate: normalizeScheduleDate(payload.slotLockDate),
-    slotLockHour: String(payload.slotLockHour || "").trim(),
-    recurrenceIntervalDays: payload.recurrenceIntervalDays,
-  });
-
-  if (!validation.valid) {
-    res.status(422).json(validation);
-    return;
-  }
-
   const data = {
     nurseId: String(payload.nurseId).trim(),
     elderlyId: String(payload.elderlyId).trim(),
@@ -579,6 +585,24 @@ app.post("/api/schedules", async (req, res) => {
   };
 
   try {
+    const validation = await validateScheduleWithCobol({
+      nurseId: payload.nurseId,
+      elderlyId: payload.elderlyId,
+      visitDate,
+      visitTime,
+      purpose,
+      scheduleStatus: payload.scheduleStatus || "scheduled",
+      slotLockDate: normalizeScheduleDate(payload.slotLockDate),
+      slotLockHour: String(payload.slotLockHour || "").trim(),
+      recurrenceIntervalDays: payload.recurrenceIntervalDays,
+      hasAssignedElder: (await hasActiveNurseElderlyAssignment(data)) ? "Y" : "N",
+    });
+
+    if (!validation.valid) {
+      res.status(422).json(validation);
+      return;
+    }
+
     const activeParticipantErrors = await validateActiveScheduleParticipants(data);
 
     if (Object.keys(activeParticipantErrors).length > 0) {
@@ -653,22 +677,6 @@ app.put("/api/schedules/:id", async (req, res) => {
 
     const dateTimeUnchanged = existingSchedule.visitDate === visitDate && existingSchedule.visitTime === visitTime;
 
-    const validation = await validateScheduleWithCobol({
-      nurseId: payload.nurseId,
-      elderlyId: payload.elderlyId,
-      visitDate,
-      visitTime,
-      purpose,
-      scheduleStatus: payload.scheduleStatus || "scheduled",
-      allowPastDateTime: dateTimeUnchanged ? "Y" : "N",
-      recurrenceIntervalDays: payload.recurrenceIntervalDays,
-    });
-
-    if (!validation.valid) {
-      res.status(422).json(validation);
-      return;
-    }
-
     const baseData = {
       id,
       nurseId: String(payload.nurseId).trim(),
@@ -684,6 +692,23 @@ app.put("/api/schedules/:id", async (req, res) => {
         ? Number(payload.recurringSequence)
         : null,
     };
+
+    const validation = await validateScheduleWithCobol({
+      nurseId: payload.nurseId,
+      elderlyId: payload.elderlyId,
+      visitDate,
+      visitTime,
+      purpose,
+      scheduleStatus: payload.scheduleStatus || "scheduled",
+      allowPastDateTime: dateTimeUnchanged ? "Y" : "N",
+      recurrenceIntervalDays: payload.recurrenceIntervalDays,
+      hasAssignedElder: (await hasActiveNurseElderlyAssignment(baseData)) ? "Y" : "N",
+    });
+
+    if (!validation.valid) {
+      res.status(422).json(validation);
+      return;
+    }
 
     const activeParticipantErrors = await validateActiveScheduleParticipants(baseData);
 
@@ -915,11 +940,13 @@ app.get("/api/profiles", async (_req, res) => {
     try {
       const [assignmentRows] = await pool.query(
         `SELECT
-           nurse_id AS nurseId,
-           elderly_id AS elderlyId
-         FROM nurse_elderly_assignments
-         WHERE status = 'active'
-         ORDER BY nurse_id, elderly_id`
+           nea.nurse_id AS nurseId,
+           nea.elderly_id AS elderlyId
+         FROM nurse_elderly_assignments nea
+         INNER JOIN ${elderlyTable} e ON e.elderly_id = nea.elderly_id
+         WHERE nea.status = 'active'
+           AND COALESCE(e.elderly_status, 'active') = 'active'
+         ORDER BY nea.nurse_id, nea.elderly_id`
       );
       nurseElderlyAssignments = assignmentRows;
     } catch (error) {
@@ -953,6 +980,7 @@ app.get("/api/nurses/:id/elderly-assignments", async (req, res) => {
        INNER JOIN ${elderlyTable} ON ${elderlyTable}.elderly_id = nea.elderly_id
        WHERE nea.nurse_id = :nurseId
          AND nea.status = 'active'
+         AND COALESCE(${elderlyTable}.elderly_status, 'active') = 'active'
        ORDER BY ${elderlyTable}.name`,
       { nurseId }
     );
@@ -1000,13 +1028,16 @@ app.put("/api/nurses/:id/elderly-assignments", async (req, res) => {
 
     if (elderlyIds.length > 0) {
       const [elderlyRows] = await connection.query(
-        `SELECT elderly_id AS id FROM ${elderlyTable} WHERE elderly_id IN (:elderlyIds)`,
+        `SELECT elderly_id AS id
+         FROM ${elderlyTable}
+         WHERE elderly_id IN (:elderlyIds)
+           AND COALESCE(elderly_status, 'active') = 'active'`,
         { elderlyIds }
       );
 
       if (elderlyRows.length !== elderlyIds.length) {
         await connection.rollback();
-        res.status(422).json({ error: "One or more elderly profiles do not exist." });
+        res.status(422).json({ error: "Only active elderly profiles can be assigned." });
         return;
       }
     }
