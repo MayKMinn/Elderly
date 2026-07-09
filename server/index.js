@@ -401,7 +401,7 @@ age,
     WHEN 'resigned' THEN 'Resigned'
     ELSE 'Active'
   END AS status,
-  COALESCE(NULLIF(avatar, ''), 'https://i.pravatar.cc/40?img=49') AS avatar,
+  COALESCE(avatar, '') AS avatar,
   (
     SELECT COUNT(*)
     FROM nurse_elderly_assignments nea
@@ -432,11 +432,10 @@ function getElderlyDbId(id) {
 }
 
 function toDbNurseStatus(status) {
-  const value = String(status || "").toLowerCase();
+  const value = String(status || "").trim().toLowerCase();
 
-  if (value === "suspended") return "suspended";
+  if (value === "suspended" || value === "on leave") return "suspended";
   if (value === "resigned") return "resigned";
-  if (value === "on leave") return "suspended";
 
   return "active";
 }
@@ -1462,6 +1461,24 @@ app.put("/api/nurses/:id/elderly-assignments", async (req, res) => {
       if (elderlyRows.length !== elderlyIds.length) {
         await connection.rollback();
         res.status(422).json({ error: "Only active elderly profiles can be assigned." });
+        return;
+      }
+
+      const [assignedRows] = await connection.query(
+        `SELECT elderly_id AS elderlyId, nurse_id AS nurseId
+         FROM nurse_elderly_assignments
+         WHERE elderly_id IN (:elderlyIds)
+           AND nurse_id <> :nurseId
+           AND status = 'active'`,
+        { elderlyIds, nurseId }
+      );
+
+      if (assignedRows.length > 0) {
+        await connection.rollback();
+        res.status(409).json({
+          error: "Some elderly profiles are already assigned to another nurse.",
+          assignedElderlyIds: assignedRows.map((row) => String(row.elderlyId)),
+        });
         return;
       }
     }
@@ -2667,7 +2684,7 @@ app.put("/api/nurses/:id", async (req, res) => {
     shiftSchedule: req.body.shiftSchedule ?? req.body.shift_schedule ?? existingNurse.shiftSchedule ?? "",
     username: String(req.body.username || existingNurse.username || "").trim(),
     password: String(req.body.password || existingNurse.password || "").trim(),
-    nurseStatus: req.body.status || req.body.nurseStatus || "Active",
+    nurseStatus: req.body.nurseStatus || req.body.status || "Active",
     status: req.body.status || req.body.nurseStatus || "Active",
   };
 

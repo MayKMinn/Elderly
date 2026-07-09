@@ -540,7 +540,11 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
 
     try {
       const saved = normalizeNurseProfile(await updateNurseProfile(updated));
-      setNurseList((prev) => prev.map((n) => (String(n.id) === String(saved.id) ? saved : n)));
+      const nextProfile = {
+        ...saved,
+        avatar: updated.avatar.trim() ? saved.avatar : "",
+      };
+      setNurseList((prev) => prev.map((n) => (String(n.id) === String(nextProfile.id) ? nextProfile : n)));
       setModal(null);
       setError(null);
       setSuccessMessage("Caregiver profile updated successfully.");
@@ -1138,6 +1142,7 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
         <AssignEldersModal
           nurse={modal.profile}
           elderlyList={elderlyList}
+          assignmentMap={assignmentMap}
           selectedIds={assignmentMap[String(modal.profile.nurseId || modal.profile.id)] || []}
           onCancel={() => setModal({ type: "viewNurse", profile: modal.profile })}
           onSave={(elderlyIds) => handleSaveAssignments(modal.profile, elderlyIds)}
@@ -1628,16 +1633,24 @@ function NurseViewModal({
 function AssignEldersModal({
   nurse,
   elderlyList,
+  assignmentMap,
   selectedIds,
   onCancel,
   onSave,
 }: {
   nurse: NurseProfile;
   elderlyList: ElderlyProfile[];
+  assignmentMap: Record<string, string[]>;
   selectedIds: string[];
   onCancel: () => void;
   onSave: (elderlyIds: string[]) => Promise<void> | void;
 }) {
+  const currentNurseId = String(nurse.nurseId || nurse.id);
+  const assignedToOtherNurseIds = new Set(
+    Object.entries(assignmentMap).flatMap(([nurseId, elderlyIds]) => (
+      nurseId === currentNurseId ? [] : elderlyIds.map(String)
+    ))
+  );
   const activeElderlyIds = new Set(
     elderlyList.filter((elderly) => elderly.status === "Active").map((elderly) => String(elderly.id))
   );
@@ -1648,6 +1661,7 @@ function AssignEldersModal({
   const [saving, setSaving] = useState(false);
   const filteredElderly = elderlyList.filter((elderly) => {
     if (elderly.status !== "Active") return false;
+    if (assignedToOtherNurseIds.has(String(elderly.id))) return false;
 
     const text = `${elderly.name} ${elderly.id} ${elderly.medicalCondition}`.toLowerCase();
     return text.includes(query.trim().toLowerCase());
@@ -2032,16 +2046,9 @@ function NurseEditPanel({
             Cancel
           </button>
 
-                    <button
+          <button
             type="button"
-            onClick={() => {
-              onSave({
-                ...form,
-                age: Number(form.age) || 0,
-                assignedElders: Number(form.assignedElders) || 0,
-                nurseStatus: form.status,
-              });
-            }}
+            onClick={handleSave}
             className="relative z-[9999] flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm text-white hover:opacity-90"
             style={{ backgroundColor: "#2563eb" }}
           >
@@ -2241,7 +2248,7 @@ function EditPhotoField({
   value: string;
   onChange: (v: string) => void;
 }) {
-  const preview = value.trim() || "https://i.pravatar.cc/80?u=elderly-edit";
+  const preview = value.trim();
   const handleUpload = (file?: File) => {
     if (!file) return;
     if (!file.type.startsWith("image/")) return;
@@ -2257,15 +2264,22 @@ function EditPhotoField({
     <div className="flex flex-col items-center gap-3 py-2">
       <label className="text-xs block" style={{ color: "#6b7a99" }}>Profile Photo</label>
       <div className="relative">
-        <img
-          src={preview}
-          alt=""
-          className="h-24 w-24 rounded-full border-4 object-cover shadow-sm"
-          style={{ borderColor: "#fff", boxShadow: "0 8px 24px rgba(15,23,42,0.12)" }}
-          onError={(event) => {
-            event.currentTarget.src = "https://i.pravatar.cc/80?u=elderly-edit";
-          }}
-        />
+        {preview ? (
+          <img
+            src={preview}
+            alt=""
+            className="h-24 w-24 rounded-full border-4 object-cover shadow-sm"
+            style={{ borderColor: "#fff", boxShadow: "0 8px 24px rgba(15,23,42,0.12)" }}
+            onError={() => onChange("")}
+          />
+        ) : (
+          <div
+            className="flex h-24 w-24 items-center justify-center rounded-full border-4 bg-blue-50 text-blue-600 shadow-sm"
+            style={{ borderColor: "#fff", boxShadow: "0 8px 24px rgba(15,23,42,0.12)" }}
+          >
+            <User size={32} />
+          </div>
+        )}
         <label
           className="absolute bottom-0 right-0 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-2 bg-white shadow-md transition-colors hover:bg-blue-50"
           style={{ borderColor: "#fff", color: "#2563eb" }}

@@ -118,17 +118,6 @@ function SignInScreen({
   const inputCls =
     "w-full px-4 py-3 text-sm bg-input-background border border-border rounded-xl outline-none focus:ring-2 focus:ring-primary/40 transition-all placeholder:text-muted-foreground";
 
-  const demoText =
-    portal === "admin"
-      ? {
-          email: "Try admin or admin@elderease.com",
-          password: "admin123",
-        }
-      : {
-          email: "Use nurse username or email from MySQL",
-          password: "database password",
-        };
-
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError("");
@@ -300,16 +289,6 @@ function SignInScreen({
                 {loading ? "Signing In..." : "Sign In"}
               </button>
 
-              <p className="text-xs text-center text-muted-foreground pt-1">
-                Demo:{" "}
-                <span className="font-mono text-foreground">
-                  {demoText.email}
-                </span>{" "}
-                /{" "}
-                <span className="font-mono text-foreground">
-                  {demoText.password}
-                </span>
-              </p>
             </form>
           </div>
         </div>

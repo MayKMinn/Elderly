@@ -59,10 +59,12 @@
 
        move-inputs.
            if function trim(bp-systolic-sum-text) is numeric
-               move function numval(bp-systolic-sum-text) to bp-systolic-sum
+               move function numval(bp-systolic-sum-text) to
+                bp-systolic-sum
            end-if
            if function trim(bp-diastolic-sum-text) is numeric
-               move function numval(bp-diastolic-sum-text) to bp-diastolic-sum
+               move function numval(bp-diastolic-sum-text) to
+                bp-diastolic-sum
            end-if
            if function trim(bp-count-text) is numeric
                move function numval(bp-count-text) to bp-count
@@ -74,25 +76,31 @@
                move function numval(glucose-count-text) to glucose-count
            end-if
            if function trim(medication-total-text) is numeric
-               move function numval(medication-total-text) to medication-total
+               move function numval(medication-total-text) to 
+               medication-total
            end-if
            if function trim(medication-taken-text) is numeric
-               move function numval(medication-taken-text) to medication-taken
+               move function numval(medication-taken-text) to 
+               medication-taken
            end-if
            if function trim(medication-missed-text) is numeric
-               move function numval(medication-missed-text) to medication-missed
+               move function numval(medication-missed-text) to 
+               medication-missed
            end-if
            if function trim(medication-pending-text) is numeric
-               move function numval(medication-pending-text) to medication-pendi
+               move function numval(medication-pending-text) to 
+               medication-pending
            end-if
            if function trim(medication-due-text) is numeric
-               move function numval(medication-due-text) to medication-due
+               move function numval(medication-due-text) to
+                medication-due
            end-if.
        
        calculate-averages.
            if bp-count > 0
                compute avg-systolic rounded = bp-systolic-sum / bp-count
-               compute avg-diastolic rounded = bp-diastolic-sum / bp-count
+               compute avg-diastolic rounded =
+                bp-diastolic-sum / bp-count
            end-if
            if glucose-count > 0
                compute avg-glucose rounded = glucose-sum / glucose-count
@@ -158,7 +166,8 @@
            end-if.
    
        display-json.
-            display '{"averageSystolic":' function trim(avg-systolic-json)
+            display '{"averageSystolic":' 
+            function trim(avg-systolic-json)
            ',"averageDiastolic":' function trim(avg-diastolic-json)
            ',"bloodPressureStatus":"'
            function trim(bp-status)

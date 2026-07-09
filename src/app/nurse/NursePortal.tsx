@@ -18,6 +18,7 @@ import { AssignedResidentsSidebar, ResidentDetailsPanel, type Resident, type Sta
 interface NurseAccount {
   id: string;
   fullName: string;
+  username: string;
   email: string;
   licenseNo: string;
   password: string;
@@ -25,8 +26,8 @@ interface NurseAccount {
 }
 
 const SEED_NURSES: NurseAccount[] = [
-  { id: "1", fullName: "Patricia Chen", email: "patricia@elderease.com", licenseNo: "RN-4821", password: "nurse123", joinedAt: "2024-01-10" },
-  { id: "2", fullName: "Thomas Wright", email: "thomas@elderease.com",  licenseNo: "RN-3307", password: "nurse123", joinedAt: "2024-03-05" },
+  { id: "1", fullName: "Patricia Chen", username: "patricia", email: "patricia@elderease.com", licenseNo: "RN-4821", password: "nurse123", joinedAt: "2024-01-10" },
+  { id: "2", fullName: "Thomas Wright", username: "thomas", email: "thomas@elderease.com",  licenseNo: "RN-3307", password: "nurse123", joinedAt: "2024-03-05" },
 ];
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -777,7 +778,7 @@ function AuthScreen({ onAuth }: { onAuth: (name: string) => void }) {
   const [error, setError] = useState("");
 
   // Login form
-  const [loginEmail, setLoginEmail] = useState("");
+  const [login, setLogin] = useState("");
   const [loginPw, setLoginPw] = useState("");
 
   const inputCls = "w-full px-4 py-3 text-sm bg-input-background border border-border rounded-xl outline-none focus:ring-2 focus:ring-primary/40 transition-all placeholder:text-muted-foreground";
@@ -785,8 +786,12 @@ function AuthScreen({ onAuth }: { onAuth: (name: string) => void }) {
   function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    const nurse = nurses.find((n) => n.email.toLowerCase() === loginEmail.toLowerCase() && n.password === loginPw);
-    if (!nurse) { setError("Incorrect email or password."); return; }
+    const loginValue = login.trim().toLowerCase();
+    const nurse = nurses.find((n) => (
+      (n.email.toLowerCase() === loginValue || n.username.toLowerCase() === loginValue) &&
+      n.password === loginPw
+    ));
+    if (!nurse) { setError("Incorrect username/email or password."); return; }
     NURSE_NAME = nurse.fullName;
     onAuth(nurse.fullName);
   }
@@ -824,8 +829,8 @@ function AuthScreen({ onAuth }: { onAuth: (name: string) => void }) {
             )}
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
-                <label className="block text-sm font-semibold text-foreground mb-1.5">Email Address</label>
-                <input type="email" className={inputCls} placeholder="you@elderease.com" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} required />
+                <label className="block text-sm font-semibold text-foreground mb-1.5">Username or Email</label>
+                <input type="text" className={inputCls} placeholder="username or email" value={login} onChange={(e) => setLogin(e.target.value)} required />
               </div>
               <div>
                 <label className="block text-sm font-semibold text-foreground mb-1.5">Password</label>
@@ -839,9 +844,6 @@ function AuthScreen({ onAuth }: { onAuth: (name: string) => void }) {
               <button type="submit" className="w-full bg-primary text-primary-foreground py-3 rounded-xl font-semibold hover:opacity-90 transition-opacity flex items-center justify-center gap-2 mt-2">
                 <LogIn size={16} /> Sign In
               </button>
-              <p className="text-xs text-center text-muted-foreground pt-1">
-                Demo: <span className="font-mono text-foreground">patricia@elderease.com</span> / <span className="font-mono text-foreground">nurse123</span>
-              </p>
             </form>
           </div>
         </div>
