@@ -18,6 +18,8 @@ import {
   X,
 } from "lucide-react";
 import { getProfiles } from "../api/profiles";
+import { getElderlyMedications } from "../api/medications";
+import type { ElderlyMedication } from "../api/medications";
 import { createSchedule, deleteSchedule, getSchedules, updateSchedule } from "../api/schedules";
 import type { ScheduleAssignment } from "../api/schedules";
 
@@ -257,6 +259,7 @@ export function Schedules() {
   const [nurses, setNurses] = useState<SelectOption[]>([]);
   const [elders, setElders] = useState<SelectOption[]>([]);
   const [assignmentMap, setAssignmentMap] = useState<Record<string, string[]>>({});
+  const [elderlyMedicationMap, setElderlyMedicationMap] = useState<Record<string, ElderlyMedication[]>>({});
   const [schedules, setSchedules] = useState<ScheduleAssignment[]>([]);
   const [nurse, setNurse] = useState("");
   const [elder, setElder] = useState("");
@@ -339,6 +342,27 @@ export function Schedules() {
     const assignedSet = new Set(assignedIds.map(String));
     return elders.filter((elderly) => assignedSet.has(String(elderly.id)));
   }, [assignmentMap, elders, nurse]);
+  const elderlyOptionsForForm = useMemo(() => {
+    if (
+      !editingSchedule ||
+      String(editingSchedule.nurseId) !== String(nurse) ||
+      elderlyOptionsForNurse.some((elderly) => elderly.id === String(editingSchedule.elderlyId))
+    ) {
+      return elderlyOptionsForNurse;
+    }
+
+    return [
+      {
+        id: String(editingSchedule.elderlyId),
+        name: editingSchedule.elderlyName || String(editingSchedule.elderlyId),
+        avatar: editingSchedule.elderlyAvatar || "",
+      },
+      ...elderlyOptionsForNurse,
+    ];
+  }, [editingSchedule, elderlyOptionsForNurse, nurse]);
+  const selectedElderlyMedications = useMemo(() => {
+    return (elderlyMedicationMap[elder] || []).filter((medication) => String(medication.status).toLowerCase() === "active");
+  }, [elder, elderlyMedicationMap]);
 
   function hydrateScheduleNames(schedule: ScheduleAssignment): ScheduleAssignment {
     const matchingNurse = nurses.find((item) => item.id === String(schedule.nurseId));
@@ -411,7 +435,11 @@ export function Schedules() {
     setError("");
 
     try {
-      const [profileResponse, scheduleResponse] = await Promise.all([getProfiles(), getSchedules()]);
+      const [profileResponse, scheduleResponse, medicationResponse] = await Promise.all([
+        getProfiles(),
+        getSchedules(),
+        getElderlyMedications(),
+      ]);
       const nextNurses = profileResponse.nurses
         .filter((profile) => profile.status === "Active" && String(profile.nurseStatus || "Active") === "Active")
         .map((profile) => ({
@@ -433,6 +461,13 @@ export function Schedules() {
       setElders(nextElders);
       setElder((current) => nextElders.some((item) => item.id === current) ? current : nextElders[0]?.id || "");
       setAssignmentMap(toAssignmentMap(profileResponse.nurseElderlyAssignments || []));
+      setElderlyMedicationMap(
+        medicationResponse.medications.reduce<Record<string, ElderlyMedication[]>>((map, medication) => {
+          const elderlyId = String(medication.elderlyId);
+          map[elderlyId] = [...(map[elderlyId] || []), medication];
+          return map;
+        }, {})
+      );
 
       setSchedules(scheduleResponse.schedules);
     } catch (loadError) {
@@ -443,15 +478,30 @@ export function Schedules() {
     }
   }
 
+  async function refreshElderlyMedications() {
+    try {
+      const medicationResponse = await getElderlyMedications();
+      setElderlyMedicationMap(
+        medicationResponse.medications.reduce<Record<string, ElderlyMedication[]>>((map, medication) => {
+          const elderlyId = String(medication.elderlyId);
+          map[elderlyId] = [...(map[elderlyId] || []), medication];
+          return map;
+        }, {})
+      );
+    } catch (loadError) {
+      console.error("Failed to refresh elderly medications.", loadError);
+    }
+  }
+
   useEffect(() => {
     loadScheduleData();
   }, []);
 
   useEffect(() => {
-    setElder((current) => elderlyOptionsForNurse.some((item) => item.id === current)
+    setElder((current) => elderlyOptionsForForm.some((item) => item.id === current)
       ? current
-      : elderlyOptionsForNurse[0]?.id || "");
-  }, [elderlyOptionsForNurse]);
+      : elderlyOptionsForForm[0]?.id || "");
+  }, [elderlyOptionsForForm]);
 
   function resetForm() {
     setNurse(nurses[0]?.id || "");
@@ -513,11 +563,12 @@ export function Schedules() {
   }
 
   function startEditSchedule(row: ScheduleAssignment) {
+    refreshElderlyMedications();
     const recurringSeries = row.recurringGroupId
       ? schedules.filter((schedule) => schedule.recurringGroupId === row.recurringGroupId)
       : [];
-    setNurse(row.nurseId);
-    setElder(row.elderlyId);
+    setNurse(String(row.nurseId));
+    setElder(String(row.elderlyId));
     setPurpose(row.purpose);
     setVisitDate(row.visitDate);
     setVisitTime(row.visitTime);
@@ -536,6 +587,7 @@ export function Schedules() {
   }
 
   function startCreateSchedule(date: Date, hour = 9, lockToSlot = false) {
+    refreshElderlyMedications();
     const dateKey = toDateKey(date);
     setNurse((current) => nurses.some((item) => item.id === current) ? current : nurses[0]?.id || "");
     setElder((current) => elders.some((item) => item.id === current) ? current : elders[0]?.id || "");
@@ -565,7 +617,7 @@ export function Schedules() {
     setMessage("");
     setError("");
     const selectedNurse = nurses.find((item) => item.id === nurse);
-    const selectedElder = elders.find((item) => item.id === elder);
+    const selectedElder = elderlyOptionsForForm.find((item) => item.id === elder);
     const visitHour = Number(String(visitTime || "").slice(0, 2));
 
     if (!editingSchedule && createSlotLock) {
@@ -866,7 +918,7 @@ export function Schedules() {
             <FormGroup label="Select Elderly">
               <AvatarSelect
                 value={elder}
-                options={elderlyOptionsForNurse}
+                options={elderlyOptionsForForm}
                 onChange={setElder}
               />
               {(assignmentMap[nurse] || []).length > 0 && (
@@ -928,6 +980,34 @@ export function Schedules() {
                 />
               </div>
             </FormGroup>
+
+            {purpose === "Medication" && (
+              <div className="rounded-lg border px-3 py-2" style={{ borderColor: "#bfdbfe", backgroundColor: "#eff6ff" }}>
+                <div className="mb-2 text-xs" style={{ color: "#1d4ed8", fontWeight: 700 }}>
+                  Medication info for selected elderly
+                </div>
+                {selectedElderlyMedications.length > 0 ? (
+                  <div className="space-y-2">
+                    {selectedElderlyMedications.map((medication) => (
+                      <div key={medication.id} className="rounded-lg bg-white px-3 py-2 text-xs" style={{ border: "1px solid rgba(37,99,235,0.14)" }}>
+                        <div className="flex items-center justify-between gap-2">
+                          <span style={{ color: "#1a2b42", fontWeight: 700 }}>{medication.medicationName}</span>
+                          <span style={{ color: "#2563eb", fontWeight: 700 }}>{medication.dosage}</span>
+                        </div>
+                        <div className="mt-1" style={{ color: "#6b7a99" }}>{medication.instructions}</div>
+                        {medication.notes && (
+                          <div className="mt-1" style={{ color: "#64748b" }}>{medication.notes}</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs" style={{ color: "#1d4ed8" }}>
+                    No active medications assigned to this elderly yet. Add them from the Medications page first.
+                  </p>
+                )}
+              </div>
+            )}
 
             <FormGroup label="Notes">
               <textarea
@@ -1779,7 +1859,7 @@ function AvatarSelect({
   const selected = options.find((o) => o.id === value) || options[0];
   return (
     <div className="relative">
-      {selected && (
+      {selected?.avatar && (
         <img
           src={selected.avatar}
           className="pointer-events-none absolute left-3 top-1/2 z-10 h-5 w-5 -translate-y-1/2 rounded-full"
@@ -1794,7 +1874,7 @@ function AvatarSelect({
             borderColor: "rgba(0,0,0,0.12)",
             backgroundColor: "#f8fafc",
             color: "#1a2b42",
-            paddingLeft: selected ? "40px" : "12px",
+            paddingLeft: selected?.avatar ? "40px" : "12px",
           }}
         >
           {options.length === 0 && <option value="">No records found</option>}

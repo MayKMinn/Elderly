@@ -89,6 +89,8 @@ CREATE TABLE IF NOT EXISTS admin_login_history (
 
 CREATE TABLE IF NOT EXISTS medication_assignments (
   assignment_id INT AUTO_INCREMENT PRIMARY KEY,
+  schedule_id INT NULL,
+  nurse_id VARCHAR(40) NULL,
   elderly_id VARCHAR(40) NOT NULL,
   elderly_name VARCHAR(120) NOT NULL,
   nurse_name VARCHAR(120) NOT NULL,
@@ -103,7 +105,24 @@ CREATE TABLE IF NOT EXISTS medication_assignments (
   reported_at TIMESTAMP NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_medication_assignments_elderly_id (elderly_id),
+  INDEX idx_medication_assignments_nurse_id (nurse_id),
+  INDEX idx_medication_assignments_schedule_id (schedule_id),
   INDEX idx_medication_assignments_scheduled_date (scheduled_date)
+);
+
+CREATE TABLE IF NOT EXISTS elderly_medications (
+  medication_id INT AUTO_INCREMENT PRIMARY KEY,
+  elderly_id VARCHAR(40) NOT NULL,
+  elderly_name VARCHAR(120) NOT NULL,
+  medication_name VARCHAR(160) NOT NULL,
+  dosage VARCHAR(80) NOT NULL,
+  instructions VARCHAR(500) NOT NULL,
+  notes TEXT,
+  medication_status ENUM('Active', 'Inactive') NOT NULL DEFAULT 'Active',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_elderly_medications_elderly_id (elderly_id),
+  INDEX idx_elderly_medications_status (medication_status)
 );
 
 INSERT INTO elderly (

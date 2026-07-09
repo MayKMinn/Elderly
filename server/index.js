@@ -29,6 +29,8 @@ async function ensureMedicationAssignmentsTable() {
   await pool.query(
     `CREATE TABLE IF NOT EXISTS medication_assignments (
       assignment_id INT AUTO_INCREMENT PRIMARY KEY,
+      schedule_id INT NULL,
+      nurse_id VARCHAR(40) NULL,
       elderly_id VARCHAR(40) NOT NULL,
       elderly_name VARCHAR(120) NOT NULL,
       nurse_name VARCHAR(120) NOT NULL,
@@ -43,9 +45,23 @@ async function ensureMedicationAssignmentsTable() {
       reported_at TIMESTAMP NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_medication_assignments_elderly_id (elderly_id),
+      INDEX idx_medication_assignments_nurse_id (nurse_id),
+      INDEX idx_medication_assignments_schedule_id (schedule_id),
       INDEX idx_medication_assignments_scheduled_date (scheduled_date)
     )`
   );
+
+  try {
+    await pool.query("ALTER TABLE medication_assignments ADD COLUMN schedule_id INT NULL");
+  } catch (error) {
+    if (error.code !== "ER_DUP_FIELDNAME") throw error;
+  }
+
+  try {
+    await pool.query("ALTER TABLE medication_assignments ADD COLUMN nurse_id VARCHAR(40) NULL");
+  } catch (error) {
+    if (error.code !== "ER_DUP_FIELDNAME") throw error;
+  }
 
   try {
     await pool.query("ALTER TABLE medication_assignments ADD COLUMN report_notes TEXT NULL");
@@ -58,6 +74,25 @@ async function ensureMedicationAssignmentsTable() {
   } catch (error) {
     if (error.code !== "ER_DUP_FIELDNAME") throw error;
   }
+}
+
+async function ensureElderlyMedicationsTable() {
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS elderly_medications (
+      medication_id INT AUTO_INCREMENT PRIMARY KEY,
+      elderly_id VARCHAR(40) NOT NULL,
+      elderly_name VARCHAR(120) NOT NULL,
+      medication_name VARCHAR(160) NOT NULL,
+      dosage VARCHAR(80) NOT NULL,
+      instructions VARCHAR(500) NOT NULL,
+      notes TEXT,
+      medication_status ENUM('Active', 'Inactive') NOT NULL DEFAULT 'Active',
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_elderly_medications_elderly_id (elderly_id),
+      INDEX idx_elderly_medications_status (medication_status)
+    )`
+  );
 }
 
 async function ensureAdminProfileColumns() {
@@ -1505,6 +1540,8 @@ app.delete("/api/elderly/:id", async (req, res) => {
 
 const medicationAssignmentColumns = `
   assignment_id AS id,
+  schedule_id AS scheduleId,
+  nurse_id AS nurseId,
   elderly_id AS elderlyId,
   elderly_name AS elderlyName,
   nurse_name AS nurseName,
@@ -1520,14 +1557,209 @@ const medicationAssignmentColumns = `
   DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS createdAt
 `;
 
-app.get("/api/medications", async (req, res) => {
-  const nurseName = String(req.query.nurseName || "").trim();
+const elderlyMedicationColumns = `
+  medication_id AS id,
+  elderly_id AS elderlyId,
+  elderly_name AS elderlyName,
+  medication_name AS medicationName,
+  dosage,
+  instructions,
+  notes,
+  medication_status AS status,
+  DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS createdAt,
+  DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updatedAt
+`;
+
+function validateElderlyMedicationPayload(payload) {
+  const errors = {};
+
+  if (!String(payload.elderlyId || "").trim()) errors.elderlyId = "Select an elderly profile.";
+  if (!String(payload.elderlyName || "").trim()) errors.elderlyName = "Elderly name is required.";
+  if (!String(payload.medicationName || "").trim()) errors.medicationName = "Medicine name is required.";
+  else if (String(payload.medicationName).trim().length > 160) errors.medicationName = "Medicine name must be 160 characters or fewer.";
+  if (!String(payload.dosage || "").trim()) errors.dosage = "Dosage is required.";
+  else if (String(payload.dosage).trim().length > 80) errors.dosage = "Dosage must be 80 characters or fewer.";
+  if (!String(payload.instructions || "").trim()) errors.instructions = "Instructions are required.";
+  else if (String(payload.instructions).trim().length > 500) errors.instructions = "Instructions must be 500 characters or fewer.";
+
+  return errors;
+}
+
+app.get("/api/elderly-medications", async (req, res) => {
+  const elderlyId = String(req.query.elderlyId || "").trim();
 
   try {
     const params = {};
     let where = "";
 
-    if (nurseName) {
+    if (elderlyId) {
+      params.elderlyId = elderlyId;
+      where = "WHERE elderly_id = :elderlyId";
+    }
+
+    const [medications] = await pool.query(
+      `SELECT ${elderlyMedicationColumns}
+       FROM elderly_medications
+       ${where}
+       ORDER BY medication_status = 'Active' DESC, elderly_name ASC, medication_name ASC`,
+      params
+    );
+
+    res.json({ medications });
+  } catch (error) {
+    res.status(500).json({
+      error: "Failed to load elderly medications.",
+      details: error.message,
+    });
+  }
+});
+
+app.post("/api/elderly-medications", async (req, res) => {
+  const payload = req.body;
+  const errors = validateElderlyMedicationPayload(payload);
+
+  if (Object.keys(errors).length > 0) {
+    res.status(422).json({ valid: false, errors });
+    return;
+  }
+
+  try {
+    const data = {
+      elderlyId: String(payload.elderlyId).trim(),
+      elderlyName: String(payload.elderlyName).trim(),
+      medicationName: String(payload.medicationName).trim(),
+      dosage: String(payload.dosage).trim(),
+      instructions: String(payload.instructions).trim(),
+      notes: String(payload.notes || "").trim(),
+      status: payload.status === "Inactive" ? "Inactive" : "Active",
+    };
+
+    const [result] = await pool.query(
+      `INSERT INTO elderly_medications (
+        elderly_id, elderly_name, medication_name, dosage, instructions, notes, medication_status
+      ) VALUES (
+        :elderlyId, :elderlyName, :medicationName, :dosage, :instructions, :notes, :status
+      )`,
+      data
+    );
+
+    const [rows] = await pool.query(
+      `SELECT ${elderlyMedicationColumns}
+       FROM elderly_medications
+       WHERE medication_id = :id`,
+      { id: result.insertId }
+    );
+
+    res.status(201).json(rows[0]);
+  } catch (error) {
+    res.status(500).json({
+      error: "Failed to create elderly medication.",
+      details: error.message,
+    });
+  }
+});
+
+app.put("/api/elderly-medications/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  const payload = req.body;
+  const errors = validateElderlyMedicationPayload(payload);
+
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Valid medication id is required." });
+    return;
+  }
+
+  if (Object.keys(errors).length > 0) {
+    res.status(422).json({ valid: false, errors });
+    return;
+  }
+
+  try {
+    const data = {
+      id,
+      elderlyId: String(payload.elderlyId).trim(),
+      elderlyName: String(payload.elderlyName).trim(),
+      medicationName: String(payload.medicationName).trim(),
+      dosage: String(payload.dosage).trim(),
+      instructions: String(payload.instructions).trim(),
+      notes: String(payload.notes || "").trim(),
+      status: payload.status === "Inactive" ? "Inactive" : "Active",
+    };
+
+    const [result] = await pool.query(
+      `UPDATE elderly_medications
+       SET elderly_id = :elderlyId,
+           elderly_name = :elderlyName,
+           medication_name = :medicationName,
+           dosage = :dosage,
+           instructions = :instructions,
+           notes = :notes,
+           medication_status = :status
+       WHERE medication_id = :id`,
+      data
+    );
+
+    if (result.affectedRows === 0) {
+      res.status(404).json({ error: "Medication not found." });
+      return;
+    }
+
+    const [rows] = await pool.query(
+      `SELECT ${elderlyMedicationColumns}
+       FROM elderly_medications
+       WHERE medication_id = :id`,
+      { id }
+    );
+
+    res.json(rows[0]);
+  } catch (error) {
+    res.status(500).json({
+      error: "Failed to update elderly medication.",
+      details: error.message,
+    });
+  }
+});
+
+app.delete("/api/elderly-medications/:id", async (req, res) => {
+  const id = Number(req.params.id);
+
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Valid medication id is required." });
+    return;
+  }
+
+  try {
+    const [result] = await pool.query(
+      "DELETE FROM elderly_medications WHERE medication_id = :id",
+      { id }
+    );
+
+    if (result.affectedRows === 0) {
+      res.status(404).json({ error: "Medication not found." });
+      return;
+    }
+
+    res.status(204).end();
+  } catch (error) {
+    res.status(500).json({
+      error: "Failed to delete elderly medication.",
+      details: error.message,
+    });
+  }
+});
+
+app.get("/api/medications", async (req, res) => {
+  const nurseName = String(req.query.nurseName || "").trim();
+  const nurseId = String(req.query.nurseId || "").trim();
+
+  try {
+    const params = {};
+    let where = "";
+
+    if (nurseId) {
+      params.nurseId = nurseId;
+      where = "WHERE nurse_id = :nurseId";
+    } else if (nurseName) {
       params.nurseName = nurseName;
       where = "WHERE LOWER(nurse_name) = LOWER(:nurseName)";
     }
@@ -1583,6 +1815,8 @@ app.post("/api/medications", async (req, res) => {
     const data = {
       elderlyId: String(payload.elderlyId).trim(),
       elderlyName: String(payload.elderlyName || "").trim(),
+      scheduleId: Number(payload.scheduleId) || null,
+      nurseId: String(payload.nurseId || "").trim() || null,
       nurseName: String(payload.nurseName).trim(),
       medicationName: String(payload.medicationName).trim(),
       dosage: String(payload.dosage).trim(),
@@ -1597,10 +1831,10 @@ app.post("/api/medications", async (req, res) => {
 
     const [result] = await pool.query(
       `INSERT INTO medication_assignments (
-        elderly_id, elderly_name, nurse_name, medication_name, dosage,
+        schedule_id, nurse_id, elderly_id, elderly_name, nurse_name, medication_name, dosage,
         instructions, scheduled_time, scheduled_date, compliance_status, notes
       ) VALUES (
-        :elderlyId, :elderlyName, :nurseName, :medicationName, :dosage,
+        :scheduleId, :nurseId, :elderlyId, :elderlyName, :nurseName, :medicationName, :dosage,
         :instructions, :scheduledTime, :scheduledDate, :complianceStatus, :notes
       )`,
       data
@@ -1861,6 +2095,7 @@ app.listen(port, async () => {
     await ensureNurseColumns();
     await ensureNurseElderlyAssignmentsTable();
     await ensureScheduleColumns();
+    await ensureElderlyMedicationsTable();
     await ensureMedicationAssignmentsTable();
     console.log(`API server running at http://localhost:${port}`);
   } catch (error) {
