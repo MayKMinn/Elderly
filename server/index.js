@@ -9,6 +9,34 @@ const elderlyTable = process.env.ELDERLY_TABLE || "elderly";
 
 app.use(express.json({ limit: "5mb" }));
 
+function getForcedNow() {
+  const forced = String(process.env.FORCE_SYSTEM_DATE || "").trim();
+  if (!forced) return new Date();
+  // Use current time but replace the date portion with the forced date
+  const now = new Date();
+  const timePart = now.toTimeString().split(' ')[0]; // HH:MM:SS
+  const dt = new Date(`${forced}T${timePart}`);
+  if (Number.isNaN(dt.getTime())) return new Date();
+  return dt;
+}
+
+function formatDateTimeForSql(d) {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mi = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
+}
+
+function formatDateForSql(d) {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 async function ensureElderlyAvatarColumn() {
   try {
     await pool.query(`ALTER TABLE ${elderlyTable} ADD COLUMN avatar MEDIUMTEXT NULL`);
@@ -928,17 +956,21 @@ app.post("/api/health", async (req, res) => {
 
     // include schedule_id if provided
     let result;
+    const nowDate = getForcedNow();
+    const nowDateTimeSql = formatDateTimeForSql(nowDate);
+    const nowDateOnlySql = formatDateForSql(nowDate);
+
     if (Number.isInteger(scheduleId) && scheduleId > 0) {
       [result] = await pool.query(
         `INSERT INTO health_log (schedule_id, nurse_id, elderly_id, visit_time, visit_date, bloodpressure_systolic, bloodpressure_diastolic, blood_sugar, condition_notes)
-         VALUES (?, ?, ?, NOW(), NOW(), ?, ?, ?, ?)`,
-        [scheduleId, nurseId, elderlyId, systolic, diastolic, bloodSugar, notes]
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [scheduleId, nurseId, elderlyId, nowDateTimeSql, nowDateOnlySql, systolic, diastolic, bloodSugar, notes]
       );
     } else {
       [result] = await pool.query(
         `INSERT INTO health_log (nurse_id, elderly_id, visit_time, visit_date, bloodpressure_systolic, bloodpressure_diastolic, blood_sugar, condition_notes)
-         VALUES (?, ?, NOW(), NOW(), ?, ?, ?, ?)`,
-        [nurseId, elderlyId, systolic, diastolic, bloodSugar, notes]
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [nurseId, elderlyId, nowDateTimeSql, nowDateOnlySql, systolic, diastolic, bloodSugar, notes]
       );
     }
 

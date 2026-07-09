@@ -157,6 +157,22 @@ function now() {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
+function formatLongDate(d: Date) {
+  try {
+    const day = d.toLocaleDateString(undefined, { weekday: 'short' });
+    const month = d.toLocaleDateString(undefined, { month: 'long' });
+    const date = d.getDate();
+    const year = d.getFullYear();
+    return `${day}, ${month} ${date}, ${year}`;
+  } catch {
+    const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const months = [
+      'January','February','March','April','May','June','July','August','September','October','November','December'
+    ];
+    return `${days[d.getDay()]}, ${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+  }
+}
+
 // ── Fill Form Modal ────────────────────────────────────────────────────────
 
 function FillForm({ entry, resident, onSave, onClose }: {
@@ -1156,7 +1172,7 @@ export function NursePortal({ nurseName = "Nurse", nurseId, onSignOut }: NursePo
           </h2>
           <div className="flex items-center gap-3">
             <div className="hidden md:flex items-center gap-1.5 text-xs text-muted-foreground bg-muted px-3 py-1.5 rounded-full">
-              <Clock size={11} /> Mon, June 16, 2026
+              <Clock size={11} /> {formatLongDate(new Date())}
             </div>
             <div className="relative">
               <button
