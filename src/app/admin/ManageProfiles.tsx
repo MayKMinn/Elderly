@@ -1875,8 +1875,22 @@ function validateNurseEditProfile(profile: NurseProfile): ValidationErrors {
     errors.workArea = "Work area is required.";
   }
 
-  if (!String(profile.hireDate || "").trim()) {
+  const hireDate = String(profile.hireDate || "").trim();
+  if (!hireDate) {
     errors.hireDate = "Hire date is required.";
+  } else if (!/^\d{4}-\d{2}-\d{2}$/.test(hireDate)) {
+    errors.hireDate = "Date must use format YYYY-MM-DD.";
+  } else {
+    const [year, month, day] = hireDate.split("-").map(Number);
+    const parsedDate = new Date(`${hireDate}T00:00:00`);
+    if (
+      Number.isNaN(parsedDate.getTime()) ||
+      parsedDate.getFullYear() !== year ||
+      parsedDate.getMonth() + 1 !== month ||
+      parsedDate.getDate() !== day
+    ) {
+      errors.hireDate = "Date must use format YYYY-MM-DD.";
+    }
   }
 
   if (!String(profile.status || "").trim()) {
