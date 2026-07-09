@@ -192,12 +192,20 @@ function countRegistrationsThisWeek<T>(profiles: T[], getDate: (profile: T) => s
   }).length;
 }
 
+function normalizeGenderValue(value: unknown) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (normalized === "male") return "Male";
+  if (normalized === "female") return "Female";
+  if (normalized === "other") return "Other";
+  return String(value ?? "");
+}
+
 function normalizeElderlyProfile(profile: Partial<ElderlyProfile>): ElderlyProfile {
   return {
     id: String(profile.id ?? ""),
     name: String(profile.name ?? ""),
     age: Number(profile.age) || 0,
-    gender: String(profile.gender ?? ""),
+    gender: normalizeGenderValue(profile.gender),
     phone: String(profile.phone ?? ""),
     medicalCondition: String(profile.medicalCondition ?? ""),
     emergencyContact: String(profile.emergencyContact ?? ""),
@@ -224,7 +232,7 @@ function normalizeNurseProfile(profile: Partial<NurseProfile>): NurseProfile {
     nurseId: profile.nurseId,
     name: String(profile.name ?? ""),
     age: Number(profile.age) || 0,
-    gender: String(profile.gender ?? ""),
+    gender: normalizeGenderValue(profile.gender),
     phone: String(profile.phone ?? ""),
     email: String(profile.email ?? ""),
     address: String(profile.address ?? ""),
