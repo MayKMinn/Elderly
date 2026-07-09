@@ -19,13 +19,17 @@ type Session =
       loginHistoryId?: number;
     }
   | {
-      role: "nurse";
-      id?: number;
-      name: string;
-      username?: string;
-      email?: string;
-      status?: string;
-    }
+        role: "nurse";
+        id?: number;
+        name: string;
+        username?: string;
+        email?: string;
+        licenseNumber?: string | null;
+        workArea?: string | null;
+        position?: string | null;
+        avatar?: string | null;
+        status?: string;
+      }
   | null;
 
 const sessionStorageKey = "elderease.session";
@@ -144,13 +148,17 @@ function SignInScreen({
       const nurse = await signInNurse(email, password);
 
       onSignIn({
-        role: "nurse",
-        id: nurse.id,
-        name: nurse.name,
-        username: nurse.username,
-        email: nurse.email,
-        status: nurse.status,
-      });
+          role: "nurse",
+          id: nurse.id,
+          name: nurse.name,
+          username: nurse.username,
+          email: nurse.email,
+          licenseNumber: nurse.licenseNumber || "",
+          workArea: nurse.workArea || "",
+          position: nurse.position || "Registered Nurse",
+          avatar: nurse.avatar || "",
+          status: nurse.status,
+        });
     } catch (err) {
       if (err instanceof Error) {
         try {

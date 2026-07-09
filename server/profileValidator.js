@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const cobolSource = path.join(__dirname, "cobol", "validate-profile.cob");
 const cobolBinary = path.join(__dirname, "cobol", process.platform === "win32" ? "validate-profile.exe" : "validate-profile");
+const nurseCobolSource = path.join(__dirname, "cobol", "nurse-validate.cob");
+const nurseCobolBinary = path.join(__dirname, "cobol", process.platform === "win32" ? "nurse-validate.exe" : "nurse-validate");
 const openCobolIdeRoot = "C:\\Program Files (x86)\\OpenCobolIDE\\GnuCOBOL";
 const openCobolIdeCompiler = "C:\\Program Files (x86)\\OpenCobolIDE\\GnuCOBOL\\bin\\cobc.exe";
 
@@ -36,7 +38,26 @@ const fieldOrder = [
   "avatar",
 ];
 
-let compileAttempted = false;
+const nurseFieldOrder = [
+  "type",
+  "name",
+  "age",
+  "gender",
+  "phone",
+  "email",
+  "address",
+  "licenseNumber",
+  "position",
+  "workArea",
+  "hireDate",
+  "nurseStatus",
+  "username",
+  "password",
+  "confirmPassword",
+  "avatar",
+];
+
+const compileAttempted = new Set();
 
 function getAgeFromBirthdate(value) {
   if (!value) return undefined;
@@ -109,9 +130,20 @@ function validateHireDate(value) {
 
 function runProcess(command, args, input = "") {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"], env: getCobolEnv(command) });
+    const child = spawn(command, args, {
+      stdio: ["pipe", "pipe", "pipe"],
+      env: getCobolEnv(command),
+    });
+
     let stdout = "";
     let stderr = "";
+    let settled = false;
+
+    const fail = (error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
 
     child.stdout.on("data", (chunk) => {
       stdout += chunk;
@@ -121,12 +153,22 @@ function runProcess(command, args, input = "") {
       stderr += chunk;
     });
 
-    child.on("error", reject);
+    child.on("error", fail);
+
+    child.stdin.on("error", (error) => {
+      if (error.code === "EPIPE") return;
+      fail(error);
+    });
+
     child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+
       if (code === 0) {
         resolve(stdout.trim());
         return;
       }
+
       reject(new Error(stderr || `${command} exited with code ${code}`));
     });
 
@@ -134,16 +176,16 @@ function runProcess(command, args, input = "") {
   });
 }
 
-async function ensureCobolValidator() {
-  if (existsSync(cobolBinary)) return true;
-  if (compileAttempted) return false;
+async function ensureCobolValidator(source = cobolSource, binary = cobolBinary) {
+  if (existsSync(binary)) return true;
+  if (compileAttempted.has(binary)) return false;
 
-  compileAttempted = true;
+  compileAttempted.add(binary);
 
   try {
     const compiler = process.env.COBOL_COMPILER || (existsSync(openCobolIdeCompiler) ? openCobolIdeCompiler : "cobc");
-    await runProcess(compiler, ["-x", "-free", "-o", cobolBinary, cobolSource]);
-    return existsSync(cobolBinary);
+    await runProcess(compiler, ["-x", "-free", "-o", binary, source]);
+    return existsSync(binary);
   } catch (error) {
     console.warn("COBOL validator is unavailable:", error.message);
     return false;
@@ -276,7 +318,19 @@ function applyEmergencyAddressValidation(profile, validation) {
 
 export async function validateProfileWithCobol(profile) {
   if (profile.type === "nurse") {
-    return fallbackValidate(profile);
+    const input = nurseFieldOrder.map((field) => String(profile[field] ?? "")).join("\n");
+
+    if (!(await ensureCobolValidator(nurseCobolSource, nurseCobolBinary))) {
+      return fallbackValidate(profile);
+    }
+
+    try {
+      const output = await runProcess(nurseCobolBinary, [], `${input}\n`);
+      return JSON.parse(output);
+    } catch (error) {
+      console.warn("COBOL nurse validation failed, using JavaScript fallback:", error.message);
+      return fallbackValidate(profile);
+    }
   }
 
   const input = fieldOrder.map((field) => String(profile[field] ?? "")).join("\n");
