@@ -3,6 +3,7 @@ import type { MedicationAssignment } from "./medications";
 
 export type ElderlyVital = {
   id: number;
+  vitalType?: "Blood Pressure" | "Blood Glucose";
   scheduleId?: number | null;
   nurseId?: string | null;
   elderlyId: string;

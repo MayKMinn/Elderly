@@ -126,10 +126,10 @@ async function ensureElderlyMedicationsTable() {
   );
 }
 
-async function ensureElderlyVitalsTable() {
+async function ensureBloodPressureAndGlucoseTables() {
   await pool.query(
-    `CREATE TABLE IF NOT EXISTS elderly_vitals (
-      vital_id INT AUTO_INCREMENT PRIMARY KEY,
+    `CREATE TABLE IF NOT EXISTS elderly_blood_pressure (
+      pressure_id INT AUTO_INCREMENT PRIMARY KEY,
       schedule_id INT NULL,
       nurse_id VARCHAR(40) NULL,
       elderly_id VARCHAR(40) NOT NULL,
@@ -137,26 +137,52 @@ async function ensureElderlyVitalsTable() {
       recorded_time VARCHAR(20) NOT NULL,
       systolic INT NULL,
       diastolic INT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_elderly_blood_pressure_elderly_id (elderly_id),
+      INDEX idx_elderly_blood_pressure_recorded_date (recorded_date),
+      INDEX idx_elderly_blood_pressure_schedule_id (schedule_id)
+    )`
+  );
+
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS elderly_blood_glucose (
+      glucose_id INT AUTO_INCREMENT PRIMARY KEY,
+      schedule_id INT NULL,
+      nurse_id VARCHAR(40) NULL,
+      elderly_id VARCHAR(40) NOT NULL,
+      recorded_date DATE NOT NULL,
+      recorded_time VARCHAR(20) NOT NULL,
       glucose_value INT NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      INDEX idx_elderly_vitals_elderly_id (elderly_id),
-      INDEX idx_elderly_vitals_recorded_date (recorded_date),
-      INDEX idx_elderly_vitals_schedule_id (schedule_id)
+      INDEX idx_elderly_blood_glucose_elderly_id (elderly_id),
+      INDEX idx_elderly_blood_glucose_recorded_date (recorded_date),
+      INDEX idx_elderly_blood_glucose_schedule_id (schedule_id)
     )`
   );
 
   try {
-    await pool.query("ALTER TABLE elderly_vitals ADD COLUMN schedule_id INT NULL");
+    await pool.query("ALTER TABLE elderly_blood_pressure ADD COLUMN schedule_id INT NULL");
   } catch (error) {
     if (error.code !== "ER_DUP_FIELDNAME") throw error;
   }
 
   try {
-    await pool.query("ALTER TABLE elderly_vitals ADD COLUMN nurse_id VARCHAR(40) NULL");
+    await pool.query("ALTER TABLE elderly_blood_pressure ADD COLUMN nurse_id VARCHAR(40) NULL");
   } catch (error) {
     if (error.code !== "ER_DUP_FIELDNAME") throw error;
   }
 
+  try {
+    await pool.query("ALTER TABLE elderly_blood_glucose ADD COLUMN schedule_id INT NULL");
+  } catch (error) {
+    if (error.code !== "ER_DUP_FIELDNAME") throw error;
+  }
+
+  try {
+    await pool.query("ALTER TABLE elderly_blood_glucose ADD COLUMN nurse_id VARCHAR(40) NULL");
+  } catch (error) {
+    if (error.code !== "ER_DUP_FIELDNAME") throw error;
+  }
 }
 
 async function ensureAdminProfileColumns() {
@@ -633,14 +659,28 @@ async function createScheduleReportRecords(db, scheduleId, schedule, display) {
     visitTime: display.visitTime,
   };
 
-  if (purpose === "Blood Pressure" || purpose === "Blood Glucose") {
+  if (purpose === "Blood Pressure") {
     await db.query(
-      `INSERT INTO elderly_vitals (
+      `INSERT INTO elderly_blood_pressure (
         schedule_id, nurse_id, elderly_id, recorded_date, recorded_time,
-        systolic, diastolic, glucose_value
+        systolic, diastolic
       ) VALUES (
         :scheduleId, :nurseId, :elderlyId, :visitDate, :visitTime,
-        NULL, NULL, NULL
+        NULL, NULL
+      )`,
+      base
+    );
+    return;
+  }
+
+  if (purpose === "Blood Glucose") {
+    await db.query(
+      `INSERT INTO elderly_blood_glucose (
+        schedule_id, nurse_id, elderly_id, recorded_date, recorded_time,
+        glucose_value
+      ) VALUES (
+        :scheduleId, :nurseId, :elderlyId, :visitDate, :visitTime,
+        NULL
       )`,
       base
     );
@@ -700,13 +740,22 @@ async function deleteScheduleReportRecords(db, scheduleIds) {
     );
     const schedule = schedules[0];
 
-    await db.query("DELETE FROM elderly_vitals WHERE schedule_id = :scheduleId", { scheduleId });
+    await db.query("DELETE FROM elderly_blood_pressure WHERE schedule_id = :scheduleId", { scheduleId });
+    await db.query("DELETE FROM elderly_blood_glucose WHERE schedule_id = :scheduleId", { scheduleId });
     await db.query("DELETE FROM medication_logs WHERE schedule_id = :scheduleId", { scheduleId });
 
     if (!schedule) continue;
 
     await db.query(
-      `DELETE FROM elderly_vitals
+      `DELETE FROM elderly_blood_pressure
+       WHERE elderly_id = :elderlyId
+         AND recorded_date = :visitDate
+         AND recorded_time = :visitTime
+         AND (nurse_id = :nurseId OR nurse_id IS NULL OR nurse_id = '')`,
+      schedule
+    );
+    await db.query(
+      `DELETE FROM elderly_blood_glucose
        WHERE elderly_id = :elderlyId
          AND recorded_date = :visitDate
          AND recorded_time = :visitTime
@@ -2237,7 +2286,7 @@ app.get("/api/reports/elderly-summary", async (req, res) => {
       return;
     }
 
-    await ensureElderlyVitalsTable();
+    await ensureBloodPressureAndGlucoseTables();
 
     const [elderlyRows] = await pool.query(
       `SELECT ${elderlyColumns}
@@ -2252,18 +2301,33 @@ app.get("/api/reports/elderly-summary", async (req, res) => {
       return;
     }
 
-    const [vitals] = await pool.query(
+    const [bloodPressureRows] = await pool.query(
       `SELECT
-         vital_id AS id,
+         pressure_id AS id,
          schedule_id AS scheduleId,
          nurse_id AS nurseId,
          elderly_id AS elderlyId,
          DATE_FORMAT(recorded_date, '%Y-%m-%d') AS recordedDate,
          recorded_time AS recordedTime,
          systolic,
-         diastolic,
+         diastolic
+       FROM elderly_blood_pressure
+       WHERE elderly_id = :elderlyId
+         AND recorded_date BETWEEN :startDate AND :endDate
+       ORDER BY recorded_date ASC, recorded_time ASC`,
+      { elderlyId, startDate, endDate }
+    );
+
+    const [bloodGlucoseRows] = await pool.query(
+      `SELECT
+         glucose_id AS id,
+         schedule_id AS scheduleId,
+         nurse_id AS nurseId,
+         elderly_id AS elderlyId,
+         DATE_FORMAT(recorded_date, '%Y-%m-%d') AS recordedDate,
+         recorded_time AS recordedTime,
          glucose_value AS glucoseValue
-       FROM elderly_vitals
+       FROM elderly_blood_glucose
        WHERE elderly_id = :elderlyId
          AND recorded_date BETWEEN :startDate AND :endDate
        ORDER BY recorded_date ASC, recorded_time ASC`,
@@ -2281,8 +2345,17 @@ app.get("/api/reports/elderly-summary", async (req, res) => {
       { elderlyId, startDate, endDate }
     );
 
-    const bpRows = vitals.filter((item) => item.systolic !== null && item.diastolic !== null);
-    const glucoseRows = vitals.filter((item) => item.glucoseValue !== null);
+    const vitals = [
+      ...bloodPressureRows.map((item) => ({ ...item, glucoseValue: null, vitalType: "Blood Pressure" })),
+      ...bloodGlucoseRows.map((item) => ({ ...item, systolic: null, diastolic: null, vitalType: "Blood Glucose" })),
+    ].sort((a, b) => {
+      const dateComparison = String(a.recordedDate).localeCompare(String(b.recordedDate));
+      if (dateComparison !== 0) return dateComparison;
+      return String(a.recordedTime).localeCompare(String(b.recordedTime));
+    });
+
+    const bpRows = bloodPressureRows.filter((item) => item.systolic !== null && item.diastolic !== null);
+    const glucoseRows = bloodGlucoseRows.filter((item) => item.glucoseValue !== null);
     const reportCalculation = await calculateReportWithCobol({
       bpSystolicSum: bpRows.reduce((sum, item) => sum + Number(item.systolic || 0), 0),
       bpDiastolicSum: bpRows.reduce((sum, item) => sum + Number(item.diastolic || 0), 0),
@@ -2533,7 +2606,7 @@ app.listen(port, async () => {
     await ensureScheduleColumns();
     await ensureElderlyMedicationsTable();
     await ensureMedicationLogsTable();
-    await ensureElderlyVitalsTable();
+    await ensureBloodPressureAndGlucoseTables();
     console.log(`API server running at http://localhost:${port}`);
   } catch (error) {
     console.error("API server started, but MySQL connection failed:");

@@ -124,8 +124,8 @@ CREATE TABLE IF NOT EXISTS elderly_medications (
   INDEX idx_elderly_medications_status (medication_status)
 );
 
-CREATE TABLE IF NOT EXISTS elderly_vitals (
-  vital_id INT AUTO_INCREMENT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS elderly_blood_pressure (
+  pressure_id INT AUTO_INCREMENT PRIMARY KEY,
   schedule_id INT NULL,
   nurse_id VARCHAR(40) NULL,
   elderly_id VARCHAR(40) NOT NULL,
@@ -133,11 +133,24 @@ CREATE TABLE IF NOT EXISTS elderly_vitals (
   recorded_time VARCHAR(20) NOT NULL,
   systolic INT NULL,
   diastolic INT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_elderly_blood_pressure_elderly_id (elderly_id),
+  INDEX idx_elderly_blood_pressure_recorded_date (recorded_date),
+  INDEX idx_elderly_blood_pressure_schedule_id (schedule_id)
+);
+
+CREATE TABLE IF NOT EXISTS elderly_blood_glucose (
+  glucose_id INT AUTO_INCREMENT PRIMARY KEY,
+  schedule_id INT NULL,
+  nurse_id VARCHAR(40) NULL,
+  elderly_id VARCHAR(40) NOT NULL,
+  recorded_date DATE NOT NULL,
+  recorded_time VARCHAR(20) NOT NULL,
   glucose_value INT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_elderly_vitals_elderly_id (elderly_id),
-  INDEX idx_elderly_vitals_recorded_date (recorded_date),
-  INDEX idx_elderly_vitals_schedule_id (schedule_id)
+  INDEX idx_elderly_blood_glucose_elderly_id (elderly_id),
+  INDEX idx_elderly_blood_glucose_recorded_date (recorded_date),
+  INDEX idx_elderly_blood_glucose_schedule_id (schedule_id)
 );
 
 INSERT INTO elderly (
