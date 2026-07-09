@@ -27,6 +27,7 @@
 
        01  NAME-IDX              PIC 9(3) VALUE 1.
        01  LETTER-COUNT          PIC 9(3) VALUE 0.
+       01  NAME-BAD              PIC X VALUE "N".
 
        01  EMAIL-IDX             PIC 9(3) VALUE 1.
        01  EMAIL-LEN             PIC 9(3) VALUE 0.
@@ -75,6 +76,7 @@
                PERFORM ADD-NAME-REQUIRED
            ELSE
                MOVE 0 TO LETTER-COUNT
+               MOVE "N" TO NAME-BAD
                PERFORM VARYING NAME-IDX FROM 1 BY 1
                    UNTIL NAME-IDX > FUNCTION LENGTH(FUNCTION TRIM(FULL-NAME))
                    IF (FULL-NAME(NAME-IDX:1) >= "A"
@@ -82,9 +84,13 @@
                        OR (FULL-NAME(NAME-IDX:1) >= "a"
                        AND FULL-NAME(NAME-IDX:1) <= "z")
                        ADD 1 TO LETTER-COUNT
+                   ELSE
+                       IF FULL-NAME(NAME-IDX:1) NOT = SPACE
+                           MOVE "Y" TO NAME-BAD
+                       END-IF
                    END-IF
                END-PERFORM
-               IF LETTER-COUNT = 0
+               IF LETTER-COUNT = 0 OR NAME-BAD = "Y"
                    PERFORM ADD-NAME-LETTER
                END-IF
            END-IF.
@@ -329,7 +335,7 @@
            PERFORM APPEND-ERROR.
 
        ADD-NAME-LETTER.
-           MOVE '"name":"Full name must contain at least one letter."'
+           MOVE '"name":"Full name must contain letters only."'
                TO FIELD-ERROR.
            PERFORM APPEND-ERROR.
 

@@ -200,7 +200,7 @@ function fallbackValidate(profile) {
 
   if (!name.trim()) errors.name = "Full name is required.";
   else if (profile.type === "elderly" && name.startsWith(" ")) errors.name = "Full name cannot start with a space.";
-  else if (!/[A-Za-z]/.test(name)) errors.name = "Full name must contain at least one letter.";
+  else if (!/^[A-Za-z ]+$/.test(name.trim())) errors.name = "Full name must contain letters only.";
 
   if (profile.age === "" || profile.age === undefined) errors.age = "Age is required.";
   else if (!Number.isInteger(age)) errors.age = "Age must be a number.";

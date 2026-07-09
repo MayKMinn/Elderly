@@ -217,6 +217,13 @@ function normalizeElderlyProfile(profile: Partial<ElderlyProfile>): ElderlyProfi
 }
 
 function normalizeNurseProfile(profile: Partial<NurseProfile>): NurseProfile {
+  const rawGender = String(profile.gender ?? "").trim().toLowerCase();
+  const gender =
+    rawGender === "male" ? "Male" :
+    rawGender === "female" ? "Female" :
+    rawGender === "other" ? "Other" :
+    String(profile.gender ?? "");
+
   const rawStatus = String(profile.nurseStatus ?? profile.status ?? "Active");
   const normalizedStatus = rawStatus.toLowerCase();
   const status = normalizedStatus === "on leave" || normalizedStatus === "suspended" ? "On Leave" : "Active";
@@ -226,7 +233,7 @@ function normalizeNurseProfile(profile: Partial<NurseProfile>): NurseProfile {
     nurseId: profile.nurseId,
     name: String(profile.name ?? ""),
     age: Number(profile.age) || 0,
-    gender: String(profile.gender ?? ""),
+    gender,
     phone: String(profile.phone ?? ""),
     email: String(profile.email ?? ""),
     address: String(profile.address ?? ""),
@@ -322,6 +329,8 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
   const [elderlyGenderFilter, setElderlyGenderFilter] = useState<"all" | "male" | "female" | "other">("all");
   const [elderlyMinAge, setElderlyMinAge] = useState("");
   const [elderlyMaxAge, setElderlyMaxAge] = useState("");
+  const [nurseStatusFilter, setNurseStatusFilter] = useState<"all" | "Active" | "On Leave">("all");
+  const [nurseGenderFilter, setNurseGenderFilter] = useState<"all" | "male" | "female" | "other">("all");
 
   const perPage = 8;
 
@@ -384,6 +393,11 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
     setSelectedRow(null);
   };
 
+  const resetNurseTable = () => {
+    setPage(1);
+    setSelectedRow(null);
+  };
+
   const clearElderlyFilters = () => {
     setElderlyStatusFilter("all");
     setElderlyGenderFilter("all");
@@ -415,12 +429,18 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
     return matchesSearch && matchesStatus && matchesGender && matchesMinAge && matchesMaxAge;
   });
 
-  const filteredNurse = nurseList.filter(
-    (n) =>
+  const filteredNurse = nurseList.filter((n) => {
+    const matchesSearch =
       safeText(n.name).includes(searchText) ||
       safeText(n.position).includes(searchText) ||
-      safeText(n.email).includes(searchText)
-  );
+      safeText(n.phone).includes(searchText) ||
+      safeText(n.email).includes(searchText);
+
+    const matchesStatus = nurseStatusFilter === "all" || n.status === nurseStatusFilter;
+    const matchesGender = nurseGenderFilter === "all" || safeText(n.gender) === nurseGenderFilter;
+
+    return matchesSearch && matchesStatus && matchesGender;
+  });
 
   const elderlyPages = Math.ceil(filteredElderly.length / perPage);
   const pagedElderly = filteredElderly.slice((page - 1) * perPage, page * perPage);
@@ -519,7 +539,7 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
 
     try {
       const saved = normalizeNurseProfile(await updateNurseProfile(updated));
-      setNurseList((prev) => prev.map((n) => (n.id === saved.id ? saved : n)));
+      setNurseList((prev) => prev.map((n) => (String(n.id) === String(saved.id) ? saved : n)));
       setModal(null);
       setError(null);
       setSuccessMessage("Caregiver profile updated successfully.");
@@ -965,6 +985,40 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
                     )}
                   </>
                 )}
+                {activeTab === "nurse" && (
+                  <>
+                    {/* Nurse Status Filter Toolbar */}
+                    <FilterSelect
+                      label="Status"
+                      value={nurseStatusFilter}
+                      onChange={(value) => {
+                        setNurseStatusFilter(value as "all" | "Active" | "On Leave");
+                        resetNurseTable();
+                      }}
+                      options={[
+                        { value: "all", label: "All Status" },
+                        { value: "Active", label: "Active" },
+                        { value: "On Leave", label: "On Leave" },
+                      ]}
+                    />
+
+                    <FilterSelect
+                      label="Gender"
+                      value={nurseGenderFilter}
+                      onChange={(value) => {
+                        setNurseGenderFilter(value as "all" | "male" | "female" | "other");
+                        resetNurseTable();
+                      }}
+                      options={[
+                        { value: "all", label: "All Gender" },
+                        { value: "male", label: "Male" },
+                        { value: "female", label: "Female" },
+                        { value: "other", label: "Other" },
+                      ]}
+                    />
+                  </>
+                )}
+
                 <button
                   onClick={() => setModal({ type: "addForm", formType: activeTab })}
                   className="flex h-8 items-center gap-1.5 px-3 rounded-lg text-xs text-white"
@@ -1824,6 +1878,61 @@ function EditPanel({
   );
 }
 
+function validateNurseEditProfile(profile: NurseProfile): ValidationErrors {
+  const errors: ValidationErrors = {};
+  const age = Number(profile.age);
+  const phone = String(profile.phone || "").trim();
+  const email = String(profile.email || "").trim();
+
+  if (!String(profile.name || "").trim()) {
+    errors.name = "Full name is required.";
+  } else if (!/^[A-Za-z ]+$/.test(String(profile.name || "").trim())) {
+    errors.name = "Full name must contain letters only.";
+  }
+
+  if (!Number.isInteger(age) || age < 18 || age > 80) {
+    errors.age = "Caregiver age must be between 18 and 80.";
+  }
+
+  if (!String(profile.gender || "").trim()) {
+    errors.gender = "Gender is required.";
+  }
+
+  if (!phone) {
+    errors.phone = "Phone is required.";
+  } else if (!/^09-\d{9}$/.test(phone)) {
+    errors.phone = "Phone must use format 09-#########.";
+  }
+
+  if (!email) {
+    errors.email = "Email is required.";
+  } else if (!/^[A-Za-z][A-Za-z0-9._%+-]*@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(email)) {
+    errors.email = "Email must include @ and a valid domain.";
+  }
+
+  if (!String(profile.address || "").trim()) {
+    errors.address = "Address is required.";
+  }
+
+  if (!String(profile.position || "").trim()) {
+    errors.position = "Position is required.";
+  }
+
+  if (!String(profile.workArea || "").trim()) {
+    errors.workArea = "Work area is required.";
+  }
+
+  if (!String(profile.hireDate || "").trim()) {
+    errors.hireDate = "Hire date is required.";
+  }
+
+  if (!String(profile.status || "").trim()) {
+    errors.status = "Status is required.";
+  }
+
+  return errors;
+}
+
 function NurseEditPanel({
   profile,
   onClose,
@@ -1834,8 +1943,35 @@ function NurseEditPanel({
   onSave: (p: NurseProfile) => void;
 }) {
   const [form, setForm] = useState({ ...profile });
-  const update = (field: keyof NurseProfile, value: string) =>
-    setForm((prev) => ({ ...prev, [field]: value }));
+  const [errors, setErrors] = useState<ValidationErrors>({});
+
+  const update = (field: keyof NurseProfile, value: string) => {
+    const nextForm = { ...form, [field]: value };
+    setForm(nextForm);
+
+    const validationErrors = validateNurseEditProfile(nextForm);
+    setErrors((prev) => ({
+      ...prev,
+      [field]: validationErrors[field as keyof ValidationErrors],
+    }));
+  };
+
+  const handleSave = () => {
+    const nextForm = {
+      ...form,
+      age: Number(form.age) || 0,
+      assignedElders: Number(form.assignedElders) || 0,
+      nurseStatus: form.status,
+    };
+
+    const validationErrors = validateNurseEditProfile(nextForm);
+    if (Object.keys(validationErrors).length > 0) {
+      setErrors(validationErrors);
+      return;
+    }
+
+    onSave(nextForm);
+  };
 
   return (
     <div
@@ -1858,27 +1994,27 @@ function NurseEditPanel({
           <EditSection title="Personal Information">
             <EditPhotoField value={form.avatar} onChange={(v) => update("avatar", v)} />
             <EditRow2>
-              <EditField label="Full Name" value={form.name} onChange={(v) => update("name", v)} />
-              <EditField label="Age" value={String(form.age)} onChange={(v) => update("age" as any, v)} />
+              <EditField label="Full Name" value={form.name} error={errors.name} onChange={(v) => update("name", v)} />
+              <EditField label="Age" value={String(form.age)} error={errors.age} onChange={(v) => update("age" as any, v)} />
             </EditRow2>
             <EditRow2>
-              <EditSelect label="Gender" value={form.gender} options={["Male", "Female", "Other"]} onChange={(v) => update("gender", v)} />
-              <EditSelect label="Status" value={form.status} options={["Active", "On Leave"]} onChange={(v) => update("status" as any, v)} />
+              <EditSelect label="Gender" value={form.gender} options={["Male", "Female", "Other"]} error={errors.gender} onChange={(v) => update("gender", v)} />
+              <EditSelect label="Status" value={form.status} options={["Active", "On Leave"]} error={errors.status} onChange={(v) => update("status" as any, v)} />
             </EditRow2>
           </EditSection>
 
           <EditSection title="Contact Information">
-            <EditField label="Phone" value={form.phone} onChange={(v) => update("phone", v)} />
-            <EditField label="Email" value={form.email} onChange={(v) => update("email", v)} />
-            <EditField label="Address" value={form.address} onChange={(v) => update("address", v)} />
+            <EditField label="Phone" value={form.phone} placeholder="09-123456789" error={errors.phone} onChange={(v) => update("phone", v)} />
+            <EditField label="Email" value={form.email} error={errors.email} onChange={(v) => update("email", v)} />
+            <EditField label="Address" value={form.address} error={errors.address} onChange={(v) => update("address", v)} />
           </EditSection>
 
           <EditSection title="Professional Information">
             <EditRow2>
-              <EditField label="Position" value={form.position} onChange={(v) => update("position", v)} />
-              <EditField label="Work Area" value={form.workArea} onChange={(v) => update("workArea", v)} />
+              <EditSelect label="Position" value={form.position} options={["Registered Nurse", "LPN", "Geriatric Nurse", "Rehabilitation Nurse"]} error={errors.position} onChange={(v) => update("position", v)} />
+              <EditSelect label="Work Area" value={form.workArea} options={["General Ward", "Memory Care Unit", "Cardiac Care", "Rehabilitation", "Palliative Care"]} error={errors.workArea} onChange={(v) => update("workArea", v)} />
             </EditRow2>
-            <EditField label="Hire Date" value={form.hireDate} onChange={(v) => update("hireDate", v)} />
+            <EditField label="Hire Date" value={form.hireDate} error={errors.hireDate} onChange={(v) => update("hireDate", v)} />
           </EditSection>
         </div>
 
