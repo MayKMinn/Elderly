@@ -861,10 +861,20 @@ type Page = "overview" | "schedule" | "residents" | "weeklyReport";
 interface NursePortalProps {
   nurseName?: string;
   nurseId?: string;
+  nurseProfile?: {
+    id?: number;
+    name?: string;
+    username?: string;
+    email?: string | null;
+    licenseNumber?: string | null;
+    workArea?: string | null;
+    position?: string | null;
+    avatar?: string | null;
+  } | null;
   onSignOut?: () => void;
 }
 
-export function NursePortal({ nurseName = "Nurse", nurseId, onSignOut }: NursePortalProps) {
+export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSignOut }: NursePortalProps) {
   const [page, setPage] = useState<Page>("schedule");
   const [collapsed, setCollapsed] = useState(false);
   const [residents, setResidents] = useState<Resident[]>([]);
@@ -878,20 +888,16 @@ export function NursePortal({ nurseName = "Nurse", nurseId, onSignOut }: NursePo
   const [selectedScheduleId, setSelectedScheduleId] = useState<number | null>(null);
   const [hiddenScheduleNotificationIds, setHiddenScheduleNotificationIds] = useState<number[]>([]);
   const [notificationMessage, setNotificationMessage] = useState("");
-  const [currentNurseId] = useState<string | undefined>(() => {
-    if (nurseId) return nurseId;
-    if (typeof window === "undefined") return undefined;
+  const [profileOpen, setProfileOpen] = useState(false);
+  const currentNurseId = nurseId || (nurseProfile?.id ? String(nurseProfile.id) : undefined);
 
-    try {
-      const saved = localStorage.getItem("elderease.session");
-      if (!saved) return undefined;
-      const parsed = JSON.parse(saved) as { role?: string; id?: number | string };
-      return parsed?.role === "nurse" ? String(parsed.id ?? "") : undefined;
-    } catch {
-      return undefined;
-    }
-  });
-
+  const displayName = nurseProfile?.name || nurseName || "Nurse";
+  const displayUsername = nurseProfile?.username || "-";
+  const displayEmail = nurseProfile?.email || "-";
+  const displayLicenseNumber = nurseProfile?.licenseNumber || "-";
+  const displayWorkArea = nurseProfile?.workArea || "-";
+  const displayPosition = nurseProfile?.position || "Registered Nurse";
+  const displayAvatar = String(nurseProfile?.avatar || "").trim();
   const totalChecks = checks.length;
   const doneChecks = checks.filter((c) => c.done).length;
   const morningPending = checks.filter((c) => c.slot === "morning" && !c.done).length;
@@ -1352,7 +1358,7 @@ export function NursePortal({ nurseName = "Nurse", nurseId, onSignOut }: NursePo
                       type="button"
                       onClick={() => {
                         setProfileOpen(false);
-                        setChecks(makeChecks());
+                        setChecks(makeChecks(residents));
                         setPage("schedule");
                         onSignOut?.();
                       }}

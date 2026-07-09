@@ -2793,6 +2793,7 @@ app.listen(port, async () => {
     await ensureElderlyMedicationsTable();
     await ensureMedicationLogsTable();
     await ensureBloodPressureAndGlucoseTables();
+    await ensureHealthLogScheduleColumn();
     console.log(`API server running at http://localhost:${port}`);
     console.log("MySQL connection successful for database eldercare");
   } catch (error) {
