@@ -2575,6 +2575,7 @@ app.get("/api/reports/elderly-summary", async (req, res) => {
        LEFT JOIN ${elderlyTable} e ON CAST(e.elderly_id AS CHAR) = CAST(ml.elderly_id AS CHAR)
        WHERE ml.elderly_id = :elderlyId
          AND ml.scheduled_date BETWEEN :startDate AND :endDate
+         AND ml.compliance_status <> 'Pending'
        ORDER BY ml.scheduled_date ASC, ml.scheduled_time ASC`,
       { elderlyId, startDate, endDate }
     );

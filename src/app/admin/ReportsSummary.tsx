@@ -282,10 +282,13 @@ function buildProfessionalPdfDoc(summary: ElderlyReportSummary) {
   );
 
   sectionTitle("Medication Review");
+  const reportMedications = summary.medications.filter(
+    (item) => String(item.complianceStatus || "").trim().toLowerCase() !== "pending",
+  );
   table(
     ["Date", "Time", "Medication", "Dosage", "Status", "Nurse Notes"],
-    summary.medications.length
-      ? summary.medications.map((item) => [
+    reportMedications.length
+      ? reportMedications.map((item) => [
           displayDate(item.scheduledDate),
           item.scheduledTime || "-",
           item.medicationName || "-",
