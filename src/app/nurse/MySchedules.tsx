@@ -263,12 +263,35 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
     const s = String(status || "").toLowerCase();
     switch (s) {
       case "completed":
-        return "rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700";
+        return "inline-flex items-center justify-center rounded-full min-w-[72px] whitespace-nowrap bg-emerald-100 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-700";
       case "missed":
-        return "rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700";
+        return "inline-flex items-center justify-center rounded-full min-w-[72px] whitespace-nowrap bg-red-100 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-red-700";
+      case "cancelled":
+        return "inline-flex items-center justify-center rounded-full min-w-[72px] whitespace-nowrap bg-rose-100 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-rose-700";
       case "scheduled":
+        return "inline-flex items-center justify-center rounded-full min-w-[72px] whitespace-nowrap bg-indigo-50 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-indigo-700";
       default:
-        return "rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-700";
+        return "inline-flex items-center justify-center rounded-full min-w-[72px] whitespace-nowrap bg-muted/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground";
+    }
+  }
+
+  function statusLabel(status: string) {
+    const s = String(status || "").trim().toLowerCase();
+    switch (s) {
+      case "completed":
+        return "Completed";
+      case "missed":
+        return "Missed";
+      case "scheduled":
+        return "Scheduled";
+      case "cancelled":
+        return "Cancelled";
+      default:
+        return s
+          .split(/[-_\s]+/)
+          .filter(Boolean)
+          .map((word) => word[0].toUpperCase() + word.slice(1))
+          .join(" ");
     }
   }
 
@@ -283,16 +306,10 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
           <p className="text-sm text-muted-foreground">{selectedElderlyName} · {selectedSchedule.visitDate} · {selectedSchedule.visitTime}</p>
         </div>
         <span className={statusBadgeClasses(selectedSchedule.scheduleStatus)}>
-          {selectedSchedule.scheduleStatus}
+          {statusLabel(selectedSchedule.scheduleStatus)}
         </span>
       </div>
-
       <form onSubmit={handleSubmit} className="mt-5 space-y-4">
-        {selectedSchedule.scheduleStatus === "missed" && (
-          <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-            This visit was marked missed because it was not completed on time.
-          </div>
-        )}
         {/* If schedule already completed, show last saved record instead of form inputs */}
         {selectedSchedule.scheduleStatus === "completed" && (
           <div className="mb-4 rounded-lg border border-border bg-muted/5 p-3">
@@ -435,7 +452,7 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
                 const key = dayKey(date);
                 const daySchedules = schedulesByDay[key] || [];
                 return (
-                  <div key={key} className="rounded-2xl border border-border bg-background p-3">
+                  <div key={key} className="rounded-2xl border border-border bg-background p-2.5">
                     <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       {dayLabel(date)}
                     </div>
@@ -450,7 +467,7 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
                           key={item.id}
                           type="button"
                           onClick={() => setSelectedScheduleId(item.id)}
-                          className={`w-full rounded-2xl border px-3 py-2 text-left transition ${selectedScheduleId === item.id ? "border-primary bg-primary/5" : "border-border/70 bg-white hover:bg-slate-50"}`}
+                          className={`w-full rounded-2xl border px-2.5 py-2 text-left transition ${selectedScheduleId === item.id ? "border-primary bg-primary/5" : "border-border/70 bg-white hover:bg-slate-50"}`}
                         >
                           <div className="flex justify-between gap-2">
                             <div>
@@ -459,7 +476,7 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
                               <div className="text-[11px] text-muted-foreground">{item.visitTime}</div>
                             </div>
                             <span className={statusBadgeClasses(item.scheduleStatus)}>
-                              {item.scheduleStatus}
+                              {statusLabel(item.scheduleStatus)}
                             </span>
                           </div>
                         </button>

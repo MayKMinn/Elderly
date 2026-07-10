@@ -10,6 +10,7 @@ import type { MedicationAssignment } from "../api/medications";
 import { getNurseElderlyAssignments, getProfiles } from "../api/profiles";
 import type { ScheduleAssignment } from "../api/schedules";
 import { updateScheduleStatus } from "../api/schedules";
+import { fetchHealthLogs } from "../api/health";
 import { MySchedules } from "./MySchedules";
 import { AssignedResidentsSidebar, ResidentDetailsPanel, type Resident, type Status } from "./Residents";
 
@@ -644,32 +645,56 @@ function SchedulePage({ residents, checks, setChecks, isLoading, error }: {
   );
 }
 
-function WeeklyReportPage({ residents, checks }: { residents: Resident[]; checks: CheckEntry[] }) {
-  const totalPerDay = checks.length || 1;
-  const todayDone = checks.filter((entry) => entry.done).length;
+function WeeklyReportPage({ residents, checks, weeklyLogs, loading }: { residents: Resident[]; checks: CheckEntry[]; weeklyLogs: any[]; loading: boolean }) {
+  const today = new Date();
+  const weekStart = new Date(today);
+  const offset = (today.getDay() + 6) % 7;
+  weekStart.setDate(today.getDate() - offset);
+  weekStart.setHours(0, 0, 0, 0);
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekStart.getDate() + 6);
+  weekEnd.setHours(23, 59, 59, 999);
 
-  const days = [
-    { day: "Mon", date: "Jun 29", done: todayDone, total: totalPerDay },
-    { day: "Tue", date: "Jun 30", done: Math.min(15, totalPerDay), total: totalPerDay },
-    { day: "Wed", date: "Jul 1", done: Math.min(16, totalPerDay), total: totalPerDay },
-    { day: "Thu", date: "Jul 2", done: Math.min(14, totalPerDay), total: totalPerDay },
-    { day: "Fri", date: "Jul 3", done: Math.min(17, totalPerDay), total: totalPerDay },
-    { day: "Sat", date: "Jul 4", done: Math.min(10, totalPerDay), total: totalPerDay },
-    { day: "Sun", date: "Jul 5", done: Math.min(9, totalPerDay), total: totalPerDay },
-  ];
+  const weekLabel = `${weekStart.toLocaleDateString(undefined, { month: "short", day: "numeric" })} – ${weekEnd.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+  const weekDateLabel = `${weekStart.toLocaleDateString(undefined, { weekday: "short" })} – ${weekEnd.toLocaleDateString(undefined, { weekday: "short" })}`;
 
-  const weekDone = days.reduce((sum, day) => sum + day.done, 0);
-  const weekTotal = days.reduce((sum, day) => sum + day.total, 0);
-  const weekPercent = Math.round((weekDone / weekTotal) * 100);
+  const logsThisWeek = Array.isArray(weeklyLogs) ? weeklyLogs : [];
+  const recordCount = logsThisWeek.length;
+  const uniqueResidentIds = Array.from(new Set(logsThisWeek.map((log) => String(log.elderly_id ?? log.elderlyId ?? "")))).filter(Boolean);
+  const residentWithRecordCount = uniqueResidentIds.length;
+  const days = Array.from({ length: 7 }).map((_, index) => {
+    const date = new Date(weekStart);
+    date.setDate(weekStart.getDate() + index);
+    const key = date.toISOString().slice(0, 10);
+    const count = logsThisWeek.filter((log) => String(log.visitDate || log.visit_date || "").slice(0, 10) === key).length;
+    return {
+      day: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][index],
+      date: date.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+      count,
+    };
+  });
 
-  function submitReport() {
-    alert("Weekly report submitted to admin.");
-  }
+  const daysWithRecords = days.filter((day) => day.count > 0).length;
+  const averagePerResident = residentWithRecordCount === 0 ? 0 : Math.round((recordCount / residentWithRecordCount) * 10) / 10;
+  const maxDailyCount = Math.max(...days.map((day) => day.count), 1);
+
+  const logsByResident = residents.reduce<Record<string, any[]>>((groups, resident) => {
+    const key = String(resident.id);
+    groups[key] = logsThisWeek.filter((log) => String(log.elderly_id ?? log.elderlyId ?? "") === key);
+    return groups;
+  }, {});
+
+  logsThisWeek.forEach((log) => {
+    const key = String(log.elderly_id ?? log.elderlyId ?? "");
+    if (!key) return;
+    if (!logsByResident[key]) logsByResident[key] = [];
+    if (!logsByResident[key].includes(log)) logsByResident[key].push(log);
+  });
 
   return (
     <div className="flex flex-col gap-5">
       <div className="bg-card border border-border rounded-2xl p-5">
-        <p className="text-sm text-muted-foreground">Weekly Report to Admin</p>
+        <p className="text-sm text-muted-foreground">Weekly Record to Admin</p>
         <h3 className="text-xl font-semibold text-foreground mt-1" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>
           Jun 29 – Jul 5, 2026
         </h3>
@@ -680,32 +705,54 @@ function WeeklyReportPage({ residents, checks }: { residents: Resident[]; checks
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="bg-card border border-border rounded-xl p-4">
-          <p className="text-2xl font-bold text-foreground">{weekPercent}%</p>
-          <p className="text-xs text-muted-foreground">Week Completion</p>
+          <p className="text-2xl font-bold text-foreground">{recordCount}</p>
+          <p className="text-xs text-muted-foreground">Records this week</p>
         </div>
         <div className="bg-card border border-border rounded-xl p-4">
-          <p className="text-2xl font-bold text-foreground">{weekDone}/{weekTotal}</p>
-          <p className="text-xs text-muted-foreground">Checks Done</p>
+          <p className="text-2xl font-bold text-foreground">{residentWithRecordCount}</p>
+          <p className="text-xs text-muted-foreground">Residents recorded</p>
         </div>
         <div className="bg-card border border-border rounded-xl p-4">
           <p className="text-2xl font-bold text-foreground">{residents.length}</p>
           <p className="text-xs text-muted-foreground">Residents</p>
         </div>
         <div className="bg-card border border-border rounded-xl p-4">
-          <p className="text-2xl font-bold text-foreground">{todayDone}/{totalPerDay}</p>
-          <p className="text-xs text-muted-foreground">Today</p>
+          <p className="text-2xl font-bold text-foreground">{daysWithRecords}</p>
+          <p className="text-xs text-muted-foreground">Days with entries</p>
         </div>
       </div>
 
       <div className="bg-card border border-border rounded-2xl overflow-hidden">
         <div className="px-5 py-4 border-b border-border flex items-center justify-between">
-          <h4 className="font-semibold text-foreground" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>Daily Breakdown</h4>
-          <p className="text-xs text-muted-foreground">Mon – Sun</p>
+          <div>
+            <h4 className="font-semibold text-foreground" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>Weekly Record Summary</h4>
+            <p className="text-xs text-muted-foreground">{weekLabel}</p>
+          </div>
+          <p className="text-xs text-muted-foreground">{weekDateLabel}</p>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-5">
+          <div className="bg-muted/50 border border-border rounded-2xl p-4">
+            <p className="text-2xl font-bold text-foreground">{recordCount}</p>
+            <p className="text-xs text-muted-foreground">Records this week</p>
+          </div>
+          <div className="bg-muted/50 border border-border rounded-2xl p-4">
+            <p className="text-2xl font-bold text-foreground">{residentWithRecordCount}</p>
+            <p className="text-xs text-muted-foreground">Residents recorded</p>
+          </div>
+          <div className="bg-muted/50 border border-border rounded-2xl p-4">
+            <p className="text-2xl font-bold text-foreground">{daysWithRecords}</p>
+            <p className="text-xs text-muted-foreground">Days with entries</p>
+          </div>
+          <div className="bg-muted/50 border border-border rounded-2xl p-4">
+            <p className="text-2xl font-bold text-foreground">{averagePerResident}</p>
+            <p className="text-xs text-muted-foreground">Avg records per resident</p>
+          </div>
         </div>
 
         <div className="divide-y divide-border">
           {days.map((day) => {
-            const percent = Math.round((day.done / day.total) * 100);
+            const percent = Math.round((day.count / maxDailyCount) * 100);
 
             return (
               <div key={day.day} className="px-5 py-4 flex items-center gap-4">
@@ -719,7 +766,7 @@ function WeeklyReportPage({ residents, checks }: { residents: Resident[]; checks
                 </div>
 
                 <p className="text-sm font-semibold text-muted-foreground w-14 text-right">
-                  {day.done}/{day.total}
+                  {day.count}
                 </p>
               </div>
             );
@@ -729,13 +776,13 @@ function WeeklyReportPage({ residents, checks }: { residents: Resident[]; checks
 
       <div className="bg-card border border-border rounded-2xl overflow-hidden">
         <div className="px-5 py-4 border-b border-border">
-          <h4 className="font-semibold text-foreground" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>Resident Weekly Summary</h4>
+          <h4 className="font-semibold text-foreground" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>Weekly Records by Resident</h4>
         </div>
 
         <div className="divide-y divide-border">
           {residents.map((resident) => {
-            const residentChecks = checks.filter((entry) => entry.residentId === resident.id);
-            const done = residentChecks.filter((entry) => entry.done).length;
+            const residentLogs = logsByResident[String(resident.id)] || [];
+            const latestLog = residentLogs.sort((a, b) => String(b.visit_time || b.recorded_time || "").localeCompare(String(a.visit_time || a.recorded_time || "")))[0];
 
             return (
               <div key={resident.id} className="px-5 py-4 flex items-center gap-4">
@@ -746,7 +793,7 @@ function WeeklyReportPage({ residents, checks }: { residents: Resident[]; checks
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold text-foreground truncate">{resident.name}</p>
                   <p className="text-xs text-muted-foreground">
-                    Room {resident.room} · Est. {done * 7}/{residentChecks.length * 7} checks this week
+                    {residentLogs.length} record{residentLogs.length === 1 ? "" : "s"} · Latest: {latestLog ? `${String(latestLog.visitDate || latestLog.visit_date || "")} ${String(latestLog.visitTime || latestLog.visit_time || "")}` : "No records this week"}
                   </p>
                 </div>
 
@@ -759,13 +806,6 @@ function WeeklyReportPage({ residents, checks }: { residents: Resident[]; checks
         </div>
       </div>
 
-      <button
-        onClick={submitReport}
-        className="w-full bg-primary text-primary-foreground py-3 rounded-xl font-semibold hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
-      >
-        <FileText size={16} />
-        Submit Weekly Report to Admin
-      </button>
     </div>
   );
 }
@@ -885,6 +925,8 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [medicationAssignments, setMedicationAssignments] = useState<MedicationAssignment[]>([]);
   const [scheduleAssignments, setScheduleAssignments] = useState<ScheduleAssignment[]>([]);
+  const [weeklyLogs, setWeeklyLogs] = useState<any[]>([]);
+  const [weeklyLogsLoading, setWeeklyLogsLoading] = useState(false);
   const [selectedResidentId, setSelectedResidentId] = useState<number | null>(null);
   const [selectedScheduleId, setSelectedScheduleId] = useState<number | null>(null);
   const [hiddenScheduleNotificationIds, setHiddenScheduleNotificationIds] = useState<number[]>([]);
@@ -1060,6 +1102,55 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
     };
   }, [currentNurseId, nurseName]);
 
+  useEffect(() => {
+    let ignore = false;
+
+    const loadWeeklyLogs = async () => {
+      if (!currentNurseId || page !== "weeklyReport") {
+        setWeeklyLogs([]);
+        return;
+      }
+
+      setWeeklyLogsLoading(true);
+      try {
+        const response = await fetchHealthLogs({ nurseId: currentNurseId, limit: 500 });
+        if (ignore) return;
+
+        const today = new Date();
+        const monday = new Date(today);
+        const offset = (today.getDay() + 6) % 7;
+        monday.setDate(today.getDate() - offset);
+        monday.setHours(0, 0, 0, 0);
+        const sunday = new Date(monday);
+        sunday.setDate(monday.getDate() + 6);
+        sunday.setHours(23, 59, 59, 999);
+
+        const logs = Array.isArray(response.logs)
+          ? response.logs.filter((log: any) => {
+              const dateValue = String(log.visitDate || log.visit_date || "").slice(0, 10);
+              const date = new Date(dateValue);
+              return !Number.isNaN(date.getTime()) && date >= monday && date <= sunday;
+            })
+          : [];
+
+        if (!ignore) {
+          setWeeklyLogs(logs);
+        }
+      } catch (error) {
+        if (!ignore) {
+          setWeeklyLogs([]);
+        }
+        console.error("Failed to load weekly records.", error);
+      } finally {
+        if (!ignore) {
+          setWeeklyLogsLoading(false);
+        }
+      }
+    };
+
+    loadWeeklyLogs();
+  }, [currentNurseId, page]);
+
   async function reportMedicationStatus(id: number, complianceStatus: "Taken" | "Missed") {
     setNotificationMessage("");
 
@@ -1090,7 +1181,7 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
     { id: "overview",     label: "Overview",      icon: LayoutDashboard },
     { id: "schedule",     label: "My Schedule",   icon: Calendar },
     { id: "residents",    label: "Residents",     icon: Users },
-    { id: "weeklyReport", label: "Weekly Report", icon: FileText },
+    { id: "weeklyReport", label: "Weekly Record", icon: FileText },
   ];
 
   return (
@@ -1445,7 +1536,14 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
               </div>
             </div>
           )}
-          {page === "weeklyReport" && <WeeklyReportPage residents={residents} checks={checks} />}
+          {page === "weeklyReport" && (
+            <WeeklyReportPage
+              residents={residents}
+              checks={checks}
+              weeklyLogs={weeklyLogs}
+              loading={weeklyLogsLoading}
+            />
+          )}
         </div>
       </main>
     </div>
