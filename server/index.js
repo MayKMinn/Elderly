@@ -542,18 +542,32 @@ function normalizeScheduleDate(value) {
 
 function normalizeSchedulePurpose(value) {
   const text = String(value || "").trim();
-  const normalized = text.toLowerCase();
+  if (!text) return text;
+
+  const normalized = text.toLowerCase().replace(/\s+/g, " ");
   const legacyPurposeMap = {
     "vitals check": "Blood Pressure",
     "blood pressure check": "Blood Pressure",
+    "blood pressure": "Blood Pressure",
     "glucose check": "Blood Glucose",
     "blood sugar": "Blood Glucose",
+    "blood glucose": "Blood Glucose",
     "medication check": "Medication",
     "medicine check": "Medication",
+    "medication": "Medication",
+    "medicine": "Medication",
+    "routine visit": "Routine Visit",
     "emergency follow-up": "Routine Visit",
+    "emergency follow up": "Routine Visit",
   };
 
-  return legacyPurposeMap[normalized] || text;
+  if (legacyPurposeMap[normalized]) return legacyPurposeMap[normalized];
+  if (normalized.includes("blood pressure")) return "Blood Pressure";
+  if (normalized.includes("blood glucose") || normalized.includes("glucose")) return "Blood Glucose";
+  if (normalized.includes("medication") || normalized.includes("medicine")) return "Medication";
+  if (normalized.includes("routine") || normalized.includes("visit")) return "Routine Visit";
+
+  return text;
 }
 
 function addDaysToDateKey(dateKey, daysToAdd) {
@@ -1218,6 +1232,9 @@ app.post("/api/health", async (req, res) => {
   const nurseId = Number(req.body.nurseId);
   const elderlyId = Number(req.body.elderlyId);
   const scheduleId = req.body.scheduleId ? Number(req.body.scheduleId) : null;
+  const purpose = normalizeSchedulePurpose(req.body.purpose);
+  const complianceStatus = String(req.body.complianceStatus || "").trim();
+  const medicationName = String(req.body.medicationName || "").trim();
   let systolic = req.body.systolic !== undefined ? Number(req.body.systolic) : null;
   let diastolic = req.body.diastolic !== undefined ? Number(req.body.diastolic) : null;
   let bloodSugar = req.body.bloodSugar !== undefined ? Number(req.body.bloodSugar) : null;
@@ -1233,7 +1250,8 @@ app.post("/api/health", async (req, res) => {
     return;
   }
 
-  if (systolic === null && diastolic === null && bloodSugar === null && !notes) {
+  const allowEmptyMedicationCompletion = purpose === "Medication" && Number.isInteger(scheduleId) && scheduleId > 0;
+  if (!allowEmptyMedicationCompletion && systolic === null && diastolic === null && bloodSugar === null && !notes) {
     res.status(422).json({ error: "At least one measurement or note is required." });
     return;
   }
@@ -1245,27 +1263,78 @@ app.post("/api/health", async (req, res) => {
     if (bloodSugar === null) bloodSugar = 0;
     if (!notes) notes = "";
 
-    // include schedule_id if provided
-    let result;
+    let healthLogResult;
     const nowDate = getForcedNow();
     const nowDateTimeSql = formatDateTimeForSql(nowDate);
     const nowDateOnlySql = formatDateForSql(nowDate);
 
     if (Number.isInteger(scheduleId) && scheduleId > 0) {
-      [result] = await pool.query(
+      [healthLogResult] = await pool.query(
         `INSERT INTO health_log (schedule_id, nurse_id, elderly_id, visit_time, visit_date, bloodpressure_systolic, bloodpressure_diastolic, blood_sugar, condition_notes)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [scheduleId, nurseId, elderlyId, nowDateTimeSql, nowDateOnlySql, systolic, diastolic, bloodSugar, notes]
       );
     } else {
-      [result] = await pool.query(
+      [healthLogResult] = await pool.query(
         `INSERT INTO health_log (nurse_id, elderly_id, visit_time, visit_date, bloodpressure_systolic, bloodpressure_diastolic, blood_sugar, condition_notes)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [nurseId, elderlyId, nowDateTimeSql, nowDateOnlySql, systolic, diastolic, bloodSugar, notes]
       );
     }
 
-    const insertId = result.insertId;
+    if (Number.isInteger(scheduleId) && scheduleId > 0) {
+      if (purpose === "Blood Pressure") {
+        const [existingRows] = await pool.query(
+          "SELECT pressure_id AS id FROM elderly_blood_pressure WHERE schedule_id = ? LIMIT 1",
+          [scheduleId]
+        );
+
+        if (existingRows[0]?.id) {
+          await pool.query(
+            `UPDATE elderly_blood_pressure
+             SET nurse_id = ?, elderly_id = ?, recorded_date = ?, recorded_time = ?, systolic = ?, diastolic = ?
+             WHERE pressure_id = ?`,
+            [nurseId, elderlyId, nowDateOnlySql, nowDateTimeSql, systolic, diastolic, existingRows[0].id]
+          );
+        } else {
+          await pool.query(
+            `INSERT INTO elderly_blood_pressure (schedule_id, nurse_id, elderly_id, recorded_date, recorded_time, systolic, diastolic)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [scheduleId, nurseId, elderlyId, nowDateOnlySql, nowDateTimeSql, systolic, diastolic]
+          );
+        }
+      } else if (purpose === "Blood Glucose") {
+        const [existingRows] = await pool.query(
+          "SELECT glucose_id AS id FROM elderly_blood_glucose WHERE schedule_id = ? LIMIT 1",
+          [scheduleId]
+        );
+
+        if (existingRows[0]?.id) {
+          await pool.query(
+            `UPDATE elderly_blood_glucose
+             SET nurse_id = ?, elderly_id = ?, recorded_date = ?, recorded_time = ?, glucose_value = ?
+             WHERE glucose_id = ?`,
+            [nurseId, elderlyId, nowDateOnlySql, nowDateTimeSql, bloodSugar, existingRows[0].id]
+          );
+        } else {
+          await pool.query(
+            `INSERT INTO elderly_blood_glucose (schedule_id, nurse_id, elderly_id, recorded_date, recorded_time, glucose_value)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [scheduleId, nurseId, elderlyId, nowDateOnlySql, nowDateTimeSql, bloodSugar]
+          );
+        }
+      } else if (purpose === "Medication") {
+        const targetStatus = ["Taken", "Missed"].includes(complianceStatus) ? complianceStatus : "Taken";
+        await pool.query(
+          `UPDATE medication_logs
+           SET compliance_status = ?, report_notes = ?, reported_at = CURRENT_TIMESTAMP
+           WHERE schedule_id = ?`,
+          [targetStatus, notes || medicationName || "Medication completed", scheduleId]
+        );
+      }
+    }
+
+    const insertId = healthLogResult.insertId;
     const [rows] = await pool.query("SELECT * FROM health_log WHERE log_id = ?", [insertId]);
     res.status(201).json(rows[0]);
   } catch (error) {
