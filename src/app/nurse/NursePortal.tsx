@@ -910,7 +910,6 @@ interface NursePortalProps {
     username?: string;
     email?: string | null;
     licenseNumber?: string | null;
-    workArea?: string | null;
     position?: string | null;
     avatar?: string | null;
   } | null;
@@ -940,8 +939,7 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
   const displayUsername = nurseProfile?.username || "-";
   const displayEmail = nurseProfile?.email || "-";
   const displayLicenseNumber = nurseProfile?.licenseNumber || "-";
-  const displayWorkArea = nurseProfile?.workArea || "-";
-  const displayPosition = nurseProfile?.position || "Registered Nurse";
+  const displayPosition = nurseProfile?.position || "Nurse";
   const displayAvatar = String(nurseProfile?.avatar || "").trim();
   const totalChecks = checks.length;
   const doneChecks = checks.filter((c) => c.done).length;
@@ -1419,7 +1417,7 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
                       <NurseProfileRow label="Name" value={displayName} />
                       <NurseProfileRow label="Email" value={displayEmail} />
                       <NurseProfileRow label="License Number" value={displayLicenseNumber} />
-                      <NurseProfileRow label="Work Area" value={displayWorkArea} />
+                      <NurseProfileRow label="Position" value={displayPosition} />
                     </div>
 
                     <button

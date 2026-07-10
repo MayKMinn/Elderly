@@ -48,7 +48,6 @@ const nurseFieldOrder = [
   "address",
   "licenseNumber",
   "position",
-  "workArea",
   "hireDate",
   "nurseStatus",
   "username",
@@ -276,7 +275,6 @@ function fallbackValidate(profile) {
     }
   } else {
     if (!String(profile.position || "").trim()) errors.position = "Position is required.";
-    if (!String(profile.workArea || "").trim()) errors.workArea = "Work area is required.";
     const hireDateError = validateHireDate(profile.hireDate);
     if (hireDateError) errors.hireDate = hireDateError;
     if (!String(profile.nurseStatus || "").trim()) errors.nurseStatus = "Nurse status is required.";
@@ -288,7 +286,8 @@ function fallbackValidate(profile) {
     else if (!/^\d{7}$/.test(licenseNumber)) errors.licenseNumber = "License number must be 7 digits.";
     const username = String(profile.username || "").trim();
     if (!username) errors.username = "Username is required.";
-    else if (!/^[A-Za-z]+$/.test(username)) errors.username = "Username must contain letters only.";
+    else if (!/^[A-Za-z0-9]+$/.test(username)) errors.username = "Username can contain letters and numbers only.";
+    else if (!/[A-Za-z]/.test(username)) errors.username = "Username must contain at least one letter.";
     else if (username.length < 4) errors.username = "Username must be at least 4 characters.";
     const password = String(profile.password || "").trim();
     if (!password) errors.password = "Password is required.";

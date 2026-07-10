@@ -16,7 +16,6 @@ export type AdminProfile = {
   avatar: string;
   status: string;
   licenseNumber?: string;
-  workArea?: string;
   position?: string;
   avatar?: string;
 };
@@ -85,7 +84,6 @@ export function signInNurse(login: string, password: string) {
     name: string;
     email: string;
     licenseNumber: string;
-    workArea: string;
     position: string;
     avatar: string;
     status: string;

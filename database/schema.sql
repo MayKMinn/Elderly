@@ -15,9 +15,21 @@ CREATE TABLE IF NOT EXISTS elderly (
   emergency_name VARCHAR(100) NOT NULL,
   emergency_phone VARCHAR(20) NOT NULL,
   emergency_address VARCHAR(500),
+  room_id INT NULL,
   elderly_status ENUM('active', 'passed away') DEFAULT 'active',
   enroll_date DATETIME DEFAULT CURRENT_TIMESTAMP,
-  avatar MEDIUMTEXT
+  avatar MEDIUMTEXT,
+  UNIQUE KEY unique_elderly_room (room_id)
+);
+
+CREATE TABLE IF NOT EXISTS rooms (
+  room_id INT AUTO_INCREMENT PRIMARY KEY,
+  floor_number INT NOT NULL,
+  room_number INT NOT NULL,
+  room_label VARCHAR(20) GENERATED ALWAYS AS (CONCAT('F', floor_number, '-R', LPAD(room_number, 2, '0'))) STORED,
+  UNIQUE KEY unique_floor_room (floor_number, room_number),
+  CONSTRAINT chk_floor_number CHECK (floor_number BETWEEN 1 AND 4),
+  CONSTRAINT chk_room_number CHECK (room_number BETWEEN 1 AND 15)
 );
 
 CREATE TABLE IF NOT EXISTS nurse (
@@ -28,9 +40,8 @@ CREATE TABLE IF NOT EXISTS nurse (
   phone VARCHAR(20) NOT NULL,
   email VARCHAR(30) NOT NULL,
   license_number INT NOT NULL,
-  position VARCHAR(20) NOT NULL,
+  position ENUM('Assistant Nurse', 'Junior Nurse', 'Senior Nurse', 'Head Nurse') NOT NULL,
   shift_schedule VARCHAR(50) NOT NULL,
-  work_area VARCHAR(400) NOT NULL,
   username VARCHAR(30) NOT NULL,
   password VARCHAR(100) NOT NULL,
   address VARCHAR(500) NOT NULL,
@@ -155,19 +166,30 @@ CREATE TABLE IF NOT EXISTS elderly_blood_glucose (
 
 INSERT INTO elderly (
   elderly_id, name, age, gender, birthdate, address, phone, medical_conditions, allergies,
-  blood_type, emergency_name, emergency_phone, emergency_address, elderly_status,
+  blood_type, emergency_name, emergency_phone, emergency_address, room_id, elderly_status,
   enroll_date, avatar
 ) VALUES
-('1', 'Mary Wilson', 78, 'female', '1946-06-12', '123 Maple Street, Springfield, IL 62701', '(555) 234-5678', 'Hypertension', 'Penicillin', 'A+', 'James Wilson', '(555) 987-6543', '', 'active', '2022-02-03', 'https://i.pravatar.cc/40?img=47'),
-('2', 'Robert Brown', 82, 'male', '1942-03-08', '456 Oak Avenue, Springfield, IL 62702', '(555) 345-6789', 'Diabetes Type 2', 'Sulfa drugs', 'B+', 'Patricia Brown', '(555) 876-5432', '', 'active', '2021-04-15', 'https://i.pravatar.cc/40?img=12'),
-('3', 'Penney Smith', 75, 'female', '1949-09-20', '789 Elm Street, Springfield, IL 62703', '(555) 456-7890', 'Alzheimer''s', 'None', 'O+', 'Michael Smith', '(555) 765-4321', '', 'active', '2023-01-10', 'https://i.pravatar.cc/40?img=45')
+('1', 'Mary Wilson', 78, 'female', '1946-06-12', '123 Maple Street, Springfield, IL 62701', '(555) 234-5678', 'Hypertension', 'Penicillin', 'A+', 'James Wilson', '(555) 987-6543', '', 1, 'active', '2022-02-03', 'https://i.pravatar.cc/40?img=47'),
+('2', 'Robert Brown', 82, 'male', '1942-03-08', '456 Oak Avenue, Springfield, IL 62702', '(555) 345-6789', 'Diabetes Type 2', 'Sulfa drugs', 'B+', 'Patricia Brown', '(555) 876-5432', '', 2, 'active', '2021-04-15', 'https://i.pravatar.cc/40?img=12'),
+('3', 'Penney Smith', 75, 'female', '1949-09-20', '789 Elm Street, Springfield, IL 62703', '(555) 456-7890', 'Alzheimer''s', 'None', 'O+', 'Michael Smith', '(555) 765-4321', '', 3, 'active', '2023-01-10', 'https://i.pravatar.cc/40?img=45')
 ON DUPLICATE KEY UPDATE name = VALUES(name);
+
+INSERT IGNORE INTO rooms (floor_number, room_number)
+SELECT floors.floor_number, rooms.room_number
+FROM (
+  SELECT 1 AS floor_number UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4
+) floors
+CROSS JOIN (
+  SELECT 1 AS room_number UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5
+  UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9 UNION ALL SELECT 10
+  UNION ALL SELECT 11 UNION ALL SELECT 12 UNION ALL SELECT 13 UNION ALL SELECT 14 UNION ALL SELECT 15
+) rooms;
 
 INSERT INTO nurse (
   nurse_id, name, age, gender, phone, email, license_number, position, shift_schedule,
-  work_area, username, password, address, hire_date, nurse_status
+  username, password, address, hire_date, nurse_status
 ) VALUES
-('1', 'Emily Clark', 34, 'female', '(555) 111-2233', 'emily.clark@elderease.com', 1001, 'Senior Nurse', 'Morning', 'Memory Care Unit', 'emilyclark', 'password123', 'Yangon', '2020-03-15', 'active'),
-('2', 'James Lee', 29, 'male', '(555) 222-3344', 'james.lee@elderease.com', 1002, 'Registered Nurse', 'Morning', 'General Ward', 'jameslee', 'password123', 'Yangon', '2021-06-10', 'active'),
-('3', 'Sophia Martinez', 38, 'female', '(555) 333-4455', 'sophia.martinez@elderease.com', 1003, 'Charge Nurse', 'Morning', 'Cardiac Care', 'sophiamartinez', 'password123', 'Yangon', '2019-01-05', 'active')
+('1', 'Emily Clark', 34, 'female', '(555) 111-2233', 'emily.clark@elderease.com', 1001, 'Senior Nurse', 'Morning', 'emilyclark', 'password123', 'Yangon', '2020-03-15', 'active'),
+('2', 'James Lee', 29, 'male', '(555) 222-3344', 'james.lee@elderease.com', 1002, 'Junior Nurse', 'Morning', 'jameslee', 'password123', 'Yangon', '2021-06-10', 'active'),
+('3', 'Sophia Martinez', 38, 'female', '(555) 333-4455', 'sophia.martinez@elderease.com', 1003, 'Assistant Nurse', 'Morning', 'sophiamartinez', 'password123', 'Yangon', '2019-01-05', 'active')
 ON DUPLICATE KEY UPDATE name = VALUES(name);
