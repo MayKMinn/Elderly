@@ -20,6 +20,7 @@ const fieldOrder = [
   "slotLockDate",
   "slotLockHour",
   "recurrenceIntervalDays",
+  "hasAssignedElder",
 ];
 const allowedPurposes = ["Blood Pressure", "Blood Glucose", "Medication", "Routine Visit"];
 const allowedStatuses = ["scheduled", "completed", "missed", "cancelled"];
@@ -119,7 +120,17 @@ function isPastScheduleDateTime(visitDate, visitTime) {
   const dateTime = new Date(`${visitDate}T${visitTime}`);
   if (Number.isNaN(dateTime.getTime())) return false;
 
-  return dateTime.getTime() < Date.now();
+  // Respect FORCE_SYSTEM_DATE if provided: use forced date with current time as 'now'
+  const forced = String(process.env.FORCE_SYSTEM_DATE || "").trim();
+  let nowTs = Date.now();
+  if (forced) {
+    const now = new Date();
+    const timePart = now.toTimeString().split(' ')[0];
+    const forcedNow = new Date(`${forced}T${timePart}`);
+    if (!Number.isNaN(forcedNow.getTime())) nowTs = forcedNow.getTime();
+  }
+
+  return dateTime.getTime() < nowTs;
 }
 
 function fallbackValidate(schedule) {
@@ -161,6 +172,13 @@ function fallbackValidate(schedule) {
   const recurrenceIntervalDays = String(schedule.recurrenceIntervalDays || "").trim();
   if (recurrenceIntervalDays && !["1", "7"].includes(recurrenceIntervalDays)) {
     errors.recurrenceIntervalDays = "Recurring schedule must repeat daily or weekly.";
+  }
+  if (
+    !errors.nurseId &&
+    !errors.elderlyId &&
+    String(schedule.hasAssignedElder || "").trim().toUpperCase() !== "Y"
+  ) {
+    errors.elderlyId = "There is no assigned elder. Please assign first.";
   }
 
   return { valid: Object.keys(errors).length === 0, errors };

@@ -78,7 +78,7 @@
                MOVE 0 TO LETTER-COUNT
                MOVE "N" TO NAME-BAD
                PERFORM VARYING NAME-IDX FROM 1 BY 1
-                   UNTIL NAME-IDX > FUNCTION LENGTH(FUNCTION TRIM(FULL-NAME))
+             UNTIL NAME-IDX > FUNCTION LENGTH(FUNCTION TRIM(FULL-NAME))
                    IF (FULL-NAME(NAME-IDX:1) >= "A"
                        AND FULL-NAME(NAME-IDX:1) <= "Z")
                        OR (FULL-NAME(NAME-IDX:1) >= "a"

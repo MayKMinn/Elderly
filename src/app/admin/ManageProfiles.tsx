@@ -192,12 +192,20 @@ function countRegistrationsThisWeek<T>(profiles: T[], getDate: (profile: T) => s
   }).length;
 }
 
+function normalizeGenderValue(value: unknown) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (normalized === "male") return "Male";
+  if (normalized === "female") return "Female";
+  if (normalized === "other") return "Other";
+  return String(value ?? "");
+}
+
 function normalizeElderlyProfile(profile: Partial<ElderlyProfile>): ElderlyProfile {
   return {
     id: String(profile.id ?? ""),
     name: String(profile.name ?? ""),
     age: Number(profile.age) || 0,
-    gender: String(profile.gender ?? ""),
+    gender: normalizeGenderValue(profile.gender),
     phone: String(profile.phone ?? ""),
     medicalCondition: String(profile.medicalCondition ?? ""),
     emergencyContact: String(profile.emergencyContact ?? ""),
@@ -217,13 +225,6 @@ function normalizeElderlyProfile(profile: Partial<ElderlyProfile>): ElderlyProfi
 }
 
 function normalizeNurseProfile(profile: Partial<NurseProfile>): NurseProfile {
-  const rawGender = String(profile.gender ?? "").trim().toLowerCase();
-  const gender =
-    rawGender === "male" ? "Male" :
-    rawGender === "female" ? "Female" :
-    rawGender === "other" ? "Other" :
-    String(profile.gender ?? "");
-
   const rawStatus = String(profile.nurseStatus ?? profile.status ?? "Active");
   const normalizedStatus = rawStatus.toLowerCase();
   const status = normalizedStatus === "on leave" || normalizedStatus === "suspended" ? "On Leave" : "Active";
@@ -233,7 +234,7 @@ function normalizeNurseProfile(profile: Partial<NurseProfile>): NurseProfile {
     nurseId: profile.nurseId,
     name: String(profile.name ?? ""),
     age: Number(profile.age) || 0,
-    gender,
+    gender: normalizeGenderValue(profile.gender),
     phone: String(profile.phone ?? ""),
     email: String(profile.email ?? ""),
     address: String(profile.address ?? ""),
@@ -304,7 +305,7 @@ function getAssignedElderly(
   const nurseId = String(nurse.nurseId || nurse.id);
   const assignedIds = new Set(assignmentMap[nurseId] || []);
 
-  return elderlyList.filter((profile) => assignedIds.has(String(profile.id)));
+  return elderlyList.filter((profile) => profile.status === "Active" && assignedIds.has(String(profile.id)));
 }
 
 function getNurseSqlDisplayId(profile: NurseProfile) {
@@ -452,9 +453,35 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
   const handleSaveEdit = async (updated: ElderlyProfile): Promise<ValidationErrors | void> => {
     const validationErrors = validateElderlyProfile(updated);
     if (Object.keys(validationErrors).length > 0) return validationErrors;
+    const removeInactiveAssignments = (elderlyId: string) => {
+      const affectedNurseIds = new Set(
+        Object.entries(assignmentMap)
+          .filter(([, elderlyIds]) => elderlyIds.map(String).includes(elderlyId))
+          .map(([nurseId]) => nurseId)
+      );
+
+      setAssignmentMap((prev) => Object.fromEntries(
+        Object.entries(prev).map(([nurseId, elderlyIds]) => [
+          nurseId,
+          elderlyIds.filter((id) => String(id) !== elderlyId),
+        ])
+      ));
+      setNurseList((prev) => prev.map((nurse) => {
+        const nurseId = String(nurse.nurseId || nurse.id);
+        if (!affectedNurseIds.has(nurseId)) return nurse;
+
+        return {
+          ...nurse,
+          assignedElders: Math.max(0, (assignmentMap[nurseId] || []).filter((id) => String(id) !== elderlyId).length),
+        };
+      }));
+    };
 
     if (!useApi) {
       setElderlyList((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
+      if (updated.status !== "Active") {
+        removeInactiveAssignments(String(updated.id));
+      }
       setModal(null);
       setSuccessMessage("Elderly profile updated successfully.");
       return;
@@ -463,6 +490,9 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
     try {
       const saved = normalizeElderlyProfile(await updateElderlyProfile(updated));
       setElderlyList((prev) => prev.map((e) => (e.id === saved.id ? saved : e)));
+      if (saved.status !== "Active") {
+        removeInactiveAssignments(String(saved.id));
+      }
       setModal(null);
       setError(null);
       setSuccessMessage("Elderly profile updated successfully.");
@@ -511,7 +541,11 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
 
     try {
       const saved = normalizeNurseProfile(await updateNurseProfile(updated));
-      setNurseList((prev) => prev.map((n) => (String(n.id) === String(saved.id) ? saved : n)));
+      const nextProfile = {
+        ...saved,
+        avatar: updated.avatar.trim() ? saved.avatar : "",
+      };
+      setNurseList((prev) => prev.map((n) => (String(n.id) === String(nextProfile.id) ? nextProfile : n)));
       setModal(null);
       setError(null);
       setSuccessMessage("Caregiver profile updated successfully.");
@@ -672,7 +706,18 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
       setError(null);
       setSuccessMessage("Assigned elderly updated successfully.");
     } catch (err) {
-      setError("Failed to save assigned elderly.");
+      let message = "Failed to save assigned elderly.";
+
+      if (err instanceof Error) {
+        try {
+          const parsed = JSON.parse(err.message);
+          message = parsed.error || message;
+        } catch {
+          message = err.message || message;
+        }
+      }
+
+      setError(message);
       console.error(err);
     }
   };
@@ -1111,6 +1156,7 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
         <AssignEldersModal
           nurse={modal.profile}
           elderlyList={elderlyList}
+          assignmentMap={assignmentMap}
           selectedIds={assignmentMap[String(modal.profile.nurseId || modal.profile.id)] || []}
           onCancel={() => setModal({ type: "viewNurse", profile: modal.profile })}
           onSave={(elderlyIds) => handleSaveAssignments(modal.profile, elderlyIds)}
@@ -1601,20 +1647,36 @@ function NurseViewModal({
 function AssignEldersModal({
   nurse,
   elderlyList,
+  assignmentMap,
   selectedIds,
   onCancel,
   onSave,
 }: {
   nurse: NurseProfile;
   elderlyList: ElderlyProfile[];
+  assignmentMap: Record<string, string[]>;
   selectedIds: string[];
   onCancel: () => void;
   onSave: (elderlyIds: string[]) => Promise<void> | void;
 }) {
-  const [selected, setSelected] = useState<Set<string>>(() => new Set(selectedIds.map(String)));
+  const currentNurseId = String(nurse.nurseId || nurse.id);
+  const assignedToOtherNurseIds = new Set(
+    Object.entries(assignmentMap).flatMap(([nurseId, elderlyIds]) => (
+      nurseId === currentNurseId ? [] : elderlyIds.map(String)
+    ))
+  );
+  const activeElderlyIds = new Set(
+    elderlyList.filter((elderly) => elderly.status === "Active").map((elderly) => String(elderly.id))
+  );
+  const [selected, setSelected] = useState<Set<string>>(() => (
+    new Set(selectedIds.map(String).filter((id) => activeElderlyIds.has(id)))
+  ));
   const [query, setQuery] = useState("");
   const [saving, setSaving] = useState(false);
   const filteredElderly = elderlyList.filter((elderly) => {
+    if (elderly.status !== "Active") return false;
+    if (assignedToOtherNurseIds.has(String(elderly.id))) return false;
+
     const text = `${elderly.name} ${elderly.id} ${elderly.medicalCondition}`.toLowerCase();
     return text.includes(query.trim().toLowerCase());
   });
@@ -2012,16 +2074,9 @@ function NurseEditPanel({
             Cancel
           </button>
 
-                    <button
+          <button
             type="button"
-            onClick={() => {
-              onSave({
-                ...form,
-                age: Number(form.age) || 0,
-                assignedElders: Number(form.assignedElders) || 0,
-                nurseStatus: form.status,
-              });
-            }}
+            onClick={handleSave}
             className="relative z-[9999] flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm text-white hover:opacity-90"
             style={{ backgroundColor: "#2563eb" }}
           >
@@ -2221,7 +2276,7 @@ function EditPhotoField({
   value: string;
   onChange: (v: string) => void;
 }) {
-  const preview = value.trim() || "https://i.pravatar.cc/80?u=elderly-edit";
+  const preview = value.trim();
   const handleUpload = (file?: File) => {
     if (!file) return;
     if (!file.type.startsWith("image/")) return;
@@ -2237,15 +2292,22 @@ function EditPhotoField({
     <div className="flex flex-col items-center gap-3 py-2">
       <label className="text-xs block" style={{ color: "#6b7a99" }}>Profile Photo</label>
       <div className="relative">
-        <img
-          src={preview}
-          alt=""
-          className="h-24 w-24 rounded-full border-4 object-cover shadow-sm"
-          style={{ borderColor: "#fff", boxShadow: "0 8px 24px rgba(15,23,42,0.12)" }}
-          onError={(event) => {
-            event.currentTarget.src = "https://i.pravatar.cc/80?u=elderly-edit";
-          }}
-        />
+        {preview ? (
+          <img
+            src={preview}
+            alt=""
+            className="h-24 w-24 rounded-full border-4 object-cover shadow-sm"
+            style={{ borderColor: "#fff", boxShadow: "0 8px 24px rgba(15,23,42,0.12)" }}
+            onError={() => onChange("")}
+          />
+        ) : (
+          <div
+            className="flex h-24 w-24 items-center justify-center rounded-full border-4 bg-blue-50 text-blue-600 shadow-sm"
+            style={{ borderColor: "#fff", boxShadow: "0 8px 24px rgba(15,23,42,0.12)" }}
+          >
+            <User size={32} />
+          </div>
+        )}
         <label
           className="absolute bottom-0 right-0 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-2 bg-white shadow-md transition-colors hover:bg-blue-50"
           style={{ borderColor: "#fff", color: "#2563eb" }}

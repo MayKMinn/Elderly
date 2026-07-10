@@ -106,6 +106,10 @@ export function deleteNurseProfile(id: string) {
   });
 }
 
+export function getNurseElderlyAssignments(nurseId: string) {
+  return request<{ assignments: NurseElderlyAssignment[] }>(`/api/nurses/${nurseId}/elderly-assignments`);
+}
+
 export function updateNurseElderlyAssignments(nurseId: string, elderlyIds: string[]) {
   return request<{ assignments: NurseElderlyAssignment[] }>(`/api/nurses/${nurseId}/elderly-assignments`, {
     method: "PUT",

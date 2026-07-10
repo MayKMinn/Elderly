@@ -84,6 +84,10 @@ export function signInNurse(login: string, password: string) {
     username: string;
     name: string;
     email: string;
+    licenseNumber: string;
+    workArea: string;
+    position: string;
+    avatar: string;
     status: string;
   }>("/api/auth/nurse-login", {
     method: "POST",

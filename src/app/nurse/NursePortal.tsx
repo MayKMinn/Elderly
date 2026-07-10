@@ -7,12 +7,18 @@ import {
 } from "lucide-react";
 import { getMedicationAssignments, updateMedicationAssignmentStatus } from "../api/medications";
 import type { MedicationAssignment } from "../api/medications";
+import { getNurseElderlyAssignments, getProfiles } from "../api/profiles";
+import type { ScheduleAssignment } from "../api/schedules";
+import { MySchedules } from "./MySchedules";
+import { AssignedResidentsSidebar, ResidentDetailsPanel, type Resident, type Status } from "./Residents";
+
 
 // ── Auth types & store ─────────────────────────────────────────────────────
 
 interface NurseAccount {
   id: string;
   fullName: string;
+  username: string;
   email: string;
   licenseNo: string;
   password: string;
@@ -20,19 +26,11 @@ interface NurseAccount {
 }
 
 const SEED_NURSES: NurseAccount[] = [
-  { id: "1", fullName: "Patricia Chen", email: "patricia@elderease.com", licenseNo: "RN-4821", password: "nurse123", joinedAt: "2024-01-10" },
-  { id: "2", fullName: "Thomas Wright", email: "thomas@elderease.com",  licenseNo: "RN-3307", password: "nurse123", joinedAt: "2024-03-05" },
+  { id: "1", fullName: "Patricia Chen", username: "patricia", email: "patricia@elderease.com", licenseNo: "RN-4821", password: "nurse123", joinedAt: "2024-01-10" },
+  { id: "2", fullName: "Thomas Wright", username: "thomas", email: "thomas@elderease.com",  licenseNo: "RN-3307", password: "nurse123", joinedAt: "2024-03-05" },
 ];
 
 // ── Types ──────────────────────────────────────────────────────────────────
-
-type Status = "stable" | "attention" | "critical";
-
-interface Resident {
-  id: number; name: string; age: number; room: string; photo: string;
-  conditions: string[]; allergies: string[]; bloodType: string; status: Status;
-  emergencyContact: { name: string; relation: string; phone: string };
-}
 
 interface CheckEntry {
   residentId: number;
@@ -53,36 +51,12 @@ interface CheckEntry {
 // nurse name injected at runtime
 let NURSE_NAME = "Nurse";
 
-const RESIDENTS: Resident[] = [
-  {
-    id: 1, name: "Margaret Holloway", age: 82, room: "A-104",
-    photo: "https://images.unsplash.com/photo-1566616213894-2d4e1baee5d8?w=120&h=120&fit=crop&auto=format",
-    conditions: ["Type 2 Diabetes", "Hypertension", "Mild Dementia"],
-    allergies: ["Penicillin", "Sulfa drugs"], bloodType: "A+", status: "stable",
-    emergencyContact: { name: "Robert Holloway", relation: "Son", phone: "+1 (555) 210-4832" },
-  },
-  {
-    id: 2, name: "Eleanor Vasquez", age: 89, room: "A-102",
-    photo: "https://images.unsplash.com/photo-1601233749202-95d04d5b3c00?w=120&h=120&fit=crop&auto=format",
-    conditions: ["Congestive Heart Failure", "Arthritis"],
-    allergies: ["Latex", "Ibuprofen"], bloodType: "B+", status: "critical",
-    emergencyContact: { name: "Carmen Vasquez", relation: "Daughter", phone: "+1 (555) 671-0045" },
-  },
-  {
-    id: 3, name: "Dorothy Kim", age: 78, room: "B-210",
-    photo: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&h=120&fit=crop&auto=format",
-    conditions: ["Alzheimer's Disease", "Hypothyroidism"],
-    allergies: ["Codeine"], bloodType: "O+", status: "attention",
-    emergencyContact: { name: "Steven Kim", relation: "Son", phone: "+1 (555) 802-3345" },
-  },
-];
-
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const TODAY = "Mon";
 
-function makeChecks(): CheckEntry[] {
+function makeChecks(residents: Resident[]): CheckEntry[] {
   const entries: CheckEntry[] = [];
-  RESIDENTS.forEach((r) => {
+  residents.forEach((r) => {
     (["bp", "medication", "glucose"] as const).forEach((type) => {
       (["morning", "evening"] as const).forEach((slot) => {
         entries.push({ residentId: r.id, type, slot, done: false, time: null });
@@ -127,9 +101,77 @@ function initials(name: string) {
   return name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase();
 }
 
+function splitList(value: string | undefined) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function residentStatus(profile: { status?: string; medicalCondition?: string }): Status {
+  if (profile.status === "Inactive") return "critical";
+
+  const condition = String(profile.medicalCondition || "").toLowerCase();
+  if (condition.includes("critical") || condition.includes("heart") || condition.includes("stroke")) {
+    return "critical";
+  }
+  if (condition.includes("dementia") || condition.includes("alzheimer") || condition.includes("diabetes")) {
+    return "attention";
+  }
+
+  return "stable";
+}
+
+function profileToResident(profile: {
+  id: string | number;
+  name: string;
+  age?: number;
+  avatar?: string;
+  medicalCondition?: string;
+  allergies?: string;
+  bloodType?: string;
+  status?: string;
+  emergencyContact?: string;
+  relationship?: string;
+  emergencyPhone?: string;
+}): Resident {
+  return {
+    id: Number(profile.id),
+    name: profile.name,
+    age: Number(profile.age) || 0,
+    room: `ELD-${String(profile.id).padStart(4, "0")}`,
+    photo: profile.avatar || `https://i.pravatar.cc/120?u=elderly-${profile.id}`,
+    conditions: splitList(profile.medicalCondition),
+    allergies: splitList(profile.allergies),
+    bloodType: profile.bloodType || "N/A",
+    status: residentStatus(profile),
+    emergencyContact: {
+      name: profile.emergencyContact || "Emergency contact",
+      relation: profile.relationship || "Contact",
+      phone: profile.emergencyPhone || "",
+    },
+  };
+}
+
 function now() {
   const d = new Date();
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+function formatLongDate(d: Date) {
+  try {
+    const day = d.toLocaleDateString(undefined, { weekday: 'short' });
+    const month = d.toLocaleDateString(undefined, { month: 'long' });
+    const date = d.getDate();
+    const year = d.getFullYear();
+    return `${day}, ${month} ${date}, ${year}`;
+  } catch {
+    const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const months = [
+      'January','February','March','April','May','June','July','August','September','October','November','December'
+    ];
+    return `${days[d.getDay()]}, ${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+  }
 }
 
 // ── Fill Form Modal ────────────────────────────────────────────────────────
@@ -378,13 +420,54 @@ function CheckCard({ entry, resident, onFill }: {
 
 // ── Pages ──────────────────────────────────────────────────────────────────
 
-function SchedulePage({ checks, setChecks }: { checks: CheckEntry[]; setChecks: React.Dispatch<React.SetStateAction<CheckEntry[]>> }) {
-  const [selectedResidentId, setSelectedResidentId] = useState(RESIDENTS[0].id);
+function SchedulePage({ residents, checks, setChecks, isLoading, error }: {
+  residents: Resident[];
+  checks: CheckEntry[];
+  setChecks: React.Dispatch<React.SetStateAction<CheckEntry[]>>;
+  isLoading: boolean;
+  error: string;
+}) {
+  const [selectedResidentId, setSelectedResidentId] = useState<number | null>(residents[0]?.id ?? null);
   const [activeDay, setActiveDay] = useState(TODAY);
   const [activeSlot, setActiveSlot] = useState<"morning" | "evening">("morning");
   const [filling, setFilling] = useState<{ entry: CheckEntry; idx: number } | null>(null);
 
-  const selectedResident = RESIDENTS.find((resident) => resident.id === selectedResidentId) ?? RESIDENTS[0];
+  useEffect(() => {
+    if (residents.length === 0) {
+      setSelectedResidentId(null);
+      return;
+    }
+
+    setSelectedResidentId((current) => (
+      current && residents.some((resident) => resident.id === current) ? current : residents[0].id
+    ));
+  }, [residents]);
+
+  const selectedResident = residents.find((resident) => resident.id === selectedResidentId) ?? residents[0];
+
+  if (isLoading) {
+    return (
+      <div className="bg-card border border-border rounded-2xl px-5 py-10 text-center text-sm text-muted-foreground">
+        Loading assigned residents...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-2xl px-5 py-5 text-sm text-red-700">
+        {error}
+      </div>
+    );
+  }
+
+  if (!selectedResident) {
+    return (
+      <div className="bg-card border border-border rounded-2xl px-5 py-10 text-center text-sm text-muted-foreground">
+        No elderly residents are assigned to you yet.
+      </div>
+    );
+  }
 
   const selectedSlotChecks = checks
     .map((entry, idx) => ({ entry, idx }))
@@ -411,7 +494,7 @@ function SchedulePage({ checks, setChecks }: { checks: CheckEntry[]; setChecks: 
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {RESIDENTS.map((resident) => {
+          {residents.map((resident) => {
             const active = selectedResidentId === resident.id;
             const residentDone = doneForResident(resident.id);
 
@@ -552,7 +635,7 @@ function SchedulePage({ checks, setChecks }: { checks: CheckEntry[]; setChecks: 
       {filling && (
         <FillForm
           entry={filling.entry}
-          resident={RESIDENTS.find((resident) => resident.id === filling.entry.residentId)!}
+          resident={residents.find((resident) => resident.id === filling.entry.residentId)!}
           onSave={(updates) => saveEntry(filling.idx, updates)}
           onClose={() => setFilling(null)}
         />
@@ -561,7 +644,7 @@ function SchedulePage({ checks, setChecks }: { checks: CheckEntry[]; setChecks: 
   );
 }
 
-function WeeklyReportPage({ checks }: { checks: CheckEntry[] }) {
+function WeeklyReportPage({ residents, checks }: { residents: Resident[]; checks: CheckEntry[] }) {
   const totalPerDay = checks.length || 1;
   const todayDone = checks.filter((entry) => entry.done).length;
 
@@ -605,7 +688,7 @@ function WeeklyReportPage({ checks }: { checks: CheckEntry[] }) {
           <p className="text-xs text-muted-foreground">Checks Done</p>
         </div>
         <div className="bg-card border border-border rounded-xl p-4">
-          <p className="text-2xl font-bold text-foreground">{RESIDENTS.length}</p>
+          <p className="text-2xl font-bold text-foreground">{residents.length}</p>
           <p className="text-xs text-muted-foreground">Residents</p>
         </div>
         <div className="bg-card border border-border rounded-xl p-4">
@@ -650,7 +733,7 @@ function WeeklyReportPage({ checks }: { checks: CheckEntry[] }) {
         </div>
 
         <div className="divide-y divide-border">
-          {RESIDENTS.map((resident) => {
+          {residents.map((resident) => {
             const residentChecks = checks.filter((entry) => entry.residentId === resident.id);
             const done = residentChecks.filter((entry) => entry.done).length;
 
@@ -687,100 +770,6 @@ function WeeklyReportPage({ checks }: { checks: CheckEntry[] }) {
   );
 }
 
-function ResidentsPage() {
-  const [selected, setSelected] = useState<Resident | null>(null);
-
-  if (selected) {
-    return (
-      <div className="flex flex-col gap-5">
-        <button onClick={() => setSelected(null)} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground w-fit">
-          <ChevronLeft size={14} /> Back to residents
-        </button>
-        <div className="bg-card border border-border rounded-2xl p-5">
-          <div className="flex gap-4 items-start">
-            <div className="w-20 h-20 rounded-full overflow-hidden bg-muted flex-shrink-0">
-              <img src={selected.photo} alt={selected.name} className="w-full h-full object-cover" />
-            </div>
-            <div className="flex-1">
-              <div className="flex items-center gap-3 mb-1">
-                <h3 className="text-xl font-semibold text-foreground" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>{selected.name}</h3>
-                <span className={`text-xs px-2.5 py-0.5 rounded-full font-semibold capitalize ${statusColor[selected.status]}`}>{selected.status}</span>
-              </div>
-              <p className="text-sm text-muted-foreground mb-3">Age {selected.age} · Room {selected.room} · {selected.bloodType}</p>
-              <div className="flex flex-wrap gap-1.5">
-                {selected.conditions.map((c) => (
-                  <span key={c} className="text-xs bg-red-50 text-red-700 border border-red-200 px-2.5 py-0.5 rounded-full">{c}</span>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-        {selected.allergies.length > 0 && (
-          <div className="flex items-center gap-2.5 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
-            <AlertCircle size={15} className="text-amber-600 flex-shrink-0" />
-            <div>
-              <p className="text-sm font-semibold text-amber-800">Known Allergies</p>
-              <p className="text-sm text-amber-700">{selected.allergies.join(", ")}</p>
-            </div>
-          </div>
-        )}
-        <div className="bg-card border border-border rounded-xl p-5">
-          <h4 className="font-semibold text-foreground mb-3" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>Emergency Contact</h4>
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold text-sm flex-shrink-0">
-              {initials(selected.emergencyContact.name)}
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-foreground">{selected.emergencyContact.name}</p>
-              <p className="text-xs text-muted-foreground">{selected.emergencyContact.relation}</p>
-            </div>
-          </div>
-          <a href={`tel:${selected.emergencyContact.phone}`} className="flex items-center gap-2 text-sm text-primary hover:underline mt-3">
-            <Phone size={13} />{selected.emergencyContact.phone}
-          </a>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-4">
-      <p className="text-sm text-muted-foreground">{RESIDENTS.length} residents assigned to you</p>
-      <div className="space-y-3">
-        {RESIDENTS.map((r) => (
-          <button key={r.id} onClick={() => setSelected(r)}
-            className="w-full bg-card border border-border rounded-2xl p-4 text-left hover:shadow-md hover:border-primary/20 transition-all group">
-            <div className="flex items-center gap-4">
-              <div className="relative flex-shrink-0">
-                <div className="w-14 h-14 rounded-full overflow-hidden bg-muted">
-                  <img src={r.photo} alt={r.name} className="w-full h-full object-cover" />
-                </div>
-                <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-card ${statusDot[r.status]}`} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <p className="font-semibold text-foreground" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>{r.name}</p>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${statusColor[r.status]}`}>{r.status}</span>
-                </div>
-                <p className="text-sm text-muted-foreground">Age {r.age} · Room {r.room} · {r.bloodType}</p>
-                <div className="flex flex-wrap gap-1 mt-1.5">
-                  {r.conditions.map((c) => <span key={c} className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">{c}</span>)}
-                </div>
-              </div>
-              <ChevronRight size={15} className="text-muted-foreground group-hover:text-primary transition-colors flex-shrink-0" />
-            </div>
-            {r.allergies.length > 0 && (
-              <div className="mt-3 flex items-center gap-1.5 text-xs text-amber-600 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-lg">
-                <AlertCircle size={10} /> Allergies: {r.allergies.join(", ")}
-              </div>
-            )}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 // ── Auth Screen ────────────────────────────────────────────────────────────
 
 function AuthScreen({ onAuth }: { onAuth: (name: string) => void }) {
@@ -789,7 +778,7 @@ function AuthScreen({ onAuth }: { onAuth: (name: string) => void }) {
   const [error, setError] = useState("");
 
   // Login form
-  const [loginEmail, setLoginEmail] = useState("");
+  const [login, setLogin] = useState("");
   const [loginPw, setLoginPw] = useState("");
 
   const inputCls = "w-full px-4 py-3 text-sm bg-input-background border border-border rounded-xl outline-none focus:ring-2 focus:ring-primary/40 transition-all placeholder:text-muted-foreground";
@@ -797,8 +786,12 @@ function AuthScreen({ onAuth }: { onAuth: (name: string) => void }) {
   function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    const nurse = nurses.find((n) => n.email.toLowerCase() === loginEmail.toLowerCase() && n.password === loginPw);
-    if (!nurse) { setError("Incorrect email or password."); return; }
+    const loginValue = login.trim().toLowerCase();
+    const nurse = nurses.find((n) => (
+      (n.email.toLowerCase() === loginValue || n.username.toLowerCase() === loginValue) &&
+      n.password === loginPw
+    ));
+    if (!nurse) { setError("Incorrect username/email or password."); return; }
     NURSE_NAME = nurse.fullName;
     onAuth(nurse.fullName);
   }
@@ -836,8 +829,8 @@ function AuthScreen({ onAuth }: { onAuth: (name: string) => void }) {
             )}
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
-                <label className="block text-sm font-semibold text-foreground mb-1.5">Email Address</label>
-                <input type="email" className={inputCls} placeholder="you@elderease.com" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} required />
+                <label className="block text-sm font-semibold text-foreground mb-1.5">Username or Email</label>
+                <input type="text" className={inputCls} placeholder="username or email" value={login} onChange={(e) => setLogin(e.target.value)} required />
               </div>
               <div>
                 <label className="block text-sm font-semibold text-foreground mb-1.5">Password</label>
@@ -851,9 +844,6 @@ function AuthScreen({ onAuth }: { onAuth: (name: string) => void }) {
               <button type="submit" className="w-full bg-primary text-primary-foreground py-3 rounded-xl font-semibold hover:opacity-90 transition-opacity flex items-center justify-center gap-2 mt-2">
                 <LogIn size={16} /> Sign In
               </button>
-              <p className="text-xs text-center text-muted-foreground pt-1">
-                Demo: <span className="font-mono text-foreground">patricia@elderease.com</span> / <span className="font-mono text-foreground">nurse123</span>
-              </p>
             </form>
           </div>
         </div>
@@ -872,6 +862,7 @@ type Page = "overview" | "schedule" | "residents" | "weeklyReport";
 
 interface NursePortalProps {
   nurseName?: string;
+  nurseId?: string;
   nurseProfile?: {
     id?: number;
     name?: string;
@@ -885,14 +876,22 @@ interface NursePortalProps {
   onSignOut?: () => void;
 }
 
-export function NursePortal({ nurseName = "Nurse", nurseProfile, onSignOut }: NursePortalProps) {
+export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSignOut }: NursePortalProps) {
   const [page, setPage] = useState<Page>("schedule");
   const [collapsed, setCollapsed] = useState(false);
-  const [checks, setChecks] = useState<CheckEntry[]>(makeChecks);
+  const [residents, setResidents] = useState<Resident[]>([]);
+  const [residentsLoading, setResidentsLoading] = useState(false);
+  const [residentsError, setResidentsError] = useState("");
+  const [checks, setChecks] = useState<CheckEntry[]>([]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [medicationAssignments, setMedicationAssignments] = useState<MedicationAssignment[]>([]);
+  const [scheduleAssignments, setScheduleAssignments] = useState<ScheduleAssignment[]>([]);
+  const [selectedResidentId, setSelectedResidentId] = useState<number | null>(null);
+  const [selectedScheduleId, setSelectedScheduleId] = useState<number | null>(null);
+  const [hiddenScheduleNotificationIds, setHiddenScheduleNotificationIds] = useState<number[]>([]);
   const [notificationMessage, setNotificationMessage] = useState("");
   const [profileOpen, setProfileOpen] = useState(false);
+  const currentNurseId = nurseId || (nurseProfile?.id ? String(nurseProfile.id) : undefined);
 
   const displayName = nurseProfile?.name || nurseName || "Nurse";
   const displayUsername = nurseProfile?.username || "-";
@@ -901,43 +900,169 @@ export function NursePortal({ nurseName = "Nurse", nurseProfile, onSignOut }: Nu
   const displayWorkArea = nurseProfile?.workArea || "-";
   const displayPosition = nurseProfile?.position || "Registered Nurse";
   const displayAvatar = String(nurseProfile?.avatar || "").trim();
-  const currentDateLabel = new Date().toLocaleDateString("en-US", {
-    weekday: "short",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
-
   const totalChecks = checks.length;
   const doneChecks = checks.filter((c) => c.done).length;
   const morningPending = checks.filter((c) => c.slot === "morning" && !c.done).length;
   const eveningPending = checks.filter((c) => c.slot === "evening" && !c.done).length;
-  const criticalCount = RESIDENTS.filter((r) => r.status === "critical").length;
+  const criticalCount = residents.filter((r) => r.status === "critical").length;
   const medicationNotificationCount = medicationAssignments.filter((item) =>
     item.complianceStatus === "Pending" || item.complianceStatus === "Due Soon"
   ).length;
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const visibleScheduleNotifications = scheduleAssignments.filter((item) =>
+    item.scheduleStatus === "scheduled" && (!item.visitDate || item.visitDate >= todayKey) && !hiddenScheduleNotificationIds.includes(item.id)
+  );
+  const scheduleNotificationCount = visibleScheduleNotifications.length;
+  const notificationCount = medicationNotificationCount + scheduleNotificationCount;
 
   useEffect(() => {
     let ignore = false;
 
-    const loadMedicationAssignments = () => {
-      getMedicationAssignments(nurseName)
-        .then(({ medications }) => {
-          if (!ignore) setMedicationAssignments(medications);
-        })
-        .catch((error) => {
-          console.error("Failed to load medication notifications.", error);
-        });
+    const loadResidents = async () => {
+      if (!currentNurseId) {
+        setResidents([]);
+        setChecks([]);
+        return;
+      }
+
+      setResidentsLoading(true);
+      setResidentsError("");
+
+      try {
+        // Prefer the aggregated profiles endpoint which returns elderly + nurse assignments
+        let assignedResidents: Resident[] = [];
+        try {
+          const profilesResp = await getProfiles();
+          if (!ignore && (profilesResp as any)) {
+            const elderlyList: any[] = Array.isArray((profilesResp as any).elderly) ? (profilesResp as any).elderly : [];
+            const assignments: any[] = Array.isArray((profilesResp as any).nurseElderlyAssignments) ? (profilesResp as any).nurseElderlyAssignments : [];
+            const nurseIdNum = String(currentNurseId);
+            const matches = assignments.filter((a: any) => String(a.nurseId) === nurseIdNum).map((a: any) => String(a.elderlyId));
+
+            const matchedProfiles = elderlyList.filter((p: any) => matches.includes(String(p.id ?? p.elderly_id ?? p.elderlyId))).map((p: any) => profileToResident(p));
+            if (matchedProfiles.length > 0) {
+              assignedResidents = matchedProfiles;
+            }
+          }
+        } catch (errProfiles) {
+          console.warn("profiles endpoint failed, falling back to nurse-specific endpoint", errProfiles);
+        }
+
+        // If no assignments found yet, try the nurse-specific endpoint
+        if (assignedResidents.length === 0) {
+          const response = await getNurseElderlyAssignments(currentNurseId);
+          if (!ignore && Array.isArray(response.assignments) && response.assignments.length > 0) {
+            const elderlyIds = response.assignments.map((a: any) => String(a.elderlyId));
+            try {
+              const profilesResp2 = await getProfiles();
+              const elderlyList2: any[] = Array.isArray((profilesResp2 as any).elderly) ? (profilesResp2 as any).elderly : [];
+              const matchedProfiles2 = elderlyList2.filter((p: any) => elderlyIds.includes(String(p.id ?? p.elderly_id ?? p.elderlyId))).map((p: any) => profileToResident(p));
+              if (matchedProfiles2.length > 0) assignedResidents = matchedProfiles2;
+            } catch (joinErr) {
+              console.warn("Failed to join assignments to profiles", joinErr);
+            }
+
+            if (assignedResidents.length === 0) {
+              assignedResidents = response.assignments.map((a: any) => ({
+                id: Number(a.elderlyId),
+                name: `Elderly ${a.elderlyId}`,
+                age: 0,
+                room: `ELD-${String(a.elderlyId).padStart(4, "0")}`,
+                photo: `https://i.pravatar.cc/120?u=elderly-${a.elderlyId}`,
+                conditions: [],
+                allergies: [],
+                bloodType: "N/A",
+                status: "stable" as Status,
+                emergencyContact: { name: "Emergency contact", relation: "", phone: "" },
+              }));
+            }
+          }
+        }
+
+        // If direct endpoint returned nothing, try a broader profiles fetch as a fallback
+        if (assignedResidents.length === 0) {
+          try {
+            const profilesResp = await fetch(`/api/profiles`).then((r) => r.ok ? r.json() : Promise.reject(r));
+            if (!ignore && Array.isArray((profilesResp as any).nurseElderlyAssignments)) {
+              const nurseIdNum = Number(currentNurseId);
+              const matches = (profilesResp as any).nurseElderlyAssignments
+                .filter((a: any) => Number(a.nurseId) === nurseIdNum)
+                .map((a: any) => a.elderlyId);
+
+              const elderlyList = Array.isArray((profilesResp as any).elderly) ? (profilesResp as any).elderly : [];
+              const matchedProfiles = elderlyList.filter((e: any) => matches.includes(Number(e.elderly_id))).map((p: any) => profileToResident(p));
+              if (matchedProfiles.length > 0) {
+                setResidents(matchedProfiles);
+                setChecks(makeChecks(matchedProfiles));
+                return;
+              }
+            }
+          } catch (pfError) {
+            // ignore fallback error and continue to set empty list below
+            console.warn("profiles fallback failed", pfError);
+          }
+        }
+
+        setResidents(assignedResidents);
+        setChecks(makeChecks(assignedResidents));
+      } catch (error) {
+        if (!ignore) {
+          setResidents([]);
+          setChecks([]);
+          setResidentsError("Could not load your assigned elderly residents.");
+          console.error("Failed to load assigned residents.", error);
+        }
+      } finally {
+        if (!ignore) setResidentsLoading(false);
+      }
     };
 
-    loadMedicationAssignments();
-    const interval = window.setInterval(loadMedicationAssignments, 15000);
+    loadResidents();
+
+    return () => {
+      ignore = true;
+    };
+  }, [currentNurseId]);
+
+  useEffect(() => {
+    let ignore = false;
+
+    const loadNotifications = async () => {
+      if (!currentNurseId) {
+        setMedicationAssignments([]);
+        setScheduleAssignments([]);
+        return;
+      }
+
+      try {
+        const [medicationResponse, scheduleResponse] = await Promise.all([
+          getMedicationAssignments(nurseName),
+          fetch(`/api/schedules?nurseId=${encodeURIComponent(currentNurseId)}`)
+            .then(async (response) => {
+              if (!response.ok) {
+                throw new Error(await response.text());
+              }
+              return response.json();
+            }),
+        ]);
+
+        if (!ignore) {
+          setMedicationAssignments(medicationResponse.medications);
+          setScheduleAssignments(scheduleResponse.schedules || []);
+        }
+      } catch (error) {
+        console.error("Failed to load nurse notifications.", error);
+      }
+    };
+
+    loadNotifications();
+    const interval = window.setInterval(loadNotifications, 15000);
 
     return () => {
       ignore = true;
       window.clearInterval(interval);
     };
-  }, [nurseName]);
+  }, [currentNurseId, nurseName]);
 
   async function reportMedicationStatus(id: number, complianceStatus: "Taken" | "Missed") {
     setNotificationMessage("");
@@ -1028,7 +1153,7 @@ export function NursePortal({ nurseName = "Nurse", nurseProfile, onSignOut }: Nu
         <div className="px-3 pb-4 border-t pt-3 space-y-2" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
           <button
             onClick={() => {
-              setChecks(makeChecks());
+              setChecks(makeChecks(residents));
               setPage("schedule");
               onSignOut?.();
             }}
@@ -1055,27 +1180,27 @@ export function NursePortal({ nurseName = "Nurse", nurseProfile, onSignOut }: Nu
           </h2>
           <div className="flex items-center gap-3">
             <div className="hidden md:flex items-center gap-1.5 text-xs text-muted-foreground bg-muted px-3 py-1.5 rounded-full">
-              <Clock size={11} /> {currentDateLabel}
+              <Clock size={11} /> {formatLongDate(new Date())}
             </div>
             <div className="relative">
               <button
                 onClick={() => setNotificationsOpen((open) => !open)}
                 className="relative p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted"
-                title="Medication notifications"
+                title="Notifications"
               >
                 <Bell size={15} />
-                {medicationNotificationCount > 0 && (
+                {notificationCount > 0 && (
                   <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] text-white">
-                    {medicationNotificationCount}
+                    {notificationCount}
                   </span>
                 )}
               </button>
 
               {notificationsOpen && (
-                <div className="absolute right-0 top-full z-50 mt-2 w-80 overflow-hidden rounded-xl border bg-white shadow-xl" style={{ borderColor: "rgba(0,0,0,0.08)" }}>
+                <div className="absolute right-0 top-full z-50 mt-2 w-88 overflow-hidden rounded-xl border bg-white shadow-xl" style={{ borderColor: "rgba(0,0,0,0.08)" }}>
                   <div className="border-b px-4 py-3" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
-                    <div className="text-sm" style={{ color: "#1a2b42", fontWeight: 700 }}>Medication notifications</div>
-                    <div className="text-xs" style={{ color: "#6b7a99" }}>Assignments from admin</div>
+                    <div className="text-sm" style={{ color: "#1a2b42", fontWeight: 700 }}>Notifications</div>
+                    <div className="text-xs" style={{ color: "#6b7a99" }}>Medication and schedule updates from admin</div>
                   </div>
                   {notificationMessage && (
                     <div className="mx-3 mt-3 rounded-lg px-3 py-2 text-xs" style={{
@@ -1085,49 +1210,88 @@ export function NursePortal({ nurseName = "Nurse", nurseProfile, onSignOut }: Nu
                       {notificationMessage}
                     </div>
                   )}
-                  <div className="max-h-80 overflow-y-auto p-2">
-                    {medicationAssignments.length === 0 ? (
+                  <div className="max-h-96 overflow-y-auto p-2">
+                    {medicationAssignments.length === 0 && scheduleAssignments.length === 0 ? (
                       <div className="px-3 py-6 text-center text-xs" style={{ color: "#6b7a99" }}>
-                        No medication assignments for {nurseName}.
+                        No notifications for {nurseName}.
                       </div>
                     ) : (
-                      medicationAssignments.map((item) => (
-                        <div key={item.id} className="rounded-lg border p-3 mb-2" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
-                          <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <div className="text-xs" style={{ color: "#1a2b42", fontWeight: 700 }}>{item.medicationName}</div>
-                              <div className="text-xs" style={{ color: "#6b7a99" }}>{item.elderlyName} · {item.dosage}</div>
-                              <div className="text-xs" style={{ color: "#6b7a99" }}>{item.scheduledDate} at {item.scheduledTime}</div>
-                            </div>
-                            <span className="rounded-full px-2 py-0.5 text-[10px]" style={{
-                              backgroundColor: item.complianceStatus === "Taken" ? "#dcfce7" : item.complianceStatus === "Missed" ? "#fee2e2" : "#fef3c7",
-                              color: item.complianceStatus === "Taken" ? "#15803d" : item.complianceStatus === "Missed" ? "#dc2626" : "#d97706",
-                              fontWeight: 700,
-                            }}>
-                              {item.complianceStatus}
-                            </span>
+                      <>
+                                        {visibleScheduleNotifications.length > 0 && (
+                          <div className="mb-3">
+                            <div className="px-2 pb-2 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "#6b7a99" }}>Schedules</div>
+                            {visibleScheduleNotifications.map((item) => (
+                              <button
+                                key={item.id}
+                                type="button"
+                                onClick={() => {
+                                  setHiddenScheduleNotificationIds((prev) => [...prev, item.id]);
+                                  setNotificationsOpen(false);
+                                  setPage("schedule");
+                                  setSelectedScheduleId(item.id);
+                                }}
+                                className="w-full rounded-lg border p-3 mb-2 text-left hover:bg-slate-50"
+                                style={{ borderColor: "rgba(0,0,0,0.07)" }}
+                              >
+                                <div className="flex items-start justify-between gap-2">
+                                  <div>
+                                    <div className="text-xs" style={{ color: "#1a2b42", fontWeight: 700 }}>{item.purpose}</div>
+                                    <div className="text-xs" style={{ color: "#6b7a99" }}>{item.elderlyName}</div>
+                                    <div className="text-xs" style={{ color: "#6b7a99" }}>{item.visitDate} at {item.visitTime}</div>
+                                  </div>
+                                  <span className="rounded-full px-2 py-0.5 text-[10px]" style={{ backgroundColor: "#dbeafe", color: "#1d4ed8", fontWeight: 700 }}>
+                                    Open
+                                  </span>
+                                </div>
+                                <div className="mt-2 text-[11px]" style={{ color: "#6b7a99" }}>Click to open the form and clear this notification.</div>
+                              </button>
+                            ))}
                           </div>
-                          <div className="mt-2 text-xs" style={{ color: "#1a2b42" }}>{item.instructions}</div>
-                          {(item.complianceStatus === "Pending" || item.complianceStatus === "Due Soon") && (
-                            <div className="mt-3 grid grid-cols-2 gap-2">
-                              <button
-                                onClick={() => reportMedicationStatus(item.id, "Taken")}
-                                className="rounded-lg border px-2 py-1.5 text-xs font-semibold hover:bg-emerald-50"
-                                style={{ borderColor: "#bbf7d0", color: "#15803d" }}
-                              >
-                                Given
-                              </button>
-                              <button
-                                onClick={() => reportMedicationStatus(item.id, "Missed")}
-                                className="rounded-lg border px-2 py-1.5 text-xs font-semibold hover:bg-red-50"
-                                style={{ borderColor: "#fecaca", color: "#dc2626" }}
-                              >
-                                Missed
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      ))
+                        )}
+
+                        {medicationAssignments.length > 0 && (
+                          <div>
+                            <div className="px-2 pb-2 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "#6b7a99" }}>Medications</div>
+                            {medicationAssignments.map((item) => (
+                              <div key={item.id} className="rounded-lg border p-3 mb-2" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
+                                <div className="flex items-start justify-between gap-2">
+                                  <div>
+                                    <div className="text-xs" style={{ color: "#1a2b42", fontWeight: 700 }}>{item.medicationName}</div>
+                                    <div className="text-xs" style={{ color: "#6b7a99" }}>{item.elderlyName} · {item.dosage}</div>
+                                    <div className="text-xs" style={{ color: "#6b7a99" }}>{item.scheduledDate} at {item.scheduledTime}</div>
+                                  </div>
+                                  <span className="rounded-full px-2 py-0.5 text-[10px]" style={{
+                                    backgroundColor: item.complianceStatus === "Taken" ? "#dcfce7" : item.complianceStatus === "Missed" ? "#fee2e2" : "#fef3c7",
+                                    color: item.complianceStatus === "Taken" ? "#15803d" : item.complianceStatus === "Missed" ? "#dc2626" : "#d97706",
+                                    fontWeight: 700,
+                                  }}>
+                                    {item.complianceStatus}
+                                  </span>
+                                </div>
+                                <div className="mt-2 text-xs" style={{ color: "#1a2b42" }}>{item.instructions}</div>
+                                {(item.complianceStatus === "Pending" || item.complianceStatus === "Due Soon") && (
+                                  <div className="mt-3 grid grid-cols-2 gap-2">
+                                    <button
+                                      onClick={() => reportMedicationStatus(item.id, "Taken")}
+                                      className="rounded-lg border px-2 py-1.5 text-xs font-semibold hover:bg-emerald-50"
+                                      style={{ borderColor: "#bbf7d0", color: "#15803d" }}
+                                    >
+                                      Given
+                                    </button>
+                                    <button
+                                      onClick={() => reportMedicationStatus(item.id, "Missed")}
+                                      className="rounded-lg border px-2 py-1.5 text-xs font-semibold hover:bg-red-50"
+                                      style={{ borderColor: "#fecaca", color: "#dc2626" }}
+                                    >
+                                      Missed
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
@@ -1196,7 +1360,7 @@ export function NursePortal({ nurseName = "Nurse", nurseProfile, onSignOut }: Nu
                       type="button"
                       onClick={() => {
                         setProfileOpen(false);
-                        setChecks(makeChecks());
+                        setChecks(makeChecks(residents));
                         setPage("schedule");
                         onSignOut?.();
                       }}
@@ -1220,14 +1384,14 @@ export function NursePortal({ nurseName = "Nurse", nurseProfile, onSignOut }: Nu
                 <p className="text-sm text-muted-foreground">Good morning,</p>
                 <h3 className="text-2xl font-semibold text-foreground mt-0.5" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>{nurseName}</h3>
                 <p className="text-sm text-muted-foreground mt-1.5">
-                  You have <strong className="text-foreground">{totalChecks - doneChecks} checks</strong> remaining across <strong className="text-foreground">{RESIDENTS.length} residents</strong> today.
+                  You have <strong className="text-foreground">{totalChecks - doneChecks} checks</strong> remaining across <strong className="text-foreground">{residents.length} residents</strong> today.
                 </p>
               </div>
 
               {/* KPI cards */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {[
-                  { label: "Residents", value: RESIDENTS.length, icon: Users, color: "bg-primary/10 text-primary" },
+                  { label: "Residents", value: residents.length, icon: Users, color: "bg-primary/10 text-primary" },
                   { label: "Done Today", value: `${doneChecks}/${totalChecks}`, icon: CheckCircle, color: "bg-emerald-100 text-emerald-600" },
                   { label: "Morning Left", value: morningPending, icon: Activity, color: "bg-amber-100 text-amber-600" },
                   { label: "Evening Left", value: eveningPending, icon: Pill, color: "bg-violet-100 text-violet-600" },
@@ -1241,7 +1405,7 @@ export function NursePortal({ nurseName = "Nurse", nurseProfile, onSignOut }: Nu
               </div>
 
               {/* Critical alert */}
-              {RESIDENTS.filter((r) => r.status === "critical").map((r) => (
+              {residents.filter((r) => r.status === "critical").map((r) => (
                 <div key={r.id} className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
                   <AlertTriangle size={16} className="text-red-500 flex-shrink-0" />
                   <div>
@@ -1257,7 +1421,7 @@ export function NursePortal({ nurseName = "Nurse", nurseProfile, onSignOut }: Nu
                   <h4 className="font-semibold text-foreground" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>Today's Check Summary</h4>
                 </div>
                 <div className="divide-y divide-border">
-                  {RESIDENTS.map((r) => {
+                  {residents.map((r) => {
                     const rChecks = checks.filter((c) => c.residentId === r.id);
                     const rDone = rChecks.filter((c) => c.done).length;
                     return (
@@ -1291,9 +1455,24 @@ export function NursePortal({ nurseName = "Nurse", nurseProfile, onSignOut }: Nu
             </div>
           )}
 
-          {page === "schedule"  && <SchedulePage checks={checks} setChecks={setChecks} />}
-          {page === "residents" && <ResidentsPage />}
-          {page === "weeklyReport" && <WeeklyReportPage checks={checks} />}
+          {page === "schedule" && <MySchedules nurseName={nurseName} nurseId={currentNurseId} selectedScheduleId={selectedScheduleId} />}
+          {page === "residents" && (
+            <div className="flex flex-col gap-4 lg:flex-row">
+              <AssignedResidentsSidebar
+                residents={residents}
+                scheduleAssignments={scheduleAssignments}
+                selectedId={selectedResidentId}
+                onSelect={(id) => setSelectedResidentId(id)}
+              />
+              <div className="flex-1">
+                <ResidentDetailsPanel
+                  resident={residents.find((resident) => resident.id === selectedResidentId) ?? null}
+                  scheduleAssignments={scheduleAssignments}
+                />
+              </div>
+            </div>
+          )}
+          {page === "weeklyReport" && <WeeklyReportPage residents={residents} checks={checks} />}
         </div>
       </main>
     </div>

@@ -1,18 +1,22 @@
+import fs from "fs";
 import mysql from "mysql2/promise";
 import "dotenv/config";
 
 const defaultSocketPath = "/Applications/XAMPP/xamppfiles/var/mysql/mysql.sock";
-const useSocket = Boolean(process.env.DB_SOCKET);
+const configuredSocketPath = process.env.DB_SOCKET?.trim();
+const socketPath = configuredSocketPath || defaultSocketPath;
+const useSocket = Boolean(configuredSocketPath ? fs.existsSync(configuredSocketPath) : fs.existsSync(defaultSocketPath));
+const database = process.env.DB_NAME || "eldercare";
 
 const connectionConfig = useSocket
-  ? { socketPath: process.env.DB_SOCKET || defaultSocketPath }
+  ? { socketPath }
   : { host: process.env.DB_HOST || "127.0.0.1", port: Number(process.env.DB_PORT || 3306) };
 
 export const databaseConfig = {
   ...connectionConfig,
   user: process.env.DB_USER || "root",
   password: process.env.DB_PASSWORD || "",
-  database: process.env.DB_NAME || "eldercare",
+  database,
   waitForConnections: true,
   connectionLimit: Number(process.env.DB_CONNECTION_LIMIT || 10),
   namedPlaceholders: true,

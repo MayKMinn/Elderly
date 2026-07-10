@@ -15,6 +15,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer } from "recharts";
+export { Reports } from "./ReportsSummary";
 
 const reports = [
   { name: "Daily Visit Summary", caregiver: "Sarah Johnson", careAvatar: "https://i.pravatar.cc/32?img=49", elder: "Mary Wilson", elderAvatar: "https://i.pravatar.cc/32?img=47", start: "May 24, 2025\n09:00 AM", end: "May 24, 2025\n10:30 AM", compliance: 100, status: "Completed" },
@@ -38,7 +39,7 @@ const trendData = [
   { date: "May 21", v: 90 }, { date: "May 22", v: 95 }, { date: "May 23", v: 92 }, { date: "May 24", v: 100 },
 ];
 
-export function Reports() {
+function LegacyReports() {
   const [selectedReport, setSelectedReport] = useState(reports[0]);
 
   return (

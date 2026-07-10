@@ -13,6 +13,7 @@ program-id. validate-schedule.
        01 slot-lock-date    pic x(40).
        01 slot-lock-hour    pic x(2).
        01 recurrence-days   pic x(10).
+       01 has-assigned-elder pic x(1).
        01 hour-text         pic x(2).
        01 minute-text       pic x(2).
        01 hour-number       pic 99.
@@ -41,9 +42,11 @@ program-id. validate-schedule.
           accept slot-lock-date
           accept slot-lock-hour
           accept recurrence-days
+          accept has-assigned-elder
       
           perform validate-nurse-id
           perform validate-elderly-id
+          perform validate-assigned-elder
           perform validate-visit-date
           perform validate-visit-time
           perform validate-future-date-time
@@ -89,6 +92,16 @@ program-id. validate-schedule.
                       move "elderlyId" to error-field
                       move "Select a valid elderly profile." to error-message
                   end-if
+              end-if
+          end-if.
+
+       validate-assigned-elder.
+          if valid-flag = "Y"
+              if function trim(has-assigned-elder) not = "Y"
+                  move "N" to valid-flag
+                  move "elderlyId" to error-field
+                  move "There is no assigned elder. Please assign first."
+                   to error-message
               end-if
           end-if.
 
