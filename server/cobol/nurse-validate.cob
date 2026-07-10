@@ -248,6 +248,11 @@
            MOVE "N" TO LICENSE-BAD.
            MOVE FUNCTION LENGTH(FUNCTION TRIM(LICENSE-NUMBER-TEXT))
                TO LICENSE-LEN.
+
+           IF LICENSE-LEN NOT = 7
+               MOVE "Y" TO LICENSE-BAD
+           END-IF.
+
            PERFORM VARYING LICENSE-IDX FROM 1 BY 1
                UNTIL LICENSE-IDX > LICENSE-LEN
                IF LICENSE-NUMBER-TEXT(LICENSE-IDX:1) < "0"
@@ -255,6 +260,7 @@
                    MOVE "Y" TO LICENSE-BAD
                END-IF
            END-PERFORM.
+
            IF LICENSE-BAD = "Y"
                PERFORM ADD-LICENSE-FORMAT
            END-IF.
@@ -389,7 +395,7 @@
            PERFORM APPEND-ERROR.
 
        ADD-LICENSE-FORMAT.
-           MOVE '"licenseNumber":"License number must contain numbers only."'
+           MOVE '"licenseNumber":"License number must be 7 digits."'
                TO FIELD-ERROR.
            PERFORM APPEND-ERROR.
 
