@@ -1967,16 +1967,8 @@ function validateNurseEditProfile(profile: NurseProfile): ValidationErrors {
     errors.position = "Position is required.";
   }
 
-<<<<<<< Updated upstream
-  if (!String(profile.workArea || "").trim()) {
-    errors.workArea = "Work area is required.";
-  }
-
-  if (!String(profile.hireDate || "").trim()) {
-=======
   const hireDate = String(profile.hireDate || "").trim();
   if (!hireDate) {
->>>>>>> Stashed changes
     errors.hireDate = "Hire date is required.";
   }
 

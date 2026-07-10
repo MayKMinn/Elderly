@@ -406,11 +406,7 @@ async function ensureHealthLogScheduleColumn() {
   try {
     await pool.query("ALTER TABLE health_log ADD COLUMN schedule_id INT NULL");
   } catch (error) {
-<<<<<<< Updated upstream
-    if (error.code !== "ER_DUP_FIELDNAME" && error.code !== "ER_DUP_FIELDNAME") throw error;
-=======
     if (error.code !== "ER_DUP_KEYNAME" && error.code !== "ER_DUP_FIELDNAME") throw error;
->>>>>>> Stashed changes
   }
 }
 

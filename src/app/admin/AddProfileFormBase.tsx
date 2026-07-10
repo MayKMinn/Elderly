@@ -300,12 +300,8 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
 
     if (field === "licenseNumber") {
       if (!trimmedValue) return "License number is required.";
-<<<<<<< Updated upstream
-      if (!/^\d+$/.test(trimmedValue)) return "License number must contain numbers only.";
-=======
       if (!/^\d+$/.test(trimmedValue)) return "License number can contain numbers only.";
       if (trimmedValue.length !== 7) return "License number must be 7 digits.";
->>>>>>> Stashed changes
     }
 
     if (field === "username") {
@@ -500,11 +496,7 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
                     placeholder="Enter license number"
                     value={form.licenseNumber}
                     error={errors.licenseNumber}
-<<<<<<< Updated upstream
                     onChange={(value) => setField("licenseNumber", value.replace(/\D/g, ""))}
-=======
-                    onChange={(value) => setField("licenseNumber", value)}
->>>>>>> Stashed changes
                   />
                   <FormFieldSelect
                     label="Position *"
