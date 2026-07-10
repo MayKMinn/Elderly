@@ -240,6 +240,7 @@ function normalizeNurseProfile(profile: Partial<NurseProfile>): NurseProfile {
     address: String(profile.address ?? ""),
     position: String(profile.position ?? ""),
     hireDate: String(profile.hireDate ?? ""),
+    createdAt: String((profile as any).createdAt ?? (profile as any).created_at ?? ""),
     status,
     avatar: String(profile.avatar ?? ""),
     assignedElders: Number(profile.assignedElders) || 0,
@@ -816,17 +817,30 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
     ? countRegistrationsThisWeek(nurseList, (profile) => profile.hireDate)
     : 0;
 
+  const isThisMonth = (value?: string) => {
+    if (!value) return false;
+    const date = new Date(String(value).replace(" ", "T"));
+    if (Number.isNaN(date.getTime())) return false;
+
+    const now = new Date();
+    return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
+  };
+
+  const getNurseMonthDate = (n: NurseProfile) => n.createdAt || n.hireDate;
+  const nurseRegistrationsThisMonth = nurseList.filter((n) => isThisMonth(getNurseMonthDate(n))).length;
+  const activeNursesThisMonth = nurseList.filter((n) => n.status === "Active" && isThisMonth(getNurseMonthDate(n))).length;
+
   const elderlyStats = [
     { label: "Total Elders", value: elderlyList.length, sub: "+8 this month", icon: <Users size={18} />, iconBg: "#eff6ff", iconColor: "#3b82f6" },
-    { label: "Total Caregivers", value: nurseList.length, sub: "+2 this month", icon: <UserCheck size={18} />, iconBg: "#f0fdf4", iconColor: "#22c55e" },
+    { label: "Total Caregivers", value: nurseList.length, sub: `+${nurseRegistrationsThisMonth} this month`, icon: <UserCheck size={18} />, iconBg: "#f0fdf4", iconColor: "#22c55e" },
     { label: "Active Cases", value: elderlyList.filter((e) => e.status === "Active").length, sub: "+3 this week", icon: <Activity size={18} />, iconBg: "#fff7ed", iconColor: "#f97316" },
     { label: "New Registrations", value: newElderlyRegistrations, sub: "This week", icon: <UserPlus size={18} />, iconBg: "#fdf4ff", iconColor: "#a855f7" },
   ];
 
   const nurseStats = [
-    { label: "Total Nurses", value: nurseList.length, sub: "+2 this month", icon: <Users size={18} />, iconBg: "#eff6ff", iconColor: "#3b82f6" },
+    { label: "Total Nurses", value: nurseList.length, sub: `+${nurseRegistrationsThisMonth} this month`, icon: <Users size={18} />, iconBg: "#eff6ff", iconColor: "#3b82f6" },
     { label: "Total Elders", value: elderlyList.length, sub: "+8 this month", icon: <UserCheck size={18} />, iconBg: "#f0fdf4", iconColor: "#22c55e" },
-    { label: "Active Nurses", value: nurseList.filter((n) => n.status === "Active").length, sub: "+3 this month", icon: <Activity size={18} />, iconBg: "#fff7ed", iconColor: "#f97316" },
+    { label: "Active Nurses", value: nurseList.filter((n) => n.status === "Active").length, sub: `+${activeNursesThisMonth} this month`, icon: <Activity size={18} />, iconBg: "#fff7ed", iconColor: "#f97316" },
     { label: "New Registrations", value: newNurseRegistrations, sub: "This week", icon: <UserPlus size={18} />, iconBg: "#fdf4ff", iconColor: "#a855f7" },
   ];
 
@@ -1937,8 +1951,22 @@ function validateNurseEditProfile(profile: NurseProfile): ValidationErrors {
     errors.workArea = "Work area is required.";
   }
 
-  if (!String(profile.hireDate || "").trim()) {
+  const hireDate = String(profile.hireDate || "").trim();
+  if (!hireDate) {
     errors.hireDate = "Hire date is required.";
+  } else if (!/^\d{4}-\d{2}-\d{2}$/.test(hireDate)) {
+    errors.hireDate = "Date must use format YYYY-MM-DD.";
+  } else {
+    const [year, month, day] = hireDate.split("-").map(Number);
+    const parsedDate = new Date(`${hireDate}T00:00:00`);
+    if (
+      Number.isNaN(parsedDate.getTime()) ||
+      parsedDate.getFullYear() !== year ||
+      parsedDate.getMonth() + 1 !== month ||
+      parsedDate.getDate() !== day
+    ) {
+      errors.hireDate = "Date must use format YYYY-MM-DD.";
+    }
   }
 
   if (!String(profile.status || "").trim()) {

@@ -347,11 +347,21 @@ async function ensureNurseElderlyAssignmentsTable() {
   }
 }
 
+async function ensureNurseCreatedAtColumn() {
+  try {
+    await pool.query("ALTER TABLE nurse ADD COLUMN created_at DATETIME NULL");
+  } catch (error) {
+    if (!/Duplicate column name/i.test(error.message)) {
+      throw error;
+    }
+  }
+}
+
 async function ensureHealthLogScheduleColumn() {
   try {
     await pool.query("ALTER TABLE health_log ADD COLUMN schedule_id INT NULL");
   } catch (error) {
-    if (error.code !== "ER_DUP_FIELDNAME" && error.code !== "ER_DUP_FIELDNAME") throw error;
+    if (error.code !== "ER_DUP_KEYNAME" && error.code !== "ER_DUP_FIELDNAME") throw error;
   }
 }
 
@@ -2443,8 +2453,6 @@ app.get("/api/reports/elderly-summary", async (req, res) => {
       return;
     }
 
-    await ensureBloodPressureAndGlucoseTables();
-
     const [elderlyRows] = await pool.query(
       `SELECT ${elderlyColumns}
        FROM ${elderlyTable}
@@ -2609,6 +2617,7 @@ app.post("/api/nurses", async (req, res) => {
         address,
         avatar,
         hire_date,
+        created_at,
         nurse_status
       ) VALUES (
         :name,
@@ -2625,6 +2634,7 @@ app.post("/api/nurses", async (req, res) => {
         :address,
         :avatar,
         :hireDate,
+        CURRENT_TIMESTAMP,
         :nurseStatus
       )`,
       data
@@ -2805,6 +2815,7 @@ app.listen(port, async () => {
     await ensureElderlyAvatarColumn();
     await ensureAdminProfileColumns();
     await ensureNurseColumns();
+    await ensureNurseCreatedAtColumn();
     await ensureNurseElderlyAssignmentsTable();
     await ensureScheduleColumns();
     await ensureElderlyMedicationsTable();
