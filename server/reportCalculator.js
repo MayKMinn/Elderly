@@ -76,6 +76,10 @@ async function ensureCobolCalculator() {
     await runProcess(compiler, ["-x", "-free", "-o", cobolBinary, cobolSource]);
     return existsSync(cobolBinary);
   } catch (error) {
+    if (existsSync(cobolBinary)) {
+      console.warn("COBOL report calculator compile failed, using existing binary:", error.message);
+      return true;
+    }
     console.warn("COBOL report calculator is unavailable:", error.message);
     return false;
   }
