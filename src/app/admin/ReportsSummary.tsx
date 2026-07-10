@@ -405,6 +405,8 @@ export function Reports() {
       if (showPdfPreview) {
         setPdfPreviewUrl(buildProfessionalPdfDoc(reports[0]).output("datauristring"));
       }
+      setPendingElderlyIds([]);
+      setSelectedElderlyIds([]);
     } catch (error) {
       console.error("Failed to generate elderly report.", error);
       setMessage("Failed to generate report from MySQL.");
