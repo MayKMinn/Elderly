@@ -3,11 +3,13 @@ import {
   Activity,
   AlertTriangle,
   ArrowDown,
+  Check,
   Droplets,
   FileText,
   Pill,
-  RefreshCw,
+  Search,
   ShieldCheck,
+  X,
 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer } from "recharts";
 import { jsPDF } from "jspdf";
@@ -36,9 +38,7 @@ function conditionStyle(status: string) {
   return { bg: "#f1f5f9", color: "#64748b" };
 }
 
-function downloadCsv(summary: ElderlyReportSummary | null) {
-  if (!summary) return;
-
+function buildCsvRows(summary: ElderlyReportSummary) {
   const bpAverage = summary.bloodPressure.averageSystolic === null
     ? "N/A"
     : `${summary.bloodPressure.averageSystolic}/${summary.bloodPressure.averageDiastolic} mmHg`;
@@ -48,49 +48,55 @@ function downloadCsv(summary: ElderlyReportSummary | null) {
   const compliance = summary.medication.compliancePercent === null
     ? "N/A"
     : `${summary.medication.compliancePercent}%`;
+
+  return [
+    String(summary.elderly.id),
+    summary.elderly.name,
+    summary.range.startDate,
+    summary.range.endDate,
+    summary.elderly.age || "-",
+    summary.elderly.bloodType || "-",
+    summary.elderly.medicalCondition || "-",
+    bpAverage,
+    String(summary.bloodPressure.readings),
+    summary.bloodPressure.status,
+    glucoseAverage,
+    String(summary.bloodGlucose.readings),
+    summary.bloodGlucose.status,
+    String(summary.medication.total),
+    String(summary.medication.taken),
+    String(summary.medication.missed),
+    compliance,
+    summary.note || "-",
+  ];
+}
+
+function downloadCsv(summaryInput: ElderlyReportSummary | ElderlyReportSummary[] | null) {
+  const summaries = Array.isArray(summaryInput) ? summaryInput : summaryInput ? [summaryInput] : [];
+  if (summaries.length === 0) return;
+
   const rows = [
-    ["ElderEase Elderly Health Report"],
-    ["Generated At", new Date().toLocaleString()],
-    ["Report Period", `${displayDate(summary.range.startDate)} to ${displayDate(summary.range.endDate)}`],
-    [],
-    ["Patient Details"],
-    ["Name", "Profile ID", "Age", "Blood Type", "Medical Condition"],
-    [summary.elderly.name, summary.elderly.id, summary.elderly.age || "-", summary.elderly.bloodType || "-", summary.elderly.medicalCondition || "-"],
-    [],
-    ["Clinical Summary"],
-    ["Measure", "Average / Count", "Readings / Total", "Condition"],
-    ["Blood Pressure", bpAverage, String(summary.bloodPressure.readings), summary.bloodPressure.status],
-    ["Blood Glucose", glucoseAverage, String(summary.bloodGlucose.readings), summary.bloodGlucose.status],
-    ["Medication Taken", String(summary.medication.taken), `${summary.medication.total} scheduled`, "-"],
-    ["Medication Missed", String(summary.medication.missed), `${summary.medication.total} scheduled`, summary.medication.missed > 0 ? "Attention" : "Stable"],
-    ["Medication Compliance", compliance, `${summary.medication.taken} taken`, summary.medication.missed > 0 ? "Attention" : "Stable"],
-    [],
-    ["Generated Report Note"],
-    [summary.note || "-"],
-    [],
-    ["Vital Readings"],
-    ["Date", "Time", "Blood Pressure", "Blood Glucose"],
-    ...(summary.vitals.length
-      ? summary.vitals.map((vital) => [
-          displayDate(vital.recordedDate),
-          vital.recordedTime || "-",
-          vital.systolic == null ? "N/A" : `${vital.systolic}/${vital.diastolic} mmHg`,
-          vital.glucoseValue == null ? "N/A" : `${vital.glucoseValue} mg/dL`,
-        ])
-      : [["No vital readings recorded for this date range.", "", "", ""]]),
-    [],
-    ["Medication Review"],
-    ["Date", "Time", "Medication", "Dosage", "Status", "Nurse Notes"],
-    ...(summary.medications.length
-      ? summary.medications.map((item) => [
-          displayDate(item.scheduledDate),
-          item.scheduledTime || "-",
-          item.medicationName || "-",
-          item.dosage || "-",
-          item.complianceStatus || "-",
-          item.reportNotes || "-",
-        ])
-      : [["No medication records found for this date range.", "", "", "", "", ""]]),
+    [
+      "Elderly ID",
+      "Elderly Name",
+      "Start Date",
+      "End Date",
+      "Age",
+      "Blood Type",
+      "Medical Condition",
+      "Blood Pressure Average",
+      "Blood Pressure Readings",
+      "Blood Pressure Status",
+      "Blood Glucose Average",
+      "Blood Glucose Readings",
+      "Blood Glucose Status",
+      "Medication Total",
+      "Medication Taken",
+      "Medication Missed",
+      "Compliance",
+      "Report Note",
+    ],
+    ...summaries.map(buildCsvRows),
   ];
   const csv = rows
     .map((cells) => cells.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(","))
@@ -99,7 +105,10 @@ function downloadCsv(summary: ElderlyReportSummary | null) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `elderly-report-${summary.elderly.id}-${summary.range.startDate}-${summary.range.endDate}.csv`;
+  const first = summaries[0];
+  link.download = summaries.length === 1
+    ? `elderly-report-${first.elderly.id}-${first.range.startDate}-${first.range.endDate}.csv`
+    : `elderly-reports-${first.range.startDate}-${first.range.endDate}.csv`;
   link.click();
   URL.revokeObjectURL(url);
 }
@@ -306,16 +315,25 @@ function downloadProfessionalPdf(summary: ElderlyReportSummary | null) {
   buildProfessionalPdfDoc(summary).save(`elderly-report-${summary.elderly.id}-${summary.range.startDate}-${summary.range.endDate}.pdf`);
 }
 
+function downloadProfessionalPdfs(summaries: ElderlyReportSummary[]) {
+  summaries.forEach((summary) => {
+    buildProfessionalPdfDoc(summary).save(`elderly-report-${summary.elderly.id}-${summary.range.startDate}-${summary.range.endDate}.pdf`);
+  });
+}
+
 export function Reports() {
   const today = toDateKey(new Date());
   const start = new Date();
   start.setDate(start.getDate() - 7);
 
   const [elderlyProfiles, setElderlyProfiles] = useState<ElderlyProfile[]>([]);
-  const [elderlyId, setElderlyId] = useState("");
+  const [selectedElderlyIds, setSelectedElderlyIds] = useState<string[]>([]);
+  const [pendingElderlyIds, setPendingElderlyIds] = useState<string[]>([]);
+  const [elderlySearch, setElderlySearch] = useState("");
   const [startDate, setStartDate] = useState(toDateKey(start));
   const [endDate, setEndDate] = useState(today);
-  const [summary, setSummary] = useState<ElderlyReportSummary | null>(null);
+  const [summaries, setSummaries] = useState<ElderlyReportSummary[]>([]);
+  const [selectedSummaryId, setSelectedSummaryId] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState("");
@@ -328,7 +346,8 @@ export function Reports() {
         if (ignore) return;
         const activeElderly = response.elderly.filter((profile) => profile.status === "Active");
         setElderlyProfiles(activeElderly);
-        setElderlyId((current) => current || activeElderly[0]?.id || "");
+        setPendingElderlyIds((current) => current.length > 0 ? current : activeElderly[0]?.id ? [String(activeElderly[0].id)] : []);
+        setSelectedElderlyIds((current) => current.length > 0 ? current : activeElderly[0]?.id ? [String(activeElderly[0].id)] : []);
       })
       .catch((error) => {
         console.error("Failed to load elderly profiles.", error);
@@ -340,9 +359,37 @@ export function Reports() {
     };
   }, []);
 
-  async function generateReport(nextElderlyId = elderlyId, showPdfPreview = false) {
-    if (!nextElderlyId) {
-      setMessage("Select an elderly profile first.");
+  const togglePendingElderly = (elderlyId: string) => {
+    setPendingElderlyIds((current) => current.includes(elderlyId)
+      ? current.filter((id) => id !== elderlyId)
+      : [...current, elderlyId]);
+    setPdfPreviewUrl("");
+  };
+
+  const clearPendingElderly = () => {
+    setPendingElderlyIds([]);
+    setPdfPreviewUrl("");
+  };
+
+  const selectFilteredElderly = () => {
+    setPendingElderlyIds((current) => Array.from(new Set([
+      ...current,
+      ...filteredElderlyProfiles.map((profile) => String(profile.id)),
+    ])));
+    setPdfPreviewUrl("");
+  };
+
+  const confirmElderlySelection = () => {
+    const ids = Array.from(new Set(pendingElderlyIds));
+    setSelectedElderlyIds(ids);
+    generateReport(ids, true);
+  };
+
+  async function generateReport(nextElderlyIds = selectedElderlyIds, showPdfPreview = false) {
+    const ids = Array.from(new Set(nextElderlyIds.map(String).filter(Boolean)));
+
+    if (ids.length === 0) {
+      setMessage("Select at least one elderly profile first.");
       return;
     }
 
@@ -350,11 +397,16 @@ export function Reports() {
     setMessage("");
 
     try {
-      const report = await getElderlyReportSummary(nextElderlyId, startDate, endDate);
-      setSummary(report);
+      const reports = await Promise.all(ids.map((id) => getElderlyReportSummary(id, startDate, endDate)));
+      setSummaries(reports);
+      setSelectedSummaryId((current) => reports.some((report) => String(report.elderly.id) === current)
+        ? current
+        : String(reports[0]?.elderly.id || ""));
       if (showPdfPreview) {
-        setPdfPreviewUrl(buildProfessionalPdfDoc(report).output("datauristring"));
+        setPdfPreviewUrl(buildProfessionalPdfDoc(reports[0]).output("datauristring"));
       }
+      setPendingElderlyIds([]);
+      setSelectedElderlyIds([]);
     } catch (error) {
       console.error("Failed to generate elderly report.", error);
       setMessage("Failed to generate report from MySQL.");
@@ -364,11 +416,25 @@ export function Reports() {
     }
   }
 
-  useEffect(() => {
-    if (elderlyId) generateReport(elderlyId);
-  }, [elderlyId]);
-
-  const selectedElderly = elderlyProfiles.find((profile) => String(profile.id) === String(elderlyId));
+  const summary = summaries.find((report) => String(report.elderly.id) === selectedSummaryId) || summaries[0] || null;
+  const selectedElderly = elderlyProfiles.find((profile) => String(profile.id) === String(selectedSummaryId || selectedElderlyIds[0]));
+  const filteredElderlyProfiles = useMemo(() => {
+    const query = elderlySearch.trim().toLowerCase();
+    if (!query) return elderlyProfiles;
+    return elderlyProfiles.filter((profile) => (
+      String(profile.name || "").toLowerCase().includes(query) ||
+      String(profile.id || "").toLowerCase().includes(query) ||
+      String(profile.medicalCondition || "").toLowerCase().includes(query)
+    ));
+  }, [elderlyProfiles, elderlySearch]);
+  const pendingElderlyProfiles = useMemo(() => pendingElderlyIds
+    .map((id) => elderlyProfiles.find((profile) => String(profile.id) === id))
+    .filter((profile): profile is ElderlyProfile => Boolean(profile)), [elderlyProfiles, pendingElderlyIds]);
+  const medicationRows = useMemo(() => summaries.flatMap((report) => (
+    report.medications
+      .filter((item) => String(item.complianceStatus || "").trim().toLowerCase() !== "pending")
+      .map((item) => ({ report, item }))
+  )), [summaries]);
   const bpTrend = useMemo(() => {
     return (summary?.vitals || [])
       .filter((vital) => vital.systolic !== null && vital.systolic !== undefined)
@@ -389,34 +455,138 @@ export function Reports() {
           <span style={{ color: "#1a2b42", fontWeight: 500 }}>Elderly Health Summary</span>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => generateReport(elderlyId, true)} className="flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm text-white" style={{ backgroundColor: "#2563eb" }}>
-            <RefreshCw size={14} /> {loading ? "Generating..." : "Generate Report"}
+          <button onClick={() => downloadProfessionalPdfs(summaries)} disabled={summaries.length === 0} className="flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50" style={{ borderColor: "rgba(0,0,0,0.1)", color: "#6b7a99" }}>
+            <ArrowDown size={14} /> Download PDFs ({summaries.length})
           </button>
-          <button onClick={() => downloadProfessionalPdf(summary)} disabled={!summary} className="flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50" style={{ borderColor: "rgba(0,0,0,0.1)", color: "#6b7a99" }}>
-            <ArrowDown size={14} /> Download PDF
-          </button>
-          <button onClick={() => downloadCsv(summary)} className="flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "rgba(0,0,0,0.1)", color: "#6b7a99" }}>
+          <button onClick={() => downloadCsv(summaries)} disabled={summaries.length === 0} className="flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50" style={{ borderColor: "rgba(0,0,0,0.1)", color: "#6b7a99" }}>
             <ArrowDown size={14} /> Export CSV
           </button>
         </div>
       </div>
 
       <div className="mb-4 rounded-xl border bg-white p-4" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-          <label>
-            <div className="mb-1 text-xs" style={{ color: "#6b7a99" }}>Elderly</div>
-            <select value={elderlyId} onChange={(event) => setElderlyId(event.target.value)} className="w-full rounded-lg border px-3 py-2 text-sm outline-none" style={{ borderColor: "rgba(0,0,0,0.12)", color: "#1a2b42" }}>
-              {elderlyProfiles.map((profile) => (
-                <option key={profile.id} value={profile.id}>{profile.name} ({profile.id})</option>
-              ))}
-            </select>
-          </label>
-          <DateField label="Start Date" value={startDate} onChange={setStartDate} />
-          <DateField label="End Date" value={endDate} onChange={setEndDate} />
-          <div className="flex items-end">
-            <button onClick={() => generateReport(elderlyId, true)} className="w-full rounded-lg px-3 py-2 text-sm text-white" style={{ backgroundColor: "#2563eb" }}>
-              Apply Range
-            </button>
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.35fr_0.65fr]">
+          <div>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm" style={{ color: "#1a2b42", fontWeight: 700 }}>Report Elders</div>
+                <div className="text-xs" style={{ color: "#6b7a99" }}>{pendingElderlyIds.length} selected</div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={selectFilteredElderly}
+                  className="rounded-lg border px-3 py-1.5 text-xs"
+                  style={{ borderColor: "rgba(0,0,0,0.1)", color: "#2563eb" }}
+                >
+                  Select all
+                </button>
+                <button
+                  type="button"
+                  onClick={clearPendingElderly}
+                  className="rounded-lg border px-3 py-1.5 text-xs"
+                  style={{ borderColor: "rgba(0,0,0,0.1)", color: "#6b7a99" }}
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+
+            <div className="rounded-lg border bg-white" style={{ borderColor: "rgba(0,0,0,0.12)" }}>
+              <div className="border-b p-3" style={{ borderColor: "rgba(0,0,0,0.08)" }}>
+                <div className="relative">
+                  <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "#6b7a99" }} />
+                  <input
+                    value={elderlySearch}
+                    onChange={(event) => setElderlySearch(event.target.value)}
+                    placeholder="Search by name, ID, or condition"
+                    className="w-full rounded-lg border py-2 pl-9 pr-3 text-sm outline-none"
+                    style={{ borderColor: "rgba(0,0,0,0.1)", color: "#1a2b42", backgroundColor: "#f8fafc" }}
+                  />
+                </div>
+                {pendingElderlyProfiles.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {pendingElderlyProfiles.map((profile) => (
+                      <span
+                        key={profile.id}
+                        className="inline-flex max-w-[220px] items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs"
+                        style={{ borderColor: "#bfdbfe", backgroundColor: "#eff6ff", color: "#1d4ed8" }}
+                      >
+                        <span className="truncate">{profile.name}</span>
+                        <button
+                          type="button"
+                          onClick={() => togglePendingElderly(String(profile.id))}
+                          className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full hover:bg-blue-100"
+                          style={{ color: "#2563eb" }}
+                        >
+                          <X size={11} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="max-h-56 overflow-y-auto p-2">
+                {filteredElderlyProfiles.length === 0 ? (
+                  <div className="px-2 py-6 text-center text-sm" style={{ color: "#6b7a99" }}>No elderly found.</div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                    {filteredElderlyProfiles.map((profile) => {
+                      const id = String(profile.id);
+                      const selected = pendingElderlyIds.includes(id);
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => togglePendingElderly(id)}
+                          className="flex min-h-14 w-full items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors hover:bg-blue-50"
+                          style={{
+                            backgroundColor: selected ? "#eff6ff" : "#fff",
+                            borderColor: selected ? "#93c5fd" : "rgba(0,0,0,0.08)",
+                          }}
+                        >
+                          <span
+                            className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded border"
+                            style={{
+                              backgroundColor: selected ? "#2563eb" : "#fff",
+                              borderColor: selected ? "#2563eb" : "rgba(0,0,0,0.22)",
+                              color: "#fff",
+                            }}
+                          >
+                            {selected && <Check size={13} />}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm" style={{ color: "#1a2b42", fontWeight: 700 }}>{profile.name}</span>
+                            <span className="block truncate text-xs" style={{ color: "#6b7a99" }}>{profile.id} | {profile.medicalCondition || "No condition"}</span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-col self-center gap-3 rounded-lg border p-3" style={{ borderColor: "rgba(0,0,0,0.08)", backgroundColor: "#f8fafc" }}>
+            <div className="space-y-3">
+              <DateField label="Start Date" value={startDate} onChange={setStartDate} />
+              <DateField label="End Date" value={endDate} onChange={setEndDate} />
+            </div>
+            <div className="space-y-2">
+              <button
+                onClick={confirmElderlySelection}
+                disabled={pendingElderlyIds.length === 0 || loading}
+                className="w-full rounded-lg px-3 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-50"
+                style={{ backgroundColor: "#2563eb" }}
+              >
+                {loading ? "Generating..." : "Confirm & Generate"}
+              </button>
+              <div className="rounded-lg px-3 py-2 text-xs" style={{ backgroundColor: "#fff", color: "#6b7a99" }}>
+                {selectedElderlyIds.length} confirmed report{selectedElderlyIds.length === 1 ? "" : "s"}
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -437,9 +607,30 @@ export function Reports() {
               <FileText size={16} style={{ color: "#2563eb" }} />
               <h3 className="text-sm" style={{ color: "#1a2b42", fontWeight: 700 }}>Generated Report Note</h3>
             </div>
-            <p className="text-sm leading-6" style={{ color: "#1a2b42" }}>
-              {summary?.note || "Choose an elderly profile and date range to generate the report note."}
-            </p>
+            {summaries.length === 0 ? (
+              <p className="text-sm leading-6" style={{ color: "#1a2b42" }}>Choose one or more elderly profiles and date range to generate the report note.</p>
+            ) : (
+              <div className="space-y-3">
+                {summaries.map((report) => (
+                  <button
+                    key={report.elderly.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedSummaryId(String(report.elderly.id));
+                      setPdfPreviewUrl("");
+                    }}
+                    className="w-full rounded-lg border p-3 text-left"
+                    style={{
+                      borderColor: String(report.elderly.id) === String(summary?.elderly.id) ? "#2563eb" : "rgba(0,0,0,0.08)",
+                      backgroundColor: String(report.elderly.id) === String(summary?.elderly.id) ? "#eff6ff" : "#fff",
+                    }}
+                  >
+                    <div className="mb-1 text-sm" style={{ color: "#1a2b42", fontWeight: 700 }}>{report.elderly.name} ({report.elderly.id})</div>
+                    <p className="text-sm leading-6" style={{ color: "#1a2b42" }}>{report.note || "-"}</p>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="rounded-xl border bg-white p-5" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
@@ -448,16 +639,17 @@ export function Reports() {
               <table className="w-full">
                 <thead>
                   <tr style={{ backgroundColor: "#f8fafc" }}>
-                    {["Date", "Medicine", "Dosage", "Status", "Report Notes"].map((column) => (
+                    {["Elderly", "Date", "Medicine", "Dosage", "Status", "Report Notes"].map((column) => (
                       <th key={column} className="px-3 py-2 text-left text-xs" style={{ color: "#6b7a99" }}>{column}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {!summary || summary.medications.length === 0 ? (
-                    <tr><td colSpan={5} className="px-3 py-6 text-center text-sm" style={{ color: "#6b7a99" }}>No medication rows for this date range.</td></tr>
-                  ) : summary.medications.map((item) => (
-                    <tr key={item.id} className="border-t" style={{ borderColor: "rgba(0,0,0,0.06)" }}>
+                  {medicationRows.length === 0 ? (
+                    <tr><td colSpan={6} className="px-3 py-6 text-center text-sm" style={{ color: "#6b7a99" }}>No completed, missed, or due-soon medication rows for this date range.</td></tr>
+                  ) : medicationRows.map(({ report, item }) => (
+                    <tr key={`${report.elderly.id}-${item.id}`} className="border-t" style={{ borderColor: "rgba(0,0,0,0.06)" }}>
+                      <td className="px-3 py-2 text-xs" style={{ color: "#1a2b42", fontWeight: 600 }}>{report.elderly.name}</td>
                       <td className="px-3 py-2 text-xs" style={{ color: "#1a2b42" }}>{displayDate(item.scheduledDate)} {item.scheduledTime}</td>
                       <td className="px-3 py-2 text-xs" style={{ color: "#1a2b42", fontWeight: 600 }}>{item.medicationName}</td>
                       <td className="px-3 py-2 text-xs" style={{ color: "#1a2b42" }}>{item.dosage}</td>
