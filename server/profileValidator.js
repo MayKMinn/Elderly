@@ -283,7 +283,7 @@ function fallbackValidate(profile) {
     else if (address.length > 500) errors.address = "Address must be 500 characters or fewer.";
     const licenseNumber = String(profile.licenseNumber || "").trim();
     if (!licenseNumber) errors.licenseNumber = "License number is required.";
-    else if (!/^\d+$/.test(licenseNumber)) errors.licenseNumber = "License number must contain numbers only.";
+    else if (!/^\d{7}$/.test(licenseNumber)) errors.licenseNumber = "License number must be 7 digits.";
     const username = String(profile.username || "").trim();
     if (!username) errors.username = "Username is required.";
     else if (!/^[A-Za-z0-9]+$/.test(username)) errors.username = "Username can contain letters and numbers only.";
