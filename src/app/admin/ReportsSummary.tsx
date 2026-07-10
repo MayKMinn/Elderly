@@ -455,9 +455,6 @@ export function Reports() {
           <span style={{ color: "#1a2b42", fontWeight: 500 }}>Elderly Health Summary</span>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => downloadProfessionalPdf(summary)} disabled={!summary} className="flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50" style={{ borderColor: "rgba(0,0,0,0.1)", color: "#6b7a99" }}>
-            <ArrowDown size={14} /> Download PDF
-          </button>
           <button onClick={() => downloadProfessionalPdfs(summaries)} disabled={summaries.length === 0} className="flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50" style={{ borderColor: "rgba(0,0,0,0.1)", color: "#6b7a99" }}>
             <ArrowDown size={14} /> Download PDFs ({summaries.length})
           </button>
