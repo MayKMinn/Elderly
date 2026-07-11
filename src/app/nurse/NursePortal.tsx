@@ -699,9 +699,7 @@ function WeeklyReportPage({ residents, checks, weeklyLogs, loading }: { resident
         <h3 className="text-xl font-semibold text-foreground mt-1" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>
           Jun 29 – Jul 5, 2026
         </h3>
-        <p className="text-sm text-muted-foreground mt-2">
-          Prepared by <strong className="text-foreground">{NURSE_NAME}</strong> · Sent to Admin
-        </p>
+        
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

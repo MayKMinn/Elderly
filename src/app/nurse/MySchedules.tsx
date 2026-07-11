@@ -316,8 +316,20 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
             <h4 className="text-sm font-semibold">Last recorded vitals</h4>
             <div id="last-record" className="mt-2 text-sm text-muted-foreground">
               {latestRecord ? (
-                <div className="space-y-1">
-                  <div><strong>Recorded at:</strong> {new Date(latestRecord.visit_time).toLocaleString()}</div>
+                  <div className="space-y-1">
+                  <div>
+                    <strong>Recorded at:</strong>{' '}
+                    {(() => {
+                      const vt = latestRecord.visit_time || latestRecord.visitTime || latestRecord.recorded_time || latestRecord.recordedTime;
+                      const vd = latestRecord.visit_date || latestRecord.visitDate || '';
+                      if (!vt) return vd || 'Unknown';
+                      // If vt looks like a full datetime, parse it; otherwise it's already HH:MM
+                      if (vt.includes('-') || vt.includes('T') || vt.length > 5) {
+                        try { return new Date(vt).toLocaleString(); } catch { /* fallthrough */ }
+                      }
+                      return `${vd} ${vt}`.trim();
+                    })()}
+                  </div>
                   {typeof latestRecord.bloodpressure_systolic !== "undefined" && latestRecord.bloodpressure_systolic > 0 && (
                     <div><strong>Blood Pressure:</strong> {latestRecord.bloodpressure_systolic}/{latestRecord.bloodpressure_diastolic} mmHg</div>
                   )}
