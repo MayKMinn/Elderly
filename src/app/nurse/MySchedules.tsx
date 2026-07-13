@@ -302,15 +302,15 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
     const s = String(status || "").toLowerCase();
     switch (s) {
       case "completed":
-        return "inline-flex items-center justify-center rounded-full min-w-[72px] whitespace-nowrap bg-emerald-100 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-700";
+        return "inline-flex max-w-full items-center justify-center rounded-full whitespace-nowrap bg-emerald-100 px-1.5 py-0.5 text-[8px] font-semibold uppercase text-emerald-700";
       case "missed":
-        return "inline-flex items-center justify-center rounded-full min-w-[72px] whitespace-nowrap bg-red-100 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-red-700";
+        return "inline-flex max-w-full items-center justify-center rounded-full whitespace-nowrap bg-red-100 px-1.5 py-0.5 text-[8px] font-semibold uppercase text-red-700";
       case "cancelled":
-        return "inline-flex items-center justify-center rounded-full min-w-[72px] whitespace-nowrap bg-rose-100 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-rose-700";
+        return "inline-flex max-w-full items-center justify-center rounded-full whitespace-nowrap bg-rose-100 px-1.5 py-0.5 text-[8px] font-semibold uppercase text-rose-700";
       case "scheduled":
-        return "inline-flex items-center justify-center rounded-full min-w-[72px] whitespace-nowrap bg-indigo-50 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-indigo-700";
+        return "inline-flex max-w-full items-center justify-center rounded-full whitespace-nowrap bg-indigo-50 px-1.5 py-0.5 text-[8px] font-semibold uppercase text-indigo-700";
       default:
-        return "inline-flex items-center justify-center rounded-full min-w-[72px] whitespace-nowrap bg-muted/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground";
+        return "inline-flex max-w-full items-center justify-center rounded-full whitespace-nowrap bg-muted/10 px-1.5 py-0.5 text-[8px] font-semibold uppercase text-muted-foreground";
     }
   }
 
@@ -529,17 +529,19 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
                           key={item.id}
                           type="button"
                           onClick={() => setSelectedScheduleId(item.id)}
-                          className={`w-full rounded-2xl border px-2.5 py-2 text-left transition ${selectedScheduleId === item.id ? "border-primary bg-primary/5" : "border-border/70 bg-white hover:bg-slate-50"}`}
+                          className={`w-full overflow-hidden rounded-2xl border px-2.5 py-2 text-left transition ${selectedScheduleId === item.id ? "border-primary bg-primary/5" : "border-border/70 bg-white hover:bg-slate-50"}`}
                         >
-                          <div className="flex justify-between gap-2">
-                            <div>
-                              <div className="text-xs font-semibold text-foreground">{item.purpose}</div>
-                              <div className="text-[11px] text-muted-foreground">{item.elderlyName}</div>
+                          <div className="flex min-w-0 flex-col gap-2">
+                            <div className="min-w-0">
+                              <div className="truncate text-xs font-semibold text-foreground">{item.purpose}</div>
+                              <div className="truncate text-[11px] text-muted-foreground">{item.elderlyName}</div>
                               <div className="text-[11px] text-muted-foreground">{item.visitTime}</div>
                             </div>
-                            <span className={statusBadgeClasses(item.scheduleStatus)}>
-                              {statusLabel(item.scheduleStatus)}
-                            </span>
+                            <div className="flex justify-start">
+                              <span className={statusBadgeClasses(item.scheduleStatus)}>
+                                {statusLabel(item.scheduleStatus)}
+                              </span>
+                            </div>
                           </div>
                         </button>
                       ))}
