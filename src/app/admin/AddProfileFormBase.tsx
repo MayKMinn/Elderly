@@ -182,6 +182,7 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
     type,
     email: emptyProfile.email,
   });
+  const [isCheckingUsername, setIsCheckingUsername] = useState(false);
   const [errors, setErrors] = useState<ValidationErrors>({});
   const [saving, setSaving] = useState(false);
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -348,6 +349,35 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
 
     return nextErrors;
   };
+
+  useEffect(() => {
+    const username = String(form.username || "").trim();
+
+    if (!username) {
+      setErrors((prev) => ({ ...prev, username: undefined }));
+      setIsCheckingUsername(false);
+      return;
+    }
+
+    const timer = window.setTimeout(async () => {
+      try {
+        setIsCheckingUsername(true);
+        const response = await fetch(`/api/nurses/check-username?username=${encodeURIComponent(username)}`);
+        const data = await response.json();
+
+        setErrors((prev) => ({
+          ...prev,
+          username: data.exists ? "Username already exists. Please choose another." : undefined,
+        }));
+      } catch (error) {
+        console.error(error);
+      } finally {
+        setIsCheckingUsername(false);
+      }
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, [form.username]);
 
   const setField = (field: keyof NewProfilePayload, value: string) => {
     setForm((prevForm) => {
