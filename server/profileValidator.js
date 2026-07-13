@@ -203,8 +203,8 @@ function fallbackValidate(profile) {
 
   if (profile.age === "" || profile.age === undefined) errors.age = "Age is required.";
   else if (!Number.isInteger(age)) errors.age = "Age must be a number.";
-  else if (profile.type === "nurse" && (age < 18 || age > 80)) {
-    errors.age = "Caregiver age must be between 18 and 80.";
+  else if (profile.type === "nurse" && (age < 18 || age > 40)) {
+    errors.age = "Caregiver age must be between 18 and 40.";
   } else if (profile.type !== "nurse" && (age < 50 || age > 120)) {
     errors.age = "Elderly age must be between 50 and 120.";
   } else {
