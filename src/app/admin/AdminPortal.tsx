@@ -122,7 +122,15 @@ export function AdminPortal({ adminName, adminProfile, signedInAt, onSignOut }: 
             onNavigate={setCurrentPage}
           />
         )}
-        {currentPage === "schedules" && <Schedules onNavigate={setCurrentPage} />}
+        {currentPage === "schedules" && (
+          <Schedules
+            onNavigate={setCurrentPage}
+            onOpenNurses={() => {
+              setProfileTab("nurse");
+              setCurrentPage("manage-profiles");
+            }}
+          />
+        )}
         {currentPage === "medications" && <Medications onNavigate={setCurrentPage} />}
         {currentPage === "reports" && <Reports onNavigate={setCurrentPage} />}
         {currentPage === "login-history" && <LoginHistory />}

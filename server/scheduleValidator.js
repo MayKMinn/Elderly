@@ -21,6 +21,7 @@ const fieldOrder = [
   "slotLockHour",
   "recurrenceIntervalDays",
   "hasAssignedElder",
+  "hasActiveMedication",
 ];
 const allowedPurposes = ["Blood Pressure", "Blood Glucose", "Medication", "Routine Visit"];
 const allowedStatuses = ["scheduled", "completed", "missed", "cancelled"];
@@ -179,6 +180,13 @@ function fallbackValidate(schedule) {
     String(schedule.hasAssignedElder || "").trim().toUpperCase() !== "Y"
   ) {
     errors.elderlyId = "There is no assigned elder. Please assign first.";
+  }
+  if (
+    !errors.purpose &&
+    String(schedule.purpose || "").trim() === "Medication" &&
+    String(schedule.hasActiveMedication || "").trim().toUpperCase() !== "Y"
+  ) {
+    errors.purpose = "Add an active medication for this elderly profile before scheduling a medication visit.";
   }
 
   return { valid: Object.keys(errors).length === 0, errors };

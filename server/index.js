@@ -809,6 +809,19 @@ async function hasActiveNurseElderlyAssignment({ nurseId, elderlyId }) {
   return Boolean(assignments[0]);
 }
 
+async function hasActiveElderlyMedication({ elderlyId }) {
+  const [medications] = await pool.query(
+    `SELECT medication_id
+     FROM elderly_medications
+     WHERE elderly_id = :elderlyId
+       AND medication_status = 'Active'
+     LIMIT 1`,
+    { elderlyId }
+  );
+
+  return Boolean(medications[0]);
+}
+
 async function selectScheduleById(id) {
   const [rows] = await pool.query(
     `SELECT ${scheduleColumns}
@@ -1037,6 +1050,7 @@ app.post("/api/schedules", async (req, res) => {
       slotLockHour: String(payload.slotLockHour || "").trim(),
       recurrenceIntervalDays: payload.recurrenceIntervalDays,
       hasAssignedElder: (await hasActiveNurseElderlyAssignment(data)) ? "Y" : "N",
+      hasActiveMedication: (await hasActiveElderlyMedication(data)) ? "Y" : "N",
     });
 
     if (!validation.valid) {
@@ -1155,6 +1169,7 @@ app.put("/api/schedules/:id", async (req, res) => {
       allowPastDateTime: dateTimeUnchanged ? "Y" : "N",
       recurrenceIntervalDays: payload.recurrenceIntervalDays,
       hasAssignedElder: (await hasActiveNurseElderlyAssignment(baseData)) ? "Y" : "N",
+      hasActiveMedication: (await hasActiveElderlyMedication(baseData)) ? "Y" : "N",
     });
 
     if (!validation.valid) {
@@ -1764,6 +1779,36 @@ app.put("/api/nurses/:id/elderly-assignments", async (req, res) => {
       }
     }
 
+    let deletedScheduleCount = 0;
+
+    {
+      const scheduleParams = { nurseId, elderlyIds };
+      const unassignedElderlyClause = elderlyIds.length > 0
+        ? "AND elderly_id NOT IN (:elderlyIds)"
+        : "";
+      const [futureSchedules] = await connection.query(
+        `SELECT schedule_id AS id
+         FROM \`schedule\`
+         WHERE nurse_id = :nurseId
+           AND schedule_status = 'scheduled'
+           AND DATE(visit_date) >= CURDATE()
+           ${unassignedElderlyClause}`,
+        scheduleParams
+      );
+
+      await deleteScheduleReportRecords(connection, futureSchedules.map((row) => row.id));
+
+      const [deleteResult] = await connection.query(
+        `DELETE FROM \`schedule\`
+         WHERE nurse_id = :nurseId
+           AND schedule_status = 'scheduled'
+           AND DATE(visit_date) >= CURDATE()
+           ${unassignedElderlyClause}`,
+        scheduleParams
+      );
+      deletedScheduleCount = deleteResult.affectedRows;
+    }
+
     await connection.query(
       "UPDATE nurse_elderly_assignments SET status = 'inactive' WHERE nurse_id = :nurseId",
       { nurseId }
@@ -1788,7 +1833,7 @@ app.put("/api/nurses/:id/elderly-assignments", async (req, res) => {
     );
 
     await connection.commit();
-    res.json({ assignments });
+    res.json({ assignments, deletedScheduleCount });
   } catch (error) {
     if (connection) await connection.rollback();
     res.status(500).json({

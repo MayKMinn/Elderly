@@ -113,16 +113,8 @@ function downloadCsv(summaryInput: ElderlyReportSummary | ElderlyReportSummary[]
   URL.revokeObjectURL(url);
 }
 
-function buildProfessionalPdfDoc(summary: ElderlyReportSummary) {
-  const bpAverage =
-    summary.bloodPressure.averageSystolic === null
-      ? "N/A"
-      : `${summary.bloodPressure.averageSystolic}/${summary.bloodPressure.averageDiastolic} mmHg`;
-  const glucoseAverage =
-    summary.bloodGlucose.average === null ? "N/A" : `${summary.bloodGlucose.average} mg/dL`;
-  const compliance =
-    summary.medication.compliancePercent === null ? "N/A" : `${summary.medication.compliancePercent}%`;
-
+function buildProfessionalPdfDoc(summaryInput: ElderlyReportSummary | ElderlyReportSummary[]) {
+  const summaries = Array.isArray(summaryInput) ? summaryInput : [summaryInput];
   const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -156,7 +148,14 @@ function buildProfessionalPdfDoc(summary: ElderlyReportSummary) {
     doc.setTextColor(96, 112, 138);
     doc.text(title, x + 12, y + 18);
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(18);
+    const valueMaxWidth = 98;
+    const defaultValueFontSize = 18;
+    doc.setFontSize(defaultValueFontSize);
+    const measuredValueWidth = doc.getTextWidth(value);
+    const fittedValueFontSize = measuredValueWidth > valueMaxWidth
+      ? Math.max(10, (defaultValueFontSize * valueMaxWidth) / measuredValueWidth)
+      : defaultValueFontSize;
+    doc.setFontSize(fittedValueFontSize);
     doc.setTextColor(27, 43, 66);
     doc.text(value, x + 12, y + 42);
     doc.setFont("helvetica", "normal");
@@ -206,6 +205,21 @@ function buildProfessionalPdfDoc(summary: ElderlyReportSummary) {
     });
     y += 18;
   };
+
+  summaries.forEach((summary, summaryIndex) => {
+  if (summaryIndex > 0) {
+    doc.addPage();
+  }
+  y = 44;
+
+  const bpAverage =
+    summary.bloodPressure.averageSystolic === null
+      ? "N/A"
+      : `${summary.bloodPressure.averageSystolic}/${summary.bloodPressure.averageDiastolic} mmHg`;
+  const glucoseAverage =
+    summary.bloodGlucose.average === null ? "N/A" : `${summary.bloodGlucose.average} mg/dL`;
+  const compliance =
+    summary.medication.compliancePercent === null ? "N/A" : `${summary.medication.compliancePercent}%`;
 
   doc.setFillColor(37, 99, 235);
   doc.rect(0, 0, pageWidth, 92, "F");
@@ -267,18 +281,37 @@ function buildProfessionalPdfDoc(summary: ElderlyReportSummary) {
   doc.text(noteLines, margin + 14, y + 22);
   y += noteHeight + 24;
 
-  sectionTitle("Vital Readings");
+  const bloodPressureVitals = summary.vitals.filter(
+    (vital) => vital.systolic != null && vital.diastolic != null,
+  );
+  const bloodGlucoseVitals = summary.vitals.filter(
+    (vital) => vital.glucoseValue != null,
+  );
+
+  sectionTitle("Blood Pressure Readings");
   table(
-    ["Date", "Time", "Blood Pressure", "Blood Glucose"],
-    summary.vitals.length
-      ? summary.vitals.map((vital) => [
+    ["Date", "Time", "Blood Pressure"],
+    bloodPressureVitals.length
+      ? bloodPressureVitals.map((vital) => [
           displayDate(vital.recordedDate),
           vital.recordedTime || "-",
-          vital.systolic == null ? "N/A" : `${vital.systolic}/${vital.diastolic}`,
-          vital.glucoseValue == null ? "N/A" : `${vital.glucoseValue} mg/dL`,
+          `${vital.systolic}/${vital.diastolic} mmHg`,
         ])
-      : [["No vital readings recorded for this date range.", "", "", ""]],
-    [126, 82, 150, 154],
+      : [["No blood pressure readings recorded for this date range.", "", ""]],
+    [190, 120, 202],
+  );
+
+  sectionTitle("Blood Glucose Readings");
+  table(
+    ["Date", "Time", "Blood Glucose"],
+    bloodGlucoseVitals.length
+      ? bloodGlucoseVitals.map((vital) => [
+          displayDate(vital.recordedDate),
+          vital.recordedTime || "-",
+          `${vital.glucoseValue} mg/dL`,
+        ])
+      : [["No blood glucose readings recorded for this date range.", "", ""]],
+    [190, 120, 202],
   );
 
   sectionTitle("Medication Review");
@@ -299,6 +332,7 @@ function buildProfessionalPdfDoc(summary: ElderlyReportSummary) {
       : [["No medication records found for this date range.", "", "", "", "", ""]],
     [72, 54, 116, 74, 66, 150],
   );
+  });
 
   const pageCount = doc.getNumberOfPages();
   for (let page = 1; page <= pageCount; page += 1) {
@@ -313,9 +347,15 @@ function buildProfessionalPdfDoc(summary: ElderlyReportSummary) {
   return doc;
 }
 
-function downloadProfessionalPdf(summary: ElderlyReportSummary | null) {
-  if (!summary) return;
-  buildProfessionalPdfDoc(summary).save(`elderly-report-${summary.elderly.id}-${summary.range.startDate}-${summary.range.endDate}.pdf`);
+function downloadProfessionalPdf(summaryInput: ElderlyReportSummary | ElderlyReportSummary[] | null) {
+  const summaries = Array.isArray(summaryInput) ? summaryInput : summaryInput ? [summaryInput] : [];
+  if (summaries.length === 0) return;
+
+  const first = summaries[0];
+  const filename = summaries.length === 1
+    ? `elderly-report-${first.elderly.id}-${first.range.startDate}-${first.range.endDate}.pdf`
+    : `elderly-reports-${first.range.startDate}-${first.range.endDate}.pdf`;
+  buildProfessionalPdfDoc(summaries).save(filename);
 }
 
 function downloadProfessionalPdfs(summaries: ElderlyReportSummary[]) {
@@ -412,7 +452,7 @@ export function Reports({ onNavigate }: ReportsProps) {
         ? current
         : String(reports[0]?.elderly.id || ""));
       if (showPdfPreview) {
-        setPdfPreviewUrl(buildProfessionalPdfDoc(reports[0]).output("datauristring"));
+        setPdfPreviewUrl(buildProfessionalPdfDoc(reports).output("datauristring"));
       }
       setPendingElderlyIds([]);
       setSelectedElderlyIds([]);
@@ -692,11 +732,13 @@ export function Reports({ onNavigate }: ReportsProps) {
             <div className="flex items-center justify-between border-b px-5 py-3" style={{ borderColor: "rgba(0,0,0,0.08)" }}>
               <div>
                 <div className="text-sm" style={{ color: "#1a2b42", fontWeight: 700 }}>PDF Preview</div>
-                <div className="text-xs" style={{ color: "#6b7a99" }}>Review the report before downloading.</div>
+                <div className="text-xs" style={{ color: "#6b7a99" }}>
+                  Review all {summaries.length} generated report{summaries.length === 1 ? "" : "s"} before downloading.
+                </div>
               </div>
               <div className="flex items-center gap-2">
-                <button onClick={() => downloadProfessionalPdf(summary)} className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-white" style={{ backgroundColor: "#2563eb" }}>
-                  <ArrowDown size={14} /> Download PDF
+                <button onClick={() => downloadProfessionalPdf(summaries)} className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-white" style={{ backgroundColor: "#2563eb" }}>
+                  <ArrowDown size={14} /> Download Combined PDF
                 </button>
                 <button onClick={() => setPdfPreviewUrl("")} className="rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "rgba(0,0,0,0.12)", color: "#6b7a99" }}>
                   Close
