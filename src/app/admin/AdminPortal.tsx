@@ -110,17 +110,21 @@ export function AdminPortal({ adminName, adminProfile, signedInAt, onSignOut }: 
         />
 
         {currentPage === "dashboard" && (
-          <Dashboard onNavigate={setCurrentPage} />
+          <Dashboard
+            onNavigate={setCurrentPage}
+            onProfileTabChange={setProfileTab}
+          />
         )}
         {currentPage === "manage-profiles" && (
           <ManageProfiles
             activeTab={profileTab}
             onTabChange={setProfileTab}
+            onNavigate={setCurrentPage}
           />
         )}
-        {currentPage === "schedules" && <Schedules />}
-        {currentPage === "medications" && <Medications />}
-        {currentPage === "reports" && <Reports />}
+        {currentPage === "schedules" && <Schedules onNavigate={setCurrentPage} />}
+        {currentPage === "medications" && <Medications onNavigate={setCurrentPage} />}
+        {currentPage === "reports" && <Reports onNavigate={setCurrentPage} />}
         {currentPage === "login-history" && <LoginHistory />}
         {currentPage === "settings" && (
           <div className="flex-1 flex items-center justify-center">

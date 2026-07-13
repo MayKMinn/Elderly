@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Bell, Camera, ChevronDown, LogOut, Pill, Trash2, UserCircle } from "lucide-react";
+import { Camera, ChevronDown, LogOut, Trash2, UserCircle } from "lucide-react";
 import { getAdminProfile, updateAdminAvatar } from "../api/auth";
 import type { AdminProfile } from "../api/auth";
-import { getMedicationAssignments } from "../api/medications";
-import type { MedicationAssignment } from "../api/medications";
 
 interface TopBarProps {
   title: string;
@@ -44,20 +42,14 @@ export function TopBar({ title, subtitle, adminName, adminProfile, signedInAt, o
       : null
   );
   const [photoSaving, setPhotoSaving] = useState(false);
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const [medicationNotifications, setMedicationNotifications] = useState<MedicationAssignment[]>([]);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const notificationsRef = useRef<HTMLDivElement | null>(null);
   const avatarSrc = profile
     ? profile.avatar || "https://i.pravatar.cc/80?img=33"
     : adminProfile?.avatar || "https://i.pravatar.cc/80?img=33";
   const profileUsername = profile?.username || adminProfile?.username || adminName;
-  const pendingMedicationCount = medicationNotifications.filter((item) =>
-    item.complianceStatus === "Pending" || item.complianceStatus === "Due Soon"
-  ).length;
 
   useEffect(() => {
-    if (!menuOpen && !notificationsOpen) return;
+    if (!menuOpen) return;
 
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
@@ -65,15 +57,11 @@ export function TopBar({ title, subtitle, adminName, adminProfile, signedInAt, o
       if (!menuRef.current?.contains(target)) {
         setMenuOpen(false);
       }
-
-      if (!notificationsRef.current?.contains(target)) {
-        setNotificationsOpen(false);
-      }
     };
 
     window.addEventListener("pointerdown", handlePointerDown);
     return () => window.removeEventListener("pointerdown", handlePointerDown);
-  }, [menuOpen, notificationsOpen]);
+  }, [menuOpen]);
 
   useEffect(() => {
     const username = adminProfile?.username || adminName;
@@ -93,28 +81,6 @@ export function TopBar({ title, subtitle, adminName, adminProfile, signedInAt, o
       ignore = true;
     };
   }, [adminName, adminProfile?.username]);
-
-  useEffect(() => {
-    let ignore = false;
-
-    const loadNotifications = () => {
-      getMedicationAssignments()
-        .then(({ medications }) => {
-          if (!ignore) setMedicationNotifications(medications.slice(0, 8));
-        })
-        .catch((error) => {
-          console.error("Failed to load medication notifications.", error);
-        });
-    };
-
-    loadNotifications();
-    const interval = window.setInterval(loadNotifications, 15000);
-
-    return () => {
-      ignore = true;
-      window.clearInterval(interval);
-    };
-  }, []);
 
   const saveAvatar = async (avatar: string) => {
     const adminId = profile?.id || adminProfile?.id;
@@ -160,57 +126,6 @@ export function TopBar({ title, subtitle, adminName, adminProfile, signedInAt, o
       </div>
 
       <div className="flex items-center gap-3">
-        <div className="relative" ref={notificationsRef}>
-          <button
-            type="button"
-            onClick={() => setNotificationsOpen((open) => !open)}
-            className="relative flex h-10 w-10 items-center justify-center rounded-xl border transition-colors hover:bg-gray-50"
-            style={{ borderColor: "rgba(0,0,0,0.08)", color: "#6b7a99" }}
-            title="Medication notifications"
-          >
-            <Bell size={17} />
-            {pendingMedicationCount > 0 && (
-              <span className="absolute right-1.5 top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] text-white" style={{ backgroundColor: "#ef4444" }}>
-                {pendingMedicationCount}
-              </span>
-            )}
-          </button>
-
-          {notificationsOpen && (
-            <div className="absolute right-0 top-full z-50 mt-2 w-80 overflow-hidden rounded-xl border bg-white shadow-xl" style={{ borderColor: "rgba(0,0,0,0.08)" }}>
-              <div className="border-b px-4 py-3" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
-                <div className="text-sm" style={{ color: "#1a2b42", fontWeight: 700 }}>Medication notifications</div>
-                <div className="text-xs" style={{ color: "#6b7a99" }}>Assigned medications and nurse report status</div>
-              </div>
-              <div className="max-h-80 overflow-y-auto p-2">
-                {medicationNotifications.length === 0 ? (
-                  <div className="px-3 py-6 text-center text-xs" style={{ color: "#6b7a99" }}>No medication notifications.</div>
-                ) : (
-                  medicationNotifications.map((item) => (
-                    <div key={item.id} className="rounded-lg px-3 py-2 hover:bg-gray-50">
-                      <div className="flex items-start gap-2">
-                        <Pill size={14} className="mt-0.5 flex-shrink-0" style={{ color: "#2563eb" }} />
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-xs" style={{ color: "#1a2b42", fontWeight: 700 }}>{item.medicationName}</div>
-                          <div className="text-xs" style={{ color: "#6b7a99" }}>{item.elderlyName} · {item.nurseName}</div>
-                          <div className="text-xs" style={{ color: "#6b7a99" }}>{item.scheduledDate} at {item.scheduledTime}</div>
-                        </div>
-                        <span className="rounded-full px-2 py-0.5 text-[10px]" style={{
-                          backgroundColor: item.complianceStatus === "Taken" ? "#dcfce7" : item.complianceStatus === "Missed" ? "#fee2e2" : "#fef3c7",
-                          color: item.complianceStatus === "Taken" ? "#15803d" : item.complianceStatus === "Missed" ? "#dc2626" : "#d97706",
-                          fontWeight: 700,
-                        }}>
-                          {item.complianceStatus}
-                        </span>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-
         <div className="relative" ref={menuRef}>
           <button
             type="button"

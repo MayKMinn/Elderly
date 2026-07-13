@@ -4,9 +4,11 @@ import { getProfiles } from "../api/profiles";
 import type { ElderlyProfile, NurseProfile } from "./data";
 
 type Page = "dashboard" | "manage-profiles" | "schedules" | "medications" | "reports" | "login-history" | "settings";
+type ProfileTab = "elderly" | "nurse";
 
 interface DashboardProps {
   onNavigate: (page: Page) => void;
+  onProfileTabChange: (tab: ProfileTab) => void;
 }
 
 function parseDashboardDate(value: string) {
@@ -33,7 +35,7 @@ function countThisWeek<T>(items: T[], getDate: (item: T) => string) {
   }).length;
 }
 
-export function Dashboard({ onNavigate }: DashboardProps) {
+export function Dashboard({ onNavigate, onProfileTabChange }: DashboardProps) {
   const [elderlyList, setElderlyList] = useState<ElderlyProfile[]>([]);
   const [nurseList, setNurseList] = useState<NurseProfile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,7 +55,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
         if (ignore) return;
         setElderlyList([]);
         setNurseList([]);
-        setError("Could not connect to MySQL API. Dashboard data is unavailable.");
+        setError("Could not load dashboard data.");
         console.error(err);
       })
       .finally(() => {
@@ -70,39 +72,47 @@ export function Dashboard({ onNavigate }: DashboardProps) {
   const newRegistrations =
     countThisWeek(elderlyList, (profile) => profile.admissionDate) +
     countThisWeek(nurseList, (profile) => profile.hireDate);
+  const openProfiles = (tab: ProfileTab) => {
+    onProfileTabChange(tab);
+    onNavigate("manage-profiles");
+  };
 
   const stats = [
     {
       label: "Total Elderly",
       value: elderlyList.length,
-      change: "From MySQL",
+      change: "All elderly profiles",
       icon: <Users size={20} />,
       iconBg: "#fff7ed",
       iconColor: "#f97316",
+      onClick: () => openProfiles("elderly"),
     },
     {
       label: "Total Nurses / Caregivers",
       value: nurseList.length,
-      change: "From MySQL",
+      change: "All nurse profiles",
       icon: <UserCheck size={20} />,
       iconBg: "#f0fdf4",
       iconColor: "#22c55e",
+      onClick: () => openProfiles("nurse"),
     },
     {
       label: "Active Elderly",
       value: activeElderly,
-      change: "From MySQL",
+      change: "Active elderly profiles",
       icon: <Activity size={20} />,
       iconBg: "#eff6ff",
       iconColor: "#3b82f6",
+      onClick: () => openProfiles("elderly"),
     },
     {
       label: "Active Nurses",
       value: activeNurses,
-      change: "From MySQL",
+      change: "Active nurse profiles",
       icon: <Activity size={20} />,
       iconBg: "#fdf4ff",
       iconColor: "#a855f7",
+      onClick: () => openProfiles("nurse"),
     },
     {
       label: "New Registrations",
@@ -111,6 +121,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
       icon: <UserPlus size={20} />,
       iconBg: "#ecfeff",
       iconColor: "#06b6d4",
+      onClick: () => openProfiles("elderly"),
     },
   ];
 
@@ -159,9 +170,11 @@ export function Dashboard({ onNavigate }: DashboardProps) {
       )}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
         {stats.map((s) => (
-          <div
+          <button
+            type="button"
             key={s.label}
-            className="bg-white rounded-xl p-4 border"
+            onClick={s.onClick}
+            className="bg-white rounded-xl p-4 border text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-200"
             style={{ borderColor: "rgba(0,0,0,0.06)" }}
           >
             <div
@@ -179,7 +192,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
             <div className="text-xs" style={{ color: "#22c55e" }}>
               {s.change}
             </div>
-          </div>
+          </button>
         ))}
       </div>
 

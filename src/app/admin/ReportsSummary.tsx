@@ -324,7 +324,13 @@ function downloadProfessionalPdfs(summaries: ElderlyReportSummary[]) {
   });
 }
 
-export function Reports() {
+type Page = "dashboard" | "manage-profiles" | "schedules" | "medications" | "reports" | "login-history" | "settings";
+
+interface ReportsProps {
+  onNavigate: (page: Page) => void;
+}
+
+export function Reports({ onNavigate }: ReportsProps) {
   const today = toDateKey(new Date());
   const start = new Date();
   start.setDate(start.getDate() - 7);
@@ -412,7 +418,7 @@ export function Reports() {
       setSelectedElderlyIds([]);
     } catch (error) {
       console.error("Failed to generate elderly report.", error);
-      setMessage("Failed to generate report from MySQL.");
+      setMessage("Failed to generate report.");
       setPdfPreviewUrl("");
     } finally {
       setLoading(false);
@@ -453,7 +459,14 @@ export function Reports() {
     <div className="flex-1 overflow-y-auto p-6" style={{ backgroundColor: "#f0f4f8" }}>
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-1.5 text-xs" style={{ color: "#6b7a99" }}>
-          <span>Dashboard</span><span>/</span>
+          <button
+            type="button"
+            onClick={() => onNavigate("dashboard")}
+            className="rounded px-1 py-0.5 hover:underline focus:outline-none focus:ring-2 focus:ring-blue-200"
+            style={{ color: "#6b7a99" }}
+          >
+            Dashboard
+          </button><span>/</span>
           <span>Reports</span><span>/</span>
           <span style={{ color: "#1a2b42", fontWeight: 500 }}>Elderly Health Summary</span>
         </div>
