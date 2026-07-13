@@ -516,7 +516,7 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
                     placeholder="Enter license number"
                     value={form.licenseNumber}
                     error={errors.licenseNumber}
-                    onChange={(value) => setField("licenseNumber", value.replace(/\D/g, "").slice(0, 7))}
+                    onChange={(value) => setField("licenseNumber", value)}
                   />
                   <FormFieldSelect
                     label="Position *"
