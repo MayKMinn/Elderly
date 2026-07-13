@@ -255,7 +255,13 @@ function normalizeScheduleSearchValue(value: string) {
   return value.replace(/^(nurse|elderly):\s*/i, "").trim().toLowerCase();
 }
 
-export function Schedules() {
+type Page = "dashboard" | "manage-profiles" | "schedules" | "medications" | "reports" | "login-history" | "settings";
+
+interface SchedulesProps {
+  onNavigate: (page: Page) => void;
+}
+
+export function Schedules({ onNavigate }: SchedulesProps) {
   const scheduleFormRef = useRef<HTMLDivElement | null>(null);
   const [nurses, setNurses] = useState<SelectOption[]>([]);
   const [elders, setElders] = useState<SelectOption[]>([]);
@@ -483,7 +489,7 @@ export function Schedules() {
       setSchedules(scheduleResponse.schedules);
     } catch (loadError) {
       console.error("Failed to load schedule data.", loadError);
-      setError("Could not load schedules from MySQL.");
+      setError("Could not load schedules.");
     } finally {
       setLoading(false);
     }
@@ -822,13 +828,13 @@ export function Schedules() {
           ? editingSchedule.recurringGroupId && !recurring
             ? "Recurring schedule stopped. This visit was kept."
             : addingRecurringFromEdit && savedSchedules.length > 1
-              ? `${savedSchedules.length} ${recurrenceFrequency} schedules saved to MySQL.`
+              ? `${savedSchedules.length} ${recurrenceFrequency} schedules saved.`
             : resizingRecurringEdit
               ? `Recurring period updated to ${repeatCount} ${recurrenceFrequency === "daily" ? "day" : "week"}${repeatCount === 1 ? "" : "s"}.`
-            : "Schedule updated in MySQL."
+            : "Schedule updated."
           : savedSchedules.length > 1
-            ? `${savedSchedules.length} ${recurrenceFrequency} schedules saved to MySQL.`
-            : "Schedule saved to MySQL."
+            ? `${savedSchedules.length} ${recurrenceFrequency} schedules saved.`
+            : "Schedule saved."
       );
       if (editingSchedule) {
         setEditingSchedule(saved);
@@ -895,7 +901,14 @@ export function Schedules() {
       {/* Breadcrumb */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-1.5 text-xs" style={{ color: "#6b7a99" }}>
-          <span>Dashboard</span><span>/</span>
+          <button
+            type="button"
+            onClick={() => onNavigate("dashboard")}
+            className="rounded px-1 py-0.5 hover:underline focus:outline-none focus:ring-2 focus:ring-blue-200"
+            style={{ color: "#6b7a99" }}
+          >
+            Dashboard
+          </button><span>/</span>
           <span>Schedules</span><span>/</span>
           <span style={{ color: "#1a2b42", fontWeight: 500 }}>Set Up Schedules</span>
         </div>

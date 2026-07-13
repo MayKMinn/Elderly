@@ -42,10 +42,12 @@ import type { NewProfilePayload, Room, ValidationErrors } from "../api/profiles"
 import type { NurseElderlyAssignment } from "../api/profiles";
 
 type ProfileTab = "elderly" | "nurse";
+type Page = "dashboard" | "manage-profiles" | "schedules" | "medications" | "reports" | "login-history" | "settings";
 
 interface ManageProfilesProps {
   activeTab: ProfileTab;
   onTabChange: (tab: ProfileTab) => void;
+  onNavigate: (page: Page) => void;
 }
 
 type Modal =
@@ -318,7 +320,7 @@ function getNurseSqlDisplayId(profile: NurseProfile) {
   return formattedMatch ? formattedMatch[1] : value;
 }
 
-export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) {
+export function ManageProfiles({ activeTab, onTabChange, onNavigate }: ManageProfilesProps) {
   const useApi = import.meta.env.VITE_USE_API !== "false";
   const [modal, setModal] = useState<Modal>(null);
   const [elderlyList, setElderlyList] = useState<ElderlyProfile[]>([]);
@@ -358,7 +360,7 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
         if (ignore) return;
         setElderlyList([]);
         setRooms([]);
-        setError("Could not connect to MySQL API. No elderly profiles loaded.");
+        setError("Could not load profiles.");
         console.error(err);
       })
       .finally(() => {
@@ -511,7 +513,7 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
           emergencyContact: apiValidationErrors.emergencyName || apiValidationErrors.emergencyContact,
         };
       }
-      setError("Failed to save changes to MySQL.");
+      setError("Failed to save changes.");
       console.error(err);
     }
   };
@@ -531,7 +533,7 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
         setSelectedRow(null);
         setError(null);
       } catch (err) {
-        setError("Failed to delete profile from MySQL.");
+        setError("Failed to delete profile.");
         console.error(err);
       }
     }
@@ -566,7 +568,7 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
         return apiValidationErrors;
       }
 
-      setError("Failed to save nurse changes to MySQL.");
+      setError("Failed to save nurse changes.");
       console.error(err);
     }
   };
@@ -588,7 +590,7 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
       setModal(null);
       setError(null);
     } catch (err) {
-      setError("Failed to delete nurse profile from MySQL.");
+      setError("Failed to delete nurse profile.");
       console.error(err);
     }
   };
@@ -850,21 +852,25 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
   };
 
   const getNurseMonthDate = (n: NurseProfile) => n.createdAt || n.hireDate;
+  const elderlyRegistrationsThisMonth = elderlyList.filter((e) => isThisMonth(e.admissionDate)).length;
   const nurseRegistrationsThisMonth = nurseList.filter((n) => isThisMonth(getNurseMonthDate(n))).length;
+  const activeElderly = elderlyList.filter((e) => e.status === "Active").length;
+  const inactiveElderly = elderlyList.length - activeElderly;
+  const activeNurses = nurseList.filter((n) => n.status === "Active").length;
   const activeNursesThisMonth = nurseList.filter((n) => n.status === "Active" && isThisMonth(getNurseMonthDate(n))).length;
 
   const elderlyStats = [
-    { label: "Total Elders", value: elderlyList.length, sub: "+8 this month", icon: <Users size={18} />, iconBg: "#eff6ff", iconColor: "#3b82f6" },
-    { label: "Total Caregivers", value: nurseList.length, sub: `+${nurseRegistrationsThisMonth} this month`, icon: <UserCheck size={18} />, iconBg: "#f0fdf4", iconColor: "#22c55e" },
-    { label: "Active Cases", value: elderlyList.filter((e) => e.status === "Active").length, sub: "+3 this week", icon: <Activity size={18} />, iconBg: "#fff7ed", iconColor: "#f97316" },
-    { label: "New Registrations", value: newElderlyRegistrations, sub: "This week", icon: <UserPlus size={18} />, iconBg: "#fdf4ff", iconColor: "#a855f7" },
+    { label: "Total Elders", value: elderlyList.length, sub: `${elderlyRegistrationsThisMonth} registered this month`, icon: <Users size={18} />, iconBg: "#eff6ff", iconColor: "#3b82f6" },
+    { label: "Total Caregivers", value: nurseList.length, sub: `${nurseRegistrationsThisMonth} registered this month`, icon: <UserCheck size={18} />, iconBg: "#f0fdf4", iconColor: "#22c55e" },
+    { label: "Active Cases", value: activeElderly, sub: `${inactiveElderly} inactive`, icon: <Activity size={18} />, iconBg: "#fff7ed", iconColor: "#f97316" },
+    { label: "New Registrations", value: newElderlyRegistrations, sub: `${newElderlyRegistrations} this week`, icon: <UserPlus size={18} />, iconBg: "#fdf4ff", iconColor: "#a855f7" },
   ];
 
   const nurseStats = [
-    { label: "Total Nurses", value: nurseList.length, sub: `+${nurseRegistrationsThisMonth} this month`, icon: <Users size={18} />, iconBg: "#eff6ff", iconColor: "#3b82f6" },
-    { label: "Total Elders", value: elderlyList.length, sub: "+8 this month", icon: <UserCheck size={18} />, iconBg: "#f0fdf4", iconColor: "#22c55e" },
-    { label: "Active Nurses", value: nurseList.filter((n) => n.status === "Active").length, sub: `+${activeNursesThisMonth} this month`, icon: <Activity size={18} />, iconBg: "#fff7ed", iconColor: "#f97316" },
-    { label: "New Registrations", value: newNurseRegistrations, sub: "This week", icon: <UserPlus size={18} />, iconBg: "#fdf4ff", iconColor: "#a855f7" },
+    { label: "Total Nurses", value: nurseList.length, sub: `${nurseRegistrationsThisMonth} registered this month`, icon: <Users size={18} />, iconBg: "#eff6ff", iconColor: "#3b82f6" },
+    { label: "Total Elders", value: elderlyList.length, sub: `${elderlyRegistrationsThisMonth} registered this month`, icon: <UserCheck size={18} />, iconBg: "#f0fdf4", iconColor: "#22c55e" },
+    { label: "Active Nurses", value: activeNurses, sub: `${activeNursesThisMonth} active this month`, icon: <Activity size={18} />, iconBg: "#fff7ed", iconColor: "#f97316" },
+    { label: "New Registrations", value: newNurseRegistrations, sub: `${newNurseRegistrations} this week`, icon: <UserPlus size={18} />, iconBg: "#fdf4ff", iconColor: "#a855f7" },
   ];
 
   const stats = activeTab === "elderly" ? elderlyStats : nurseStats;
@@ -882,7 +888,14 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
       <div className="flex-1 overflow-y-auto p-6">
         {/* Breadcrumb */}
         <div className="flex items-center gap-1.5 text-xs mb-4" style={{ color: "#6b7a99" }}>
-          <span>Dashboard</span>
+          <button
+            type="button"
+            onClick={() => onNavigate("dashboard")}
+            className="rounded px-1 py-0.5 hover:underline focus:outline-none focus:ring-2 focus:ring-blue-200"
+            style={{ color: "#6b7a99" }}
+          >
+            Dashboard
+          </button>
           <span>/</span>
           <span style={{ color: "#1a2b42", fontWeight: 500 }}>Manage Profiles</span>
         </div>
@@ -896,7 +909,7 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
               color: error ? "#b91c1c" : "#1d4ed8",
             }}
           >
-            {loading ? "Loading profiles from MySQL..." : error}
+            {loading ? "Loading profiles..." : error}
           </div>
         )}
 

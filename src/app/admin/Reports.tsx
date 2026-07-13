@@ -39,7 +39,13 @@ const trendData = [
   { date: "May 21", v: 90 }, { date: "May 22", v: 95 }, { date: "May 23", v: 92 }, { date: "May 24", v: 100 },
 ];
 
-function LegacyReports() {
+type Page = "dashboard" | "manage-profiles" | "schedules" | "medications" | "reports" | "login-history" | "settings";
+
+interface LegacyReportsProps {
+  onNavigate: (page: Page) => void;
+}
+
+function LegacyReports({ onNavigate }: LegacyReportsProps) {
   const [selectedReport, setSelectedReport] = useState(reports[0]);
 
   return (
@@ -47,7 +53,14 @@ function LegacyReports() {
       {/* Breadcrumb + Actions */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-1.5 text-xs" style={{ color: "#6b7a99" }}>
-          <span>Dashboard</span><span>/</span>
+          <button
+            type="button"
+            onClick={() => onNavigate("dashboard")}
+            className="rounded px-1 py-0.5 hover:underline focus:outline-none focus:ring-2 focus:ring-blue-200"
+            style={{ color: "#6b7a99" }}
+          >
+            Dashboard
+          </button><span>/</span>
           <span>Reports</span><span>/</span>
           <span style={{ color: "#1a2b42", fontWeight: 500 }}>Generate Reports</span>
         </div>
