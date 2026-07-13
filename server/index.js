@@ -364,8 +364,6 @@ async function ensureHealthLogScheduleColumn() {
     if (error.code !== "ER_DUP_KEYNAME" && error.code !== "ER_DUP_FIELDNAME") throw error;
   }
 }
-  }
-}
 
 const elderlyColumns = `
   elderly_id AS id,
