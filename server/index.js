@@ -1395,6 +1395,30 @@ app.get("/api/profiles", async (_req, res) => {
   }
 });
 
+app.get("/api/nurses/check-username", async (req, res) => {
+  try {
+    const username = String(req.query.username || "").trim();
+
+    if (!username) {
+      res.json({ exists: false });
+      return;
+    }
+
+    const [rows] = await pool.query(
+      `SELECT nurse_id
+       FROM nurse
+       WHERE LOWER(TRIM(username)) = LOWER(TRIM(:username))
+       LIMIT 1`,
+      { username }
+    );
+
+    res.json({ exists: Boolean(rows[0]) });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Failed to check username." });
+  }
+});
+
 app.get("/api/nurses/:id/elderly-assignments", async (req, res) => {
   const nurseId = getNurseDbId(req.params.id);
 
