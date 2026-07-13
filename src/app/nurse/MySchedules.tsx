@@ -24,6 +24,30 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
   const [medicationDetails, setMedicationDetails] = useState<any[]>([]);
   const inputCls = "w-full px-3 py-2.5 bg-muted/60 border border-border rounded-xl outline-none focus:ring-2 focus:ring-primary/30 transition-all";
 
+  function toDateKey(date: Date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  function normalizeDateKey(value: string) {
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    const datePart = raw.split(/[T ]/)[0].replace(/[\/\u2010-\u2015\u2212]/g, "-");
+    if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return datePart;
+    const parsed = new Date(raw);
+    if (!Number.isNaN(parsed.getTime())) return toDateKey(parsed);
+    return "";
+  }
+
+  function compareDateKeys(left: string, right: string) {
+    const normalizedLeft = normalizeDateKey(left);
+    const normalizedRight = normalizeDateKey(right);
+    if (!normalizedLeft || !normalizedRight) return 0;
+    return normalizedLeft.localeCompare(normalizedRight);
+  }
+
   useEffect(() => {
     if (!nurseId) {
       setSchedules([]);
@@ -167,11 +191,21 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
       return;
     }
 
+    const selectedDateKey = normalizeDateKey(String(selectedSchedule.visitDate || ""));
+    const todayKey = toDateKey(new Date());
+    if (!selectedDateKey || compareDateKeys(selectedDateKey, todayKey) > 0) {
+      setFormMessage(`This visit becomes available on ${selectedSchedule.visitDate}.`);
+      return;
+    }
+
     setSubmitLoading(true);
     setFormMessage(null);
 
+    let statusUpdated = false;
     try {
-      // Save measurement record first
+      await updateScheduleStatus(selectedSchedule.id, "completed");
+      statusUpdated = true;
+
       const created = await createHealthLog({
         nurseId: Number(nurseId || 0),
         elderlyId: Number(selectedSchedule.elderlyId || 0),
@@ -185,18 +219,23 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
         medicationName: selectedSchedule.purpose === "Medication" ? selectedSchedule.purpose : undefined,
       });
 
-      // show the created record in the UI immediately
       if (created && typeof created.log_id !== "undefined") {
         setLatestRecord(created as any);
       }
 
-      await updateScheduleStatus(selectedSchedule.id, "completed");
       setSchedules((prev) => prev.map((item) => item.id === selectedSchedule.id ? { ...item, scheduleStatus: "completed" } : item));
       setFormMessage("Visit completed.");
       resetFormFields();
     } catch (error) {
-      console.error(error);
-      setFormMessage("Failed to complete visit.");
+      console.error("Failed to complete visit", error);
+      if (statusUpdated) {
+        try {
+          await updateScheduleStatus(selectedSchedule.id, "scheduled");
+        } catch (revertError) {
+          console.error("Failed to revert schedule status after health log error", revertError);
+        }
+      }
+      setFormMessage(error instanceof Error ? error.message : "Failed to complete visit.");
     } finally {
       setSubmitLoading(false);
     }
@@ -297,6 +336,9 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
 
   const selectedPurpose = selectedSchedule?.purpose || "";
   const selectedElderlyName = selectedSchedule?.elderlyName || "";
+  const selectedScheduleIsDue = selectedSchedule
+    ? compareDateKeys(String(selectedSchedule.visitDate || ""), toDateKey(new Date())) <= 0
+    : false;
   const selectedDetails = selectedSchedule ? (
     <div className="rounded-2xl border border-border bg-card p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -346,63 +388,71 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
             </div>
           </div>
         )}
-        {selectedPurpose === "Blood Pressure" && selectedSchedule.scheduleStatus === "scheduled" && (
-          <div className="grid gap-3 md:grid-cols-2">
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Systolic (mmHg)</label>
-              <input type="number" className={inputCls} placeholder="e.g. 120" value={systolic} onChange={(e) => setSystolic(e.target.value)} required />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Diastolic (mmHg)</label>
-              <input type="number" className={inputCls} placeholder="e.g. 80" value={diastolic} onChange={(e) => setDiastolic(e.target.value)} required />
-            </div>
+        {selectedSchedule.scheduleStatus === "scheduled" && !selectedScheduleIsDue && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+            This visit becomes available on {selectedSchedule.visitDate}. You can complete it after that date.
           </div>
         )}
 
-        {selectedPurpose === "Blood Glucose" && selectedSchedule.scheduleStatus === "scheduled" && (
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Blood Glucose (mg/dL)</label>
-            <input type="number" className={inputCls} placeholder="e.g. 100" value={glucoseValue} onChange={(e) => setGlucoseValue(e.target.value)} required />
-          </div>
-        )}
-
-        {selectedPurpose === "Routine Visit" && selectedSchedule.scheduleStatus === "scheduled" && (
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Visit notes</label>
-            <textarea className={`${inputCls} resize-none`} rows={4} placeholder="Enter observations or care notes" value={notes} onChange={(e) => setNotes(e.target.value)} required />
-          </div>
-        )}
-
-        {selectedPurpose === "Medication" && selectedSchedule.scheduleStatus === "scheduled" && (
-          <div className="space-y-3 rounded-lg border border-border bg-muted/5 p-3">
-            <div className="text-sm text-muted-foreground">
-              This medication visit will be recorded as completed and the medication status will be saved.
-            </div>
-            {medicationDetails.length > 0 ? (
-              <div className="space-y-2">
-                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Medicine & dosage</div>
-                {medicationDetails.map((item) => (
-                  <div key={item.id} className="rounded-lg border border-border bg-background/70 p-2.5">
-                    <div className="text-sm font-semibold text-foreground">{item.medicationName}</div>
-                    <div className="text-sm text-muted-foreground">{item.dosage}</div>
-                    {item.instructions ? <div className="mt-1 text-xs text-muted-foreground">{item.instructions}</div> : null}
-                  </div>
-                ))}
+        {selectedSchedule.scheduleStatus === "scheduled" && selectedScheduleIsDue && (
+          <>
+            {selectedPurpose === "Blood Pressure" && (
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Systolic (mmHg)</label>
+                  <input type="number" className={inputCls} placeholder="e.g. 120" value={systolic} onChange={(e) => setSystolic(e.target.value)} required />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Diastolic (mmHg)</label>
+                  <input type="number" className={inputCls} placeholder="e.g. 80" value={diastolic} onChange={(e) => setDiastolic(e.target.value)} required />
+                </div>
               </div>
-            ) : (
-              <div className="text-sm text-muted-foreground">No medication details found for this resident.</div>
             )}
-          </div>
-        )}
 
-        {selectedSchedule.scheduleStatus === "scheduled" && (
-          <button
-            type="submit"
-            disabled={submitLoading}
-            className="inline-flex items-center justify-center rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-60"
-          >
-            {submitLoading ? "Saving…" : selectedPurpose === "Routine Visit" ? "Finish Visit" : "Complete Visit"}
-          </button>
+            {selectedPurpose === "Blood Glucose" && (
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Blood Glucose (mg/dL)</label>
+                <input type="number" className={inputCls} placeholder="e.g. 100" value={glucoseValue} onChange={(e) => setGlucoseValue(e.target.value)} required />
+              </div>
+            )}
+
+            {selectedPurpose === "Routine Visit" && (
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Visit notes</label>
+                <textarea className={`${inputCls} resize-none`} rows={4} placeholder="Enter observations or care notes" value={notes} onChange={(e) => setNotes(e.target.value)} required />
+              </div>
+            )}
+
+            {selectedPurpose === "Medication" && (
+              <div className="space-y-3 rounded-lg border border-border bg-muted/5 p-3">
+                <div className="text-sm text-muted-foreground">
+                  This medication visit will be recorded as completed and the medication status will be saved.
+                </div>
+                {medicationDetails.length > 0 ? (
+                  <div className="space-y-2">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Medicine & dosage</div>
+                    {medicationDetails.map((item) => (
+                      <div key={item.id} className="rounded-lg border border-border bg-background/70 p-2.5">
+                        <div className="text-sm font-semibold text-foreground">{item.medicationName}</div>
+                        <div className="text-sm text-muted-foreground">{item.dosage}</div>
+                        {item.instructions ? <div className="mt-1 text-xs text-muted-foreground">{item.instructions}</div> : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-sm text-muted-foreground">No medication details found for this resident.</div>
+                )}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={submitLoading}
+              className="inline-flex items-center justify-center rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-60"
+            >
+              {submitLoading ? "Saving…" : selectedPurpose === "Routine Visit" ? "Finish Visit" : "Complete Visit"}
+            </button>
+          </>
         )}
 
         {formMessage && (

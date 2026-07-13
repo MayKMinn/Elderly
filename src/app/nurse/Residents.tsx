@@ -49,9 +49,18 @@ export function AssignedResidentsSidebar({
   onSelect?: (id: number) => void;
 }) {
   return (
-    <aside className="w-72 border-r border-border p-4 hidden md:block">
-      <h4 className="text-sm font-semibold mb-3">Assigned Residents</h4>
-      <div className="space-y-2">
+    <aside className="w-full border-r border-border p-4 hidden md:block">
+      <div className="mb-4 rounded-3xl border border-border bg-background/60 p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-foreground">Assigned Residents</p>
+            <p className="text-xs text-muted-foreground mt-1">Review your residents and their next scheduled check-ins.</p>
+          </div>
+          <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">{residents.length} total</span>
+        </div>
+      </div>
+
+      <div className="space-y-3">
         {residents.map((resident) => {
           const today = new Date().toISOString().slice(0, 10);
           const todays = (scheduleAssignments || []).filter(
@@ -65,16 +74,19 @@ export function AssignedResidentsSidebar({
             <button
               key={resident.id}
               onClick={() => onSelect?.(resident.id)}
-              className={`w-full flex items-center gap-3 p-2 rounded-lg text-left transition-all ${selectedId === resident.id ? "bg-primary/5 ring-1 ring-primary/10" : "hover:bg-muted"}`}
+              className={`w-full flex items-center gap-3 rounded-3xl border p-3 text-left transition-all ${selectedId === resident.id ? "border-primary bg-primary/5 shadow-sm" : "border-border bg-card hover:border-primary/40 hover:shadow-sm"}`}
             >
-              <div className="w-11 h-11 rounded-full overflow-hidden bg-muted flex-shrink-0">
-                <img src={resident.photo} alt={resident.name} className="w-full h-full object-cover" />
+              <div className="relative flex-shrink-0">
+                <div className="w-12 h-12 rounded-2xl overflow-hidden bg-muted">
+                  <img src={resident.photo} alt={resident.name} className="w-full h-full object-cover" />
+                </div>
+                <div className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-card ${statusDot[resident.status]}`} />
               </div>
-              <div className="flex-1 min-w-0">
+              <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold text-foreground truncate">{resident.name}</p>
-                <p className="text-xs text-muted-foreground">Room {resident.room} · Age {resident.age}</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {todays.length > 0 ? `Today: ${todays.length}` : next ? `Next: ${next.visitDate} ${next.visitTime}` : "No upcoming visits"}
+                <p className="text-xs text-muted-foreground mt-0.5">Room {resident.room} · Age {resident.age}</p>
+                <p className="text-xs text-muted-foreground mt-2 truncate">
+                  {todays.length > 0 ? `Today · ${todays.length} check${todays.length > 1 ? "s" : ""}` : next ? `Next ${next.visitDate} ${next.visitTime}` : "No upcoming visits"}
                 </p>
               </div>
               <ChevronRight size={16} className="text-muted-foreground" />
@@ -112,73 +124,87 @@ export function ResidentDetailsPanel({
   );
 
   return (
-    <div className="flex h-full flex-col gap-4 rounded-3xl border border-border bg-card p-5 shadow-sm">
-      <div className="flex flex-col gap-4 rounded-2xl bg-muted/40 p-4 sm:flex-row sm:items-start">
-        <div className="h-16 w-16 overflow-hidden rounded-2xl bg-muted shadow-sm">
-          <img src={resident.photo} alt={resident.name} className="h-full w-full object-cover" />
-        </div>
-        <div className="flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-xl font-semibold text-foreground" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>
-              {resident.name}
-            </h3>
-            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${statusColor[resident.status]}`}>
+    <div className="flex h-full flex-col gap-5 rounded-3xl border border-border bg-card p-6 shadow-sm">
+      <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+        <div className="rounded-3xl border border-border bg-background/70 p-5">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-foreground">{resident.name}</p>
+              <p className="text-xs text-muted-foreground mt-1">Room {resident.room} · Age {resident.age} · {resident.bloodType}</p>
+            </div>
+            <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold capitalize ${statusColor[resident.status]}`}>
               {resident.status}
             </span>
           </div>
-          <p className="mt-1 text-sm text-muted-foreground">Age {resident.age} · Room {resident.room} · {resident.bloodType}</p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {resident.conditions.length > 0 ? resident.conditions.map((condition) => (
-              <span key={condition} className="rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-xs text-red-700">
-                {condition}
-              </span>
-            )) : <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">No listed conditions</span>}
+
+          <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-16 w-16 overflow-hidden rounded-3xl bg-muted shadow-sm">
+                <img src={resident.photo} alt={resident.name} className="h-full w-full object-cover" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-foreground">Medical conditions</p>
+                <p className="text-xs text-muted-foreground">{resident.conditions.length > 0 ? resident.conditions.join(", ") : "No conditions recorded"}</p>
+              </div>
+            </div>
+            {resident.allergies.length > 0 ? (
+              <div className="rounded-3xl border border-amber-200 bg-amber-50 px-4 py-3">
+                <div className="flex items-center gap-2 text-amber-800">
+                  <AlertCircle size={16} />
+                  <span className="text-sm font-semibold">Allergies</span>
+                </div>
+                <p className="mt-2 text-sm text-amber-700">{resident.allergies.join(", ")}</p>
+              </div>
+            ) : (
+              <div className="rounded-3xl border border-border bg-muted/50 px-4 py-3">
+                <p className="text-sm font-semibold text-foreground">No recorded allergies</p>
+                <p className="text-xs text-muted-foreground mt-1">Keep the care team updated with any changes.</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div className="rounded-3xl border border-border bg-background/70 p-5">
+            <p className="text-sm font-semibold text-foreground">Emergency Contact</p>
+            <div className="mt-4 flex items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary font-semibold">
+                {initials(resident.emergencyContact.name)}
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-foreground">{resident.emergencyContact.name}</p>
+                <p className="text-xs text-muted-foreground">{resident.emergencyContact.relation}</p>
+              </div>
+            </div>
+            <a href={`tel:${resident.emergencyContact.phone}`} className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline">
+              <Phone size={14} />
+              {resident.emergencyContact.phone || "No phone provided"}
+            </a>
+          </div>
+
+          <div className="rounded-3xl border border-border bg-background/70 p-5">
+            <p className="text-sm font-semibold text-foreground">Upcoming Visits</p>
+            <div className="mt-4 space-y-3">
+              {upcomingSchedules.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No upcoming visits scheduled.</p>
+              ) : (
+                upcomingSchedules.slice(0, 4).map((schedule) => (
+                  <div key={`${schedule.id}-${schedule.visitDate}-${schedule.visitTime}`} className="rounded-3xl border border-border bg-card/70 px-4 py-3">
+                    <p className="text-sm font-semibold text-foreground">{schedule.visitDate}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{schedule.visitTime || "Time not set"}</p>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
       </div>
 
-      {resident.allergies.length > 0 && (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-          <div className="flex items-center gap-2">
-            <AlertCircle size={15} className="text-amber-600" />
-            <p className="text-sm font-semibold text-amber-800">Known Allergies</p>
-          </div>
-          <p className="mt-2 text-sm text-amber-700">{resident.allergies.join(", ")}</p>
-        </div>
-      )}
-
-      <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-        <div className="rounded-2xl border border-border bg-background/70 p-4">
-          <h4 className="mb-3 text-sm font-semibold text-foreground">Emergency Contact</h4>
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
-              {initials(resident.emergencyContact.name)}
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-foreground">{resident.emergencyContact.name}</p>
-              <p className="text-xs text-muted-foreground">{resident.emergencyContact.relation}</p>
-            </div>
-          </div>
-          <a href={`tel:${resident.emergencyContact.phone}`} className="mt-3 flex items-center gap-2 text-sm text-primary hover:underline">
-            <Phone size={13} />{resident.emergencyContact.phone || "No phone provided"}
-          </a>
-        </div>
-
-        <div className="rounded-2xl border border-border bg-background/70 p-4">
-          <h4 className="mb-3 text-sm font-semibold text-foreground">Upcoming Visits</h4>
-          {upcomingSchedules.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No upcoming visits scheduled.</p>
-          ) : (
-            <div className="space-y-2">
-              {upcomingSchedules.slice(0, 4).map((schedule) => (
-                <div key={`${schedule.id}-${schedule.visitDate}-${schedule.visitTime}`} className="rounded-xl border border-border bg-card/70 px-3 py-2 text-sm text-muted-foreground">
-                  <p className="font-medium text-foreground">{schedule.visitDate}</p>
-                  <p className="mt-0.5">{schedule.visitTime || "Time not set"}</p>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+      <div className="rounded-3xl border border-border bg-background/90 p-5">
+        <p className="text-sm font-semibold text-foreground">Care notes</p>
+        <p className="mt-3 text-sm text-muted-foreground">
+          Keep this view handy to share vital resident details quickly and make note of any recent care changes while you are on shift.
+        </p>
       </div>
     </div>
   );

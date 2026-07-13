@@ -665,6 +665,41 @@ function normalizeScheduleDate(value) {
   return String(value || "").trim().replace(/[\/\u2010-\u2015\u2212]/g, "-");
 }
 
+function toDateKey(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function normalizeScheduleDateKey(value) {
+  if (value instanceof Date) {
+    return toDateKey(value);
+  }
+
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  const datePart = raw.split(/[T ]/)[0].replace(/[\/\u2010-\u2015\u2212]/g, "-");
+  if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
+    return datePart;
+  }
+
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    return toDateKey(parsed);
+  }
+
+  return "";
+}
+
+function isScheduleDueForCompletion(scheduleDate, referenceDate = new Date()) {
+  const normalizedTarget = normalizeScheduleDateKey(scheduleDate);
+  const normalizedToday = toDateKey(referenceDate);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedTarget)) return false;
+  return normalizedTarget <= normalizedToday;
+}
+
 function normalizeSchedulePurpose(value) {
   const text = String(value || "").trim();
   if (!text) return text;
@@ -1328,6 +1363,14 @@ app.patch("/api/schedules/:id/status", async (req, res) => {
   }
 
   try {
+    const [scheduleRows] = await pool.query("SELECT DATE(visit_date) AS visitDate FROM `schedule` WHERE schedule_id = ? LIMIT 1", [id]);
+    const visitDate = scheduleRows[0]?.visitDate;
+
+    if (scheduleStatus === "completed" && !isScheduleDueForCompletion(visitDate)) {
+      res.status(409).json({ error: "This visit is not available until its scheduled date." });
+      return;
+    }
+
     const result = await transaction(async (db) => {
       const [updateResult] = await db.query(
         "UPDATE `schedule` SET schedule_status = :scheduleStatus WHERE schedule_id = :id",
