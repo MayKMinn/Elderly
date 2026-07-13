@@ -4,6 +4,7 @@ import { AlertCircle, Eye, EyeOff, Heart, LogIn } from "lucide-react";
 import { AdminPortal } from "./admin/AdminPortal";
 import { NursePortal } from "./nurse/NursePortal";
 import { signInAdmin, signInNurse, signOutAdmin } from "./api/auth";
+import type { AdminProfile } from "./api/auth";
 
 type Portal = "admin" | "nurse";
 
@@ -71,6 +72,24 @@ export default function App() {
     setSession(null);
   }
 
+  function handleAdminProfileChange(profile: AdminProfile) {
+    setSession((current) => {
+      if (!current || current.role !== "admin") return current;
+
+      const nextSession = {
+        ...current,
+        id: profile.id,
+        name: profile.name,
+        username: profile.username,
+        email: profile.email,
+        avatar: profile.avatar || "",
+      };
+
+      localStorage.setItem(sessionStorageKey, JSON.stringify(nextSession));
+      return nextSession;
+    });
+  }
+
   if (!session) {
     return <SignInScreen onSignIn={handleSignIn} />;
   }
@@ -88,6 +107,7 @@ export default function App() {
         }}
         signedInAt={session.signedInAt}
         onSignOut={handleSignOut}
+        onAdminProfileChange={handleAdminProfileChange}
       />
     );
   }
