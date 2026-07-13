@@ -532,9 +532,14 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
     setModal(null);
   };
 
-  const handleSaveNurseEdit = async (updated: NurseProfile) => {
+  const handleSaveNurseEdit = async (updated: NurseProfile): Promise<ValidationErrors | void> => {
+    const validationErrors = validateNurseEditProfile(updated);
+    if (Object.keys(validationErrors).length > 0) {
+      return validationErrors;
+    }
+
     if (!useApi) {
-      setNurseList((prev) => prev.map((n) => (n.id === updated.id ? updated : n)));
+      setNurseList((prev) => prev.map((n) => (String(n.id) === String(updated.id) ? updated : n)));
       setModal(null);
       return;
     }
@@ -550,8 +555,12 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
       setError(null);
       setSuccessMessage("Caregiver profile updated successfully.");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(`Failed to save nurse changes to MySQL. ${message}`);
+      const apiValidationErrors = parseApiValidationErrors(err);
+      if (apiValidationErrors) {
+        return apiValidationErrors;
+      }
+
+      setError("Failed to save nurse changes to MySQL.");
       console.error(err);
     }
   };
@@ -593,8 +602,8 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
 
     if (!profile.age.trim()) errors.age = "Age is required.";
     else if (!Number.isInteger(age)) errors.age = "Age must be a whole number.";
-    else if (profile.type === "nurse" && (age < 18 || age > 80)) {
-      errors.age = "Caregiver age must be between 18 and 80.";
+    else if (profile.type === "nurse" && (age < 18 || age > 40)) {
+      errors.age = "Caregiver age must be between 18 and 40.";
     } else if (profile.type === "elderly" && (age < 50 || age > 120)) {
       errors.age = "Elderly age must be between 50 and 120.";
     }
@@ -1919,8 +1928,8 @@ function validateNurseEditProfile(profile: NurseProfile): ValidationErrors {
     errors.name = "Full name must contain letters only.";
   }
 
-  if (!Number.isInteger(age) || age < 18 || age > 80) {
-    errors.age = "Caregiver age must be between 18 and 80.";
+  if (!Number.isInteger(age) || age < 18 || age > 40) {
+    errors.age = "Caregiver age must be between 18 and 40.";
   }
 
   if (!String(profile.gender || "").trim()) {
@@ -1999,7 +2008,9 @@ function NurseEditPanel({
     }));
   };
 
-  const handleSave = () => {
+  const hasErrors = Object.values(errors).some(Boolean);
+
+  const handleSave = async () => {
     const nextForm = {
       ...form,
       age: Number(form.age) || 0,
@@ -2013,7 +2024,11 @@ function NurseEditPanel({
       return;
     }
 
-    onSave(nextForm);
+    const saveErrors = await onSave(nextForm);
+    if (saveErrors && Object.keys(saveErrors).length > 0) {
+      setErrors(saveErrors);
+      return;
+    }
   };
 
   return (

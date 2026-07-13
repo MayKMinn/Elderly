@@ -100,7 +100,7 @@
            ELSE
                IF FUNCTION TEST-NUMVAL(FUNCTION TRIM(AGE-TEXT)) = 0
                    MOVE FUNCTION NUMVAL(AGE-TEXT) TO AGE-NUMBER
-                   IF AGE-NUMBER < 18 OR AGE-NUMBER > 80
+                   IF AGE-NUMBER < 18 OR AGE-NUMBER > 40
                        PERFORM ADD-AGE-RANGE-NURSE
                    END-IF
                ELSE
@@ -354,7 +354,7 @@
            PERFORM APPEND-ERROR.
 
        ADD-AGE-RANGE-NURSE.
-           MOVE '"age":"Caregiver age must be between 18 and 80."'
+           MOVE '"age":"Caregiver age must be between 18 and 40."'
                TO FIELD-ERROR.
            PERFORM APPEND-ERROR.
 

@@ -2605,6 +2605,22 @@ app.post("/api/nurses", async (req, res) => {
       nurseStatus: toDbNurseStatus(profile.nurseStatus || profile.status),
     };
 
+    const [duplicateRows] = await pool.query(
+      `SELECT nurse_id
+       FROM nurse
+       WHERE LOWER(TRIM(username)) = LOWER(TRIM(:username))
+       LIMIT 1`,
+      { username: data.username }
+    );
+
+    if (duplicateRows[0]) {
+      res.status(422).json({
+        valid: false,
+        errors: { username: "Duplicate username." },
+      });
+      return;
+    }
+
     const [result] = await pool.query(
       `INSERT INTO nurse (
         name,
@@ -2741,6 +2757,23 @@ app.put("/api/nurses/:id", async (req, res) => {
       hireDate: normalizeHireDate(profile.hireDate || profile.hire_date),
       nurseStatus: toDbNurseStatus(profile.nurseStatus || profile.status),
     };
+
+    const [duplicateRows] = await pool.query(
+      `SELECT nurse_id
+       FROM nurse
+       WHERE LOWER(TRIM(username)) = LOWER(TRIM(:username))
+         AND nurse_id <> :nurseId
+       LIMIT 1`,
+      { username: data.username, nurseId }
+    );
+
+    if (duplicateRows[0]) {
+      res.status(422).json({
+        valid: false,
+        errors: { username: "Duplicate username." },
+      });
+      return;
+    }
 
     await transaction(async (connection) => {
       await connection.query(

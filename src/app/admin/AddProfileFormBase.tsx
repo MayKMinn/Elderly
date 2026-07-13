@@ -193,8 +193,8 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
       const age = Number(valueText);
       if (!trimmedValue) return "Age is required.";
       if (!Number.isInteger(age)) return "Age must be a whole number.";
-      if (currentForm.type === "nurse" && (age < 18 || age > 80)) {
-        return "Caregiver age must be between 18 and 80.";
+      if (currentForm.type === "nurse" && (age < 18 || age > 40)) {
+        return "Caregiver age must be between 18 and 40.";
       }
       if (currentForm.type === "elderly" && (age < 50 || age > 120)) {
         return "Elderly age must be between 50 and 120.";
