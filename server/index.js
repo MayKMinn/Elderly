@@ -39,6 +39,12 @@ function formatDateForSql(d) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+function formatTimeForSql(d) {
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mi = String(d.getMinutes()).padStart(2, '0');
+  return `${hh}:${mi}`;
+}
+
 async function ensureElderlyAvatarColumn() {
   try {
     await pool.query(`ALTER TABLE ${elderlyTable} ADD COLUMN avatar MEDIUMTEXT NULL`);
@@ -201,7 +207,7 @@ async function ensureBloodPressureAndGlucoseTables() {
       nurse_id VARCHAR(40) NULL,
       elderly_id VARCHAR(40) NOT NULL,
       recorded_date DATE NOT NULL,
-      recorded_time VARCHAR(20) NOT NULL,
+      recorded_time TIME NOT NULL,
       systolic INT NULL,
       diastolic INT NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -211,6 +217,12 @@ async function ensureBloodPressureAndGlucoseTables() {
     )`
   );
 
+  try {
+    await pool.query("ALTER TABLE elderly_blood_pressure MODIFY COLUMN recorded_time TIME NOT NULL");
+  } catch (error) {
+    // ignore if modification not applicable
+  }
+
   await pool.query(
     `CREATE TABLE IF NOT EXISTS elderly_blood_glucose (
       glucose_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -218,7 +230,7 @@ async function ensureBloodPressureAndGlucoseTables() {
       nurse_id VARCHAR(40) NULL,
       elderly_id VARCHAR(40) NOT NULL,
       recorded_date DATE NOT NULL,
-      recorded_time VARCHAR(20) NOT NULL,
+      recorded_time TIME NOT NULL,
       glucose_value INT NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_elderly_blood_glucose_elderly_id (elderly_id),
@@ -226,6 +238,12 @@ async function ensureBloodPressureAndGlucoseTables() {
       INDEX idx_elderly_blood_glucose_schedule_id (schedule_id)
     )`
   );
+
+  try {
+    await pool.query("ALTER TABLE elderly_blood_glucose MODIFY COLUMN recorded_time TIME NOT NULL");
+  } catch (error) {
+    // ignore if modification not applicable
+  }
 
   try {
     await pool.query("ALTER TABLE elderly_blood_pressure ADD COLUMN schedule_id INT NULL");
@@ -645,6 +663,41 @@ app.get("/api/schedules", async (req, res) => {
 
 function normalizeScheduleDate(value) {
   return String(value || "").trim().replace(/[\/\u2010-\u2015\u2212]/g, "-");
+}
+
+function toDateKey(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function normalizeScheduleDateKey(value) {
+  if (value instanceof Date) {
+    return toDateKey(value);
+  }
+
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  const datePart = raw.split(/[T ]/)[0].replace(/[\/\u2010-\u2015\u2212]/g, "-");
+  if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
+    return datePart;
+  }
+
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    return toDateKey(parsed);
+  }
+
+  return "";
+}
+
+function isScheduleDueForCompletion(scheduleDate, referenceDate = new Date()) {
+  const normalizedTarget = normalizeScheduleDateKey(scheduleDate);
+  const normalizedToday = toDateKey(referenceDate);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedTarget)) return false;
+  return normalizedTarget <= normalizedToday;
 }
 
 function normalizeSchedulePurpose(value) {
@@ -1310,6 +1363,14 @@ app.patch("/api/schedules/:id/status", async (req, res) => {
   }
 
   try {
+    const [scheduleRows] = await pool.query("SELECT DATE(visit_date) AS visitDate FROM `schedule` WHERE schedule_id = ? LIMIT 1", [id]);
+    const visitDate = scheduleRows[0]?.visitDate;
+
+    if (scheduleStatus === "completed" && !isScheduleDueForCompletion(visitDate)) {
+      res.status(409).json({ error: "This visit is not available until its scheduled date." });
+      return;
+    }
+
     const result = await transaction(async (db) => {
       const [updateResult] = await db.query(
         "UPDATE `schedule` SET schedule_status = :scheduleStatus WHERE schedule_id = :id",
@@ -1374,6 +1435,7 @@ app.post("/api/health", async (req, res) => {
     const nowDate = getForcedNow();
     const nowDateTimeSql = formatDateTimeForSql(nowDate);
     const nowDateOnlySql = formatDateForSql(nowDate);
+    const nowTimeOnlySql = formatTimeForSql(nowDate);
 
     if (Number.isInteger(scheduleId) && scheduleId > 0) {
       [healthLogResult] = await pool.query(
@@ -1401,13 +1463,13 @@ app.post("/api/health", async (req, res) => {
             `UPDATE elderly_blood_pressure
              SET nurse_id = ?, elderly_id = ?, recorded_date = ?, recorded_time = ?, systolic = ?, diastolic = ?
              WHERE pressure_id = ?`,
-            [nurseId, elderlyId, nowDateOnlySql, nowDateTimeSql, systolic, diastolic, existingRows[0].id]
+            [nurseId, elderlyId, nowDateOnlySql, nowTimeOnlySql, systolic, diastolic, existingRows[0].id]
           );
         } else {
           await pool.query(
             `INSERT INTO elderly_blood_pressure (schedule_id, nurse_id, elderly_id, recorded_date, recorded_time, systolic, diastolic)
              VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [scheduleId, nurseId, elderlyId, nowDateOnlySql, nowDateTimeSql, systolic, diastolic]
+            [scheduleId, nurseId, elderlyId, nowDateOnlySql, nowTimeOnlySql, systolic, diastolic]
           );
         }
       } else if (purpose === "Blood Glucose") {
@@ -1421,13 +1483,13 @@ app.post("/api/health", async (req, res) => {
             `UPDATE elderly_blood_glucose
              SET nurse_id = ?, elderly_id = ?, recorded_date = ?, recorded_time = ?, glucose_value = ?
              WHERE glucose_id = ?`,
-            [nurseId, elderlyId, nowDateOnlySql, nowDateTimeSql, bloodSugar, existingRows[0].id]
+            [nurseId, elderlyId, nowDateOnlySql, nowTimeOnlySql, bloodSugar, existingRows[0].id]
           );
         } else {
           await pool.query(
             `INSERT INTO elderly_blood_glucose (schedule_id, nurse_id, elderly_id, recorded_date, recorded_time, glucose_value)
              VALUES (?, ?, ?, ?, ?, ?)`,
-            [scheduleId, nurseId, elderlyId, nowDateOnlySql, nowDateTimeSql, bloodSugar]
+            [scheduleId, nurseId, elderlyId, nowDateOnlySql, nowTimeOnlySql, bloodSugar]
           );
         }
       } else if (purpose === "Medication") {

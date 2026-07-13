@@ -647,27 +647,36 @@ function SchedulePage({ residents, checks, setChecks, isLoading, error }: {
 }
 
 function WeeklyReportPage({ residents, checks, weeklyLogs, loading }: { residents: Resident[]; checks: CheckEntry[]; weeklyLogs: any[]; loading: boolean }) {
-  const today = new Date();
-  const weekStart = new Date(today);
-  const offset = (today.getDay() + 6) % 7;
-  weekStart.setDate(today.getDate() - offset);
+  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const rawSelectedDate = new Date(selectedDate);
+  const selectedDateObj = Number.isNaN(rawSelectedDate.getTime()) ? new Date() : rawSelectedDate;
+
+  const weekStart = new Date(selectedDateObj);
+  const offset = (weekStart.getDay() + 6) % 7;
+  weekStart.setDate(weekStart.getDate() - offset);
   weekStart.setHours(0, 0, 0, 0);
   const weekEnd = new Date(weekStart);
   weekEnd.setDate(weekStart.getDate() + 6);
   weekEnd.setHours(23, 59, 59, 999);
 
-  const weekLabel = `${weekStart.toLocaleDateString(undefined, { month: "short", day: "numeric" })} – ${weekEnd.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+  const weekLabel = `${weekStart.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })} – ${weekEnd.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`;
   const weekDateLabel = `${weekStart.toLocaleDateString(undefined, { weekday: "short" })} – ${weekEnd.toLocaleDateString(undefined, { weekday: "short" })}`;
 
   const logsThisWeek = Array.isArray(weeklyLogs) ? weeklyLogs : [];
-  const recordCount = logsThisWeek.length;
-  const uniqueResidentIds = Array.from(new Set(logsThisWeek.map((log) => String(log.elderly_id ?? log.elderlyId ?? "")))).filter(Boolean);
+  const filteredLogs = logsThisWeek.filter((log) => {
+    const dateValue = String(log.visitDate || log.visit_date || "").slice(0, 10);
+    const date = new Date(dateValue);
+    return !Number.isNaN(date.getTime()) && date >= weekStart && date <= weekEnd;
+  });
+
+  const recordCount = filteredLogs.length;
+  const uniqueResidentIds = Array.from(new Set(filteredLogs.map((log) => String(log.elderly_id ?? log.elderlyId ?? "")))).filter(Boolean);
   const residentWithRecordCount = uniqueResidentIds.length;
   const days = Array.from({ length: 7 }).map((_, index) => {
     const date = new Date(weekStart);
     date.setDate(weekStart.getDate() + index);
     const key = date.toISOString().slice(0, 10);
-    const count = logsThisWeek.filter((log) => String(log.visitDate || log.visit_date || "").slice(0, 10) === key).length;
+    const count = filteredLogs.filter((log) => String(log.visitDate || log.visit_date || "").slice(0, 10) === key).length;
     return {
       day: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][index],
       date: date.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
@@ -681,27 +690,33 @@ function WeeklyReportPage({ residents, checks, weeklyLogs, loading }: { resident
 
   const logsByResident = residents.reduce<Record<string, any[]>>((groups, resident) => {
     const key = String(resident.id);
-    groups[key] = logsThisWeek.filter((log) => String(log.elderly_id ?? log.elderlyId ?? "") === key);
+    groups[key] = filteredLogs.filter((log) => String(log.elderly_id ?? log.elderlyId ?? "") === key);
     return groups;
   }, {});
-
-  logsThisWeek.forEach((log) => {
-    const key = String(log.elderly_id ?? log.elderlyId ?? "");
-    if (!key) return;
-    if (!logsByResident[key]) logsByResident[key] = [];
-    if (!logsByResident[key].includes(log)) logsByResident[key].push(log);
-  });
 
   return (
     <div className="flex flex-col gap-5">
       <div className="bg-card border border-border rounded-2xl p-5">
-        <p className="text-sm text-muted-foreground">Weekly Record to Admin</p>
-        <h3 className="text-xl font-semibold text-foreground mt-1" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>
-          Jun 29 – Jul 5, 2026
-        </h3>
-        <p className="text-sm text-muted-foreground mt-2">
-          Prepared by <strong className="text-foreground">{NURSE_NAME}</strong> · Sent to Admin
-        </p>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-sm text-muted-foreground">Weekly Record to Admin</p>
+            <h3 className="text-xl font-semibold text-foreground mt-1" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>
+              {weekLabel}
+            </h3>
+            <p className="text-xs text-muted-foreground mt-1">Showing records from {weekStart.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })} through {weekEnd.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}.</p>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <label htmlFor="weekly-record-date" className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Search week by date</label>
+            <input
+              id="weekly-record-date"
+              type="date"
+              value={selectedDate}
+              onChange={(event) => setSelectedDate(event.target.value)}
+              className="w-full rounded-2xl border border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/10"
+            />
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -1125,13 +1140,7 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
         sunday.setDate(monday.getDate() + 6);
         sunday.setHours(23, 59, 59, 999);
 
-        const logs = Array.isArray(response.logs)
-          ? response.logs.filter((log: any) => {
-              const dateValue = String(log.visitDate || log.visit_date || "").slice(0, 10);
-              const date = new Date(dateValue);
-              return !Number.isNaN(date.getTime()) && date >= monday && date <= sunday;
-            })
-          : [];
+        const logs = Array.isArray(response.logs) ? response.logs : [];
 
         if (!ignore) {
           setWeeklyLogs(logs);
