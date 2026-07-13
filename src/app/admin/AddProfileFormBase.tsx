@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ImagePlus, X } from "lucide-react";
-import type { NewProfilePayload, ValidationErrors } from "../api/profiles";
+import { getProfiles } from "../api/profiles";
+import type { NewProfilePayload, Room, ValidationErrors } from "../api/profiles";
 
 export interface AddProfileFormBaseProps {
   type: "elderly" | "nurse";
@@ -28,6 +29,7 @@ const emptyProfile: NewProfilePayload = {
   emergencyName: "",
   emergencyPhone: "",
   emergencyAddress: "",
+  roomId: "",
   elderlyStatus: "active",
   enrollDate: "",
   doctorName: "",
@@ -36,7 +38,6 @@ const emptyProfile: NewProfilePayload = {
   password: "",
   confirmPassword: "",
   position: "",
-  workArea: "",
   hireDate: "",
   nurseStatus: "Active",
   licenseNumber: "",
@@ -60,6 +61,17 @@ function getAgeFromBirthdate(value: string) {
   if (!hasHadBirthday) age -= 1;
 
   return age;
+}
+
+function getBirthdateFromAge(value: string) {
+  const age = Number(value);
+  if (!Number.isInteger(age) || age < 50 || age > 120) return "";
+
+  const birthdate = new Date();
+  birthdate.setHours(0, 0, 0, 0);
+  birthdate.setFullYear(birthdate.getFullYear() - age);
+
+  return formatDateInput(birthdate);
 }
 
 function validateElderlyBirthdate(value: string) {
@@ -147,6 +159,7 @@ const elderlyRequiredFields: Array<keyof NewProfilePayload> = [
   "emergencyName",
   "emergencyPhone",
   "emergencyAddress",
+  "roomId",
 ];
 
 const nurseRequiredFields: Array<keyof NewProfilePayload> = [
@@ -154,7 +167,6 @@ const nurseRequiredFields: Array<keyof NewProfilePayload> = [
   "email",
   "licenseNumber",
   "position",
-  "workArea",
   "hireDate",
   "nurseStatus",
   "username",
@@ -173,6 +185,34 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
   const [isCheckingUsername, setIsCheckingUsername] = useState(false);
   const [errors, setErrors] = useState<ValidationErrors>({});
   const [saving, setSaving] = useState(false);
+  const [rooms, setRooms] = useState<Room[]>([]);
+
+  useEffect(() => {
+    if (type !== "elderly") return;
+
+    let ignore = false;
+
+    getProfiles()
+      .then((profiles) => {
+        if (!ignore) setRooms(profiles.rooms || []);
+      })
+      .catch(() => {
+        if (!ignore) setRooms([]);
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [type]);
+
+  const availableRoomOptions = useMemo(() => (
+    rooms
+      .filter((room) => !room.elderlyId || String(room.roomId) === form.roomId)
+      .map((room) => ({
+        label: `Floor ${room.floorNumber} - Room ${room.roomNumber}`,
+        value: String(room.roomId),
+      }))
+  ), [form.roomId, rooms]);
 
   const validateField = (
     field: keyof NewProfilePayload,
@@ -260,21 +300,26 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
       if (trimmedValue.length > 500) return "Emergency address must be 500 characters or fewer.";
     }
 
+    if (field === "roomId" && currentForm.type === "elderly" && !trimmedValue) {
+      return "Room is required.";
+    }
+
     if (currentForm.type === "nurse") {
       if (field === "position" && !trimmedValue) return "Position is required.";
-      if (field === "workArea" && !trimmedValue) return "Work area is required.";
       if (field === "hireDate") return validateHireDate(valueText);
       if (field === "nurseStatus" && !trimmedValue) return "Nurse status is required.";
     }
 
     if (field === "licenseNumber") {
       if (!trimmedValue) return "License number is required.";
-      if (!/^\d{7}$/.test(trimmedValue)) return "License number must be 7 digits.";
+      if (!/^\d+$/.test(trimmedValue)) return "License number can contain numbers only.";
+      if (trimmedValue.length !== 7) return "License number must be 7 digits.";
     }
 
     if (field === "username") {
       if (!trimmedValue) return "Username is required.";
-      if (!/^[A-Za-z]+$/.test(trimmedValue)) return "Username must contain letters only.";
+      if (!/^[A-Za-z0-9]+$/.test(trimmedValue)) return "Username can contain letters and numbers only.";
+      if (!/[A-Za-z]/.test(trimmedValue)) return "Username must contain at least one letter.";
       if (trimmedValue.length < 4) return "Username must be at least 4 characters.";
     }
 
@@ -337,6 +382,16 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
   const setField = (field: keyof NewProfilePayload, value: string) => {
     setForm((prevForm) => {
       const nextForm = { ...prevForm, [field]: value };
+
+      if (nextForm.type === "elderly" && field === "age") {
+        const defaultBirthdate = getBirthdateFromAge(value);
+        nextForm.birthdate = defaultBirthdate || "";
+      }
+
+      if (nextForm.type === "elderly" && field === "birthdate") {
+        const age = getAgeFromBirthdate(value);
+        if (age !== undefined) nextForm.age = String(age);
+      }
 
       setErrors((prevErrors) => {
         const nextErrors = { ...prevErrors };
@@ -419,7 +474,7 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
                   placeholder={isNurse ? "e.g. 30" : "e.g. 75"}
                   value={form.age}
                   error={errors.age}
-                  onChange={(value) => setField("age", value)}
+                  onChange={(value) => setField("age", value.replace(/\D/g, "").slice(0, 3))}
                 />
               </FormRow2>
               <FormRow2>
@@ -468,7 +523,6 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
                     max={elderlyBirthdateLimits.max}
                     value={form.birthdate}
                     error={errors.birthdate}
-                    blockTyping
                     onChange={(value) => setField("birthdate", value)}
                   />
                   <FormField
@@ -497,21 +551,13 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
                   <FormFieldSelect
                     label="Position *"
                     placeholder="Select position"
-                    options={["Registered Nurse", "LPN", "Geriatric Nurse", "Rehabilitation Nurse"]}
+                    options={["Assistant Nurse", "Junior Nurse", "Senior Nurse", "Head Nurse"]}
                     value={form.position}
                     error={errors.position}
                     onChange={(value) => setField("position", value)}
                   />
                 </FormRow2>
                 <FormRow2>
-                  <FormFieldSelect
-                    label="Work Area *"
-                    placeholder="Select work area"
-                    options={["General Ward", "Memory Care Unit", "Cardiac Care", "Rehabilitation", "Palliative Care"]}
-                    value={form.workArea}
-                    error={errors.workArea}
-                    onChange={(value) => setField("workArea", value)}
-                  />
                   <FormField
                     label="Hire Date *"
                     placeholder="YYYY-MM-DD"
@@ -521,8 +567,6 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
                     error={errors.hireDate}
                     onChange={(value) => setField("hireDate", value)}
                   />
-                </FormRow2>
-                <FormRow2>
                   <FormFieldSelect
                     label="Nurse Status *"
                     placeholder="Select status"
@@ -559,6 +603,14 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
                     value={form.allergies}
                     error={errors.allergies}
                     onChange={(value) => setField("allergies", value)}
+                  />
+                  <FormFieldSelect
+                    label="Room *"
+                    placeholder="Select room"
+                    options={availableRoomOptions}
+                    value={form.roomId}
+                    error={errors.roomId}
+                    onChange={(value) => setField("roomId", value)}
                   />
                 </FormRow2>
               </>
@@ -601,7 +653,7 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
                   placeholder="Enter username"
                   value={form.username}
                   error={errors.username}
-                  onChange={(value) => setField("username", value.replace(/[^A-Za-z]/g, ""))}
+                  onChange={(value) => setField("username", value)}
                 />
                 <FormField
                   label="Password *"
@@ -804,7 +856,7 @@ function FormFieldSelect({
 }: {
   label: string;
   placeholder: string;
-  options: string[];
+  options: Array<string | { label: string; value: string }>;
   value: string;
   onChange: (value: string) => void;
   error?: string;
@@ -828,11 +880,16 @@ function FormFieldSelect({
           <option value="" disabled>
             {placeholder}
           </option>
-          {options.map((option) => (
-            <option key={option} value={option}>
-              {option}
+          {options.map((option) => {
+            const valueText = typeof option === "string" ? option : option.value;
+            const labelText = typeof option === "string" ? option : option.label;
+
+            return (
+            <option key={valueText} value={valueText}>
+              {labelText}
             </option>
-          ))}
+          );
+          })}
         </select>
         <ChevronDown
           size={15}

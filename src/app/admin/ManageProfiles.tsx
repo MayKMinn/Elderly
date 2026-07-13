@@ -38,14 +38,16 @@ import {
   updateNurseElderlyAssignments,
   updateNurseProfile,
 } from "../api/profiles";
-import type { NewProfilePayload, ValidationErrors } from "../api/profiles";
+import type { NewProfilePayload, Room, ValidationErrors } from "../api/profiles";
 import type { NurseElderlyAssignment } from "../api/profiles";
 
 type ProfileTab = "elderly" | "nurse";
+type Page = "dashboard" | "manage-profiles" | "schedules" | "medications" | "reports" | "login-history" | "settings";
 
 interface ManageProfilesProps {
   activeTab: ProfileTab;
   onTabChange: (tab: ProfileTab) => void;
+  onNavigate: (page: Page) => void;
 }
 
 type Modal =
@@ -210,6 +212,10 @@ function normalizeElderlyProfile(profile: Partial<ElderlyProfile>): ElderlyProfi
     medicalCondition: String(profile.medicalCondition ?? ""),
     emergencyContact: String(profile.emergencyContact ?? ""),
     emergencyAddress: String(profile.emergencyAddress ?? ""),
+    roomId: String(profile.roomId ?? ""),
+    floorNumber: String(profile.floorNumber ?? ""),
+    roomNumber: String(profile.roomNumber ?? ""),
+    roomLabel: String(profile.roomLabel ?? ""),
     status: profile.status === "Inactive" ? "Inactive" : "Active",
     avatar: String(profile.avatar ?? ""),
     dob: String(profile.dob ?? ""),
@@ -244,7 +250,6 @@ function normalizeNurseProfile(profile: Partial<NurseProfile>): NurseProfile {
     status,
     avatar: String(profile.avatar ?? ""),
     assignedElders: Number(profile.assignedElders) || 0,
-    workArea: String(profile.workArea ?? ""),
     nurseStatus: String(profile.nurseStatus ?? status),
   };
 }
@@ -315,7 +320,7 @@ function getNurseSqlDisplayId(profile: NurseProfile) {
   return formattedMatch ? formattedMatch[1] : value;
 }
 
-export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) {
+export function ManageProfiles({ activeTab, onTabChange, onNavigate }: ManageProfilesProps) {
   const useApi = import.meta.env.VITE_USE_API !== "false";
   const [modal, setModal] = useState<Modal>(null);
   const [elderlyList, setElderlyList] = useState<ElderlyProfile[]>([]);
@@ -326,6 +331,7 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
   const [loading, setLoading] = useState(useApi);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [rooms, setRooms] = useState<Room[]>([]);
   const [assignmentMap, setAssignmentMap] = useState<Record<string, string[]>>({});
   const [elderlyStatusFilter, setElderlyStatusFilter] = useState<"all" | "Active" | "Inactive">("all");
   const [elderlyGenderFilter, setElderlyGenderFilter] = useState<"all" | "male" | "female" | "other">("all");
@@ -346,13 +352,15 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
         if (ignore) return;
         setElderlyList(profiles.elderly.map(normalizeElderlyProfile));
         setNurseList(profiles.nurses.map(normalizeNurseProfile));
+        setRooms(profiles.rooms || []);
         setAssignmentMap(toAssignmentMap(profiles.nurseElderlyAssignments || []));
         setError(null);
       })
       .catch((err) => {
         if (ignore) return;
         setElderlyList([]);
-        setError("Could not connect to MySQL API. No elderly profiles loaded.");
+        setRooms([]);
+        setError("Could not load profiles.");
         console.error(err);
       })
       .finally(() => {
@@ -505,7 +513,7 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
           emergencyContact: apiValidationErrors.emergencyName || apiValidationErrors.emergencyContact,
         };
       }
-      setError("Failed to save changes to MySQL.");
+      setError("Failed to save changes.");
       console.error(err);
     }
   };
@@ -525,7 +533,7 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
         setSelectedRow(null);
         setError(null);
       } catch (err) {
-        setError("Failed to delete profile from MySQL.");
+        setError("Failed to delete profile.");
         console.error(err);
       }
     }
@@ -560,7 +568,7 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
         return apiValidationErrors;
       }
 
-      setError("Failed to save nurse changes to MySQL.");
+      setError("Failed to save nurse changes.");
       console.error(err);
     }
   };
@@ -582,7 +590,7 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
       setModal(null);
       setError(null);
     } catch (err) {
-      setError("Failed to delete nurse profile from MySQL.");
+      setError("Failed to delete nurse profile.");
       console.error(err);
     }
   };
@@ -661,14 +669,14 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
       }
     } else {
       if (!profile.position) errors.position = "Position is required.";
-      if (!profile.workArea) errors.workArea = "Work area is required.";
       if (!profile.hireDate.trim()) errors.hireDate = "Hire date is required.";
       if (!profile.nurseStatus) errors.nurseStatus = "Nurse status is required.";
     }
 
     if (profile.type === "nurse") {
       if (!profile.username.trim()) errors.username = "Username is required.";
-      else if (!/^[A-Za-z]+$/.test(profile.username.trim())) errors.username = "Username must contain letters only.";
+      else if (!/^[A-Za-z0-9]+$/.test(profile.username.trim())) errors.username = "Username can contain letters and numbers only.";
+      else if (!/[A-Za-z]/.test(profile.username.trim())) errors.username = "Username must contain at least one letter.";
       else if (profile.username.trim().length < 4) errors.username = "Username must be at least 4 characters.";
       if (!profile.password.trim()) errors.password = "Password is required.";
       else if (profile.password.trim().length < 8) errors.password = "Password must be at least 8 characters.";
@@ -690,6 +698,11 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
   };
 
   const handleSaveAssignments = async (profile: NurseProfile, elderlyIds: string[]) => {
+    if (profile.status === "On Leave") {
+      setError("Cannot assign elderly to a nurse who is On Leave.");
+      setModal(null);
+      return;
+    }
     const nurseId = String(profile.nurseId || profile.id);
     const uniqueElderlyIds = Array.from(new Set(elderlyIds.map(String)));
 
@@ -746,6 +759,10 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
           medicalCondition: profile.medicalCondition,
           emergencyContact: profile.emergencyName,
           emergencyAddress: profile.emergencyAddress,
+          roomId: profile.roomId,
+          floorNumber: "",
+          roomNumber: "",
+          roomLabel: "",
           status: "Active",
           avatar: profile.avatar || `https://i.pravatar.cc/40?u=${encodeURIComponent(profile.name.trim())}`,
           dob: profile.birthdate,
@@ -774,7 +791,6 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
           status: profile.nurseStatus === "On Leave" ? "On Leave" : "Active",
           avatar: profile.avatar || "https://i.pravatar.cc/40?img=49",
           assignedElders: 0,
-          workArea: profile.workArea,
           nurseStatus: profile.nurseStatus,
         };
         setNurseList((prev) => [created, ...prev]);
@@ -836,21 +852,25 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
   };
 
   const getNurseMonthDate = (n: NurseProfile) => n.createdAt || n.hireDate;
+  const elderlyRegistrationsThisMonth = elderlyList.filter((e) => isThisMonth(e.admissionDate)).length;
   const nurseRegistrationsThisMonth = nurseList.filter((n) => isThisMonth(getNurseMonthDate(n))).length;
+  const activeElderly = elderlyList.filter((e) => e.status === "Active").length;
+  const inactiveElderly = elderlyList.length - activeElderly;
+  const activeNurses = nurseList.filter((n) => n.status === "Active").length;
   const activeNursesThisMonth = nurseList.filter((n) => n.status === "Active" && isThisMonth(getNurseMonthDate(n))).length;
 
   const elderlyStats = [
-    { label: "Total Elders", value: elderlyList.length, sub: "+8 this month", icon: <Users size={18} />, iconBg: "#eff6ff", iconColor: "#3b82f6" },
-    { label: "Total Caregivers", value: nurseList.length, sub: `+${nurseRegistrationsThisMonth} this month`, icon: <UserCheck size={18} />, iconBg: "#f0fdf4", iconColor: "#22c55e" },
-    { label: "Active Cases", value: elderlyList.filter((e) => e.status === "Active").length, sub: "+3 this week", icon: <Activity size={18} />, iconBg: "#fff7ed", iconColor: "#f97316" },
-    { label: "New Registrations", value: newElderlyRegistrations, sub: "This week", icon: <UserPlus size={18} />, iconBg: "#fdf4ff", iconColor: "#a855f7" },
+    { label: "Total Elders", value: elderlyList.length, sub: `${elderlyRegistrationsThisMonth} registered this month`, icon: <Users size={18} />, iconBg: "#eff6ff", iconColor: "#3b82f6" },
+    { label: "Total Caregivers", value: nurseList.length, sub: `${nurseRegistrationsThisMonth} registered this month`, icon: <UserCheck size={18} />, iconBg: "#f0fdf4", iconColor: "#22c55e" },
+    { label: "Active Cases", value: activeElderly, sub: `${inactiveElderly} inactive`, icon: <Activity size={18} />, iconBg: "#fff7ed", iconColor: "#f97316" },
+    { label: "New Registrations", value: newElderlyRegistrations, sub: `${newElderlyRegistrations} this week`, icon: <UserPlus size={18} />, iconBg: "#fdf4ff", iconColor: "#a855f7" },
   ];
 
   const nurseStats = [
-    { label: "Total Nurses", value: nurseList.length, sub: `+${nurseRegistrationsThisMonth} this month`, icon: <Users size={18} />, iconBg: "#eff6ff", iconColor: "#3b82f6" },
-    { label: "Total Elders", value: elderlyList.length, sub: "+8 this month", icon: <UserCheck size={18} />, iconBg: "#f0fdf4", iconColor: "#22c55e" },
-    { label: "Active Nurses", value: nurseList.filter((n) => n.status === "Active").length, sub: `+${activeNursesThisMonth} this month`, icon: <Activity size={18} />, iconBg: "#fff7ed", iconColor: "#f97316" },
-    { label: "New Registrations", value: newNurseRegistrations, sub: "This week", icon: <UserPlus size={18} />, iconBg: "#fdf4ff", iconColor: "#a855f7" },
+    { label: "Total Nurses", value: nurseList.length, sub: `${nurseRegistrationsThisMonth} registered this month`, icon: <Users size={18} />, iconBg: "#eff6ff", iconColor: "#3b82f6" },
+    { label: "Total Elders", value: elderlyList.length, sub: `${elderlyRegistrationsThisMonth} registered this month`, icon: <UserCheck size={18} />, iconBg: "#f0fdf4", iconColor: "#22c55e" },
+    { label: "Active Nurses", value: activeNurses, sub: `${activeNursesThisMonth} active this month`, icon: <Activity size={18} />, iconBg: "#fff7ed", iconColor: "#f97316" },
+    { label: "New Registrations", value: newNurseRegistrations, sub: `${newNurseRegistrations} this week`, icon: <UserPlus size={18} />, iconBg: "#fdf4ff", iconColor: "#a855f7" },
   ];
 
   const stats = activeTab === "elderly" ? elderlyStats : nurseStats;
@@ -868,7 +888,14 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
       <div className="flex-1 overflow-y-auto p-6">
         {/* Breadcrumb */}
         <div className="flex items-center gap-1.5 text-xs mb-4" style={{ color: "#6b7a99" }}>
-          <span>Dashboard</span>
+          <button
+            type="button"
+            onClick={() => onNavigate("dashboard")}
+            className="rounded px-1 py-0.5 hover:underline focus:outline-none focus:ring-2 focus:ring-blue-200"
+            style={{ color: "#6b7a99" }}
+          >
+            Dashboard
+          </button>
           <span>/</span>
           <span style={{ color: "#1a2b42", fontWeight: 500 }}>Manage Profiles</span>
         </div>
@@ -882,7 +909,7 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
               color: error ? "#b91c1c" : "#1d4ed8",
             }}
           >
-            {loading ? "Loading profiles from MySQL..." : error}
+            {loading ? "Loading profiles..." : error}
           </div>
         )}
 
@@ -1128,6 +1155,7 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
       {modal?.type === "edit" && (
         <EditPanel
           profile={modal.profile}
+          rooms={rooms}
           onClose={() => setModal(null)}
           onSave={handleSaveEdit}
         />
@@ -1169,6 +1197,7 @@ export function ManageProfiles({ activeTab, onTabChange }: ManageProfilesProps) 
           selectedIds={assignmentMap[String(modal.profile.nurseId || modal.profile.id)] || []}
           onCancel={() => setModal({ type: "viewNurse", profile: modal.profile })}
           onSave={(elderlyIds) => handleSaveAssignments(modal.profile, elderlyIds)}
+          nurseStatus={modal.profile.status}
         />
       )}
     </div>
@@ -1192,7 +1221,7 @@ function ElderlyTable({
   onEdit: (p: ElderlyProfile) => void;
   onDelete: (p: ElderlyProfile) => void;
 }) {
-  const cols = ["ID", "Name", "Age", "Gender", "Phone", "Medical Condition", "Emergency Contact", "Status", "Actions"];
+  const cols = ["ID", "Name", "Age", "Gender", "Floor", "Room", "Medical Condition", "Status", "Actions"];
   return (
     <div className="overflow-x-auto">
       <table className="w-full">
@@ -1234,9 +1263,9 @@ function ElderlyTable({
               </td>
               <td className="px-3 py-2.5 text-xs" style={{ color: "#1a2b42" }}>{row.age}</td>
               <td className="px-3 py-2.5 text-xs" style={{ color: "#1a2b42" }}>{row.gender}</td>
-              <td className="px-3 py-2.5 text-xs" style={{ color: "#1a2b42", whiteSpace: "nowrap" }}>{row.phone}</td>
+              <td className="px-3 py-2.5 text-xs" style={{ color: "#1a2b42" }}>{row.floorNumber}</td>
+              <td className="px-3 py-2.5 text-xs" style={{ color: "#1a2b42" }}>{row.roomNumber}</td>
               <td className="px-3 py-2.5 text-xs" style={{ color: "#1a2b42" }}>{row.medicalCondition}</td>
-              <td className="px-3 py-2.5 text-xs" style={{ color: "#1a2b42" }}>{row.emergencyContact}</td>
               <td className="px-3 py-2.5">
                 <span
                   className="px-2 py-0.5 rounded-full text-xs"
@@ -1393,7 +1422,8 @@ function SideProfile({
           <SideRow label="Full Name" value={profile.name} />
           <SideRow label="Date of Birth" value={profile.dob} />
           <SideRow label="Gender" value={profile.gender} />
-          <SideRow label="Phone" value={profile.phone} />
+          <SideRow label="Floor" value={profile.floorNumber || "-"} />
+          <SideRow label="Room" value={profile.roomNumber || "-"} />
         </SideSection>
 
         <SideSection title="Medical Information">
@@ -1403,7 +1433,6 @@ function SideProfile({
         </SideSection>
 
         <SideSection title="Emergency Contact">
-          <SideRow label="Name" value={profile.emergencyContact} />
           <SideRow label="Relationship" value={profile.relationship} />
           <SideRow label="Phone" value={profile.emergencyPhone} />
           <SideRow label="Address" value={profile.emergencyAddress} />
@@ -1464,7 +1493,6 @@ function NurseSideProfile({
 
         <SideSection title="Professional Information">
           <SideRow label="Position" value={profile.position} />
-          <SideRow label="Work Area" value={profile.workArea} />
           <SideRow label="Hire Date" value={profile.hireDate} />
           <SideRow label="Assigned Elders" value={String(profile.assignedElders)} />
         </SideSection>
@@ -1535,8 +1563,9 @@ function ViewModal({
             <ModalRow label="Full Name" value={profile.name} />
             <ModalRow label="Date of Birth" value={profile.dob} />
             <ModalRow label="Gender" value={profile.gender} />
-            <ModalRow label="Phone" value={profile.phone} />
             <ModalRow label="Address" value={profile.address} />
+            <ModalRow label="Floor" value={profile.floorNumber || "-"} />
+            <ModalRow label="Room" value={profile.roomNumber || "-"} />
           </ModalSection>
 
           <ModalSection title="Medical Information">
@@ -1546,7 +1575,6 @@ function ViewModal({
           </ModalSection>
 
           <ModalSection title="Emergency Contact">
-            <ModalRow label="Contact Name" value={profile.emergencyContact} />
             <ModalRow label="Relationship" value={profile.relationship} />
             <ModalRow label="Phone" value={profile.emergencyPhone} />
             <ModalRow label="Address" value={profile.emergencyAddress} />
@@ -1615,7 +1643,6 @@ function NurseViewModal({
           </ModalSection>
           <ModalSection title="Professional Information">
             <ModalRow label="Position" value={profile.position} />
-            <ModalRow label="Work Area" value={profile.workArea} />
             <ModalRow label="Hire Date" value={profile.hireDate} />
             <ModalRow label="Assigned Elders" value={String(assignedElderly.length)} />
           </ModalSection>
@@ -1628,7 +1655,7 @@ function NurseViewModal({
                     <ProfileAvatar src={elderly.avatar} name={elderly.name} className="h-8 w-8" iconSize={14} />
                     <div className="min-w-0">
                       <div className="truncate text-xs" style={{ color: "#1a2b42", fontWeight: 700 }}>{elderly.name}</div>
-                      <div className="truncate text-xs" style={{ color: "#6b7a99" }}>{elderly.id} · {elderly.medicalCondition}</div>
+                      <div className="truncate text-xs" style={{ color: "#6b7a99" }}>Floor {elderly.floorNumber} - Room {elderly.roomNumber} · {elderly.medicalCondition}</div>
                     </div>
                   </div>
                 ))}
@@ -1660,6 +1687,7 @@ function AssignEldersModal({
   selectedIds,
   onCancel,
   onSave,
+  nurseStatus,
 }: {
   nurse: NurseProfile;
   elderlyList: ElderlyProfile[];
@@ -1667,6 +1695,7 @@ function AssignEldersModal({
   selectedIds: string[];
   onCancel: () => void;
   onSave: (elderlyIds: string[]) => Promise<void> | void;
+  nurseStatus: "Active" | "On Leave";
 }) {
   const currentNurseId = String(nurse.nurseId || nurse.id);
   const assignedToOtherNurseIds = new Set(
@@ -1763,7 +1792,7 @@ function AssignEldersModal({
                     <ProfileAvatar src={elderly.avatar} name={elderly.name} className="h-9 w-9" iconSize={15} />
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm" style={{ color: "#1a2b42", fontWeight: 700 }}>{elderly.name}</div>
-                      <div className="truncate text-xs" style={{ color: "#6b7a99" }}>{elderly.id} · {elderly.medicalCondition}</div>
+                      <div className="truncate text-xs" style={{ color: "#6b7a99" }}>F{elderly.floorNumber}-R{elderly.roomNumber} · {elderly.medicalCondition}</div>
                     </div>
                   </label>
                 );
@@ -1774,7 +1803,7 @@ function AssignEldersModal({
 
         <div className="flex items-center justify-between gap-3 border-t p-4" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
           <span className="text-xs" style={{ color: "#6b7a99" }}>
-            {selected.size} elderly selected
+            {nurseStatus === "On Leave" ? "Nurse is on leave. Cannot assign elderly." : `${selected.size} elderly selected`}
           </span>
           <div className="flex gap-2">
             <button onClick={onCancel} className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50" style={{ borderColor: "rgba(0,0,0,0.12)", color: "#6b7a99" }}>
@@ -1782,7 +1811,7 @@ function AssignEldersModal({
             </button>
             <button
               onClick={handleSave}
-              disabled={saving}
+              disabled={saving || nurseStatus === "On Leave"}
               className="rounded-lg px-4 py-2 text-sm text-white disabled:opacity-70"
               style={{ backgroundColor: "#2563eb" }}
             >
@@ -1797,10 +1826,12 @@ function AssignEldersModal({
 
 function EditPanel({
   profile,
+  rooms,
   onClose,
   onSave,
 }: {
   profile: ElderlyProfile;
+  rooms: Room[];
   onClose: () => void;
   onSave: (p: ElderlyProfile) => Promise<ValidationErrors | void> | ValidationErrors | void;
 }) {
@@ -1808,6 +1839,12 @@ function EditPanel({
   const [errors, setErrors] = useState<ValidationErrors>({});
   const [saving, setSaving] = useState(false);
   const birthdateLimits = getBirthdateLimits();
+  const roomOptions = rooms
+    .filter((room) => !room.elderlyId || String(room.elderlyId) === String(profile.id))
+    .map((room) => ({
+      value: String(room.roomId),
+      label: `Floor ${room.floorNumber} - Room ${room.roomNumber}`,
+    }));
 
   const update = (field: keyof ElderlyProfile, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -1885,6 +1922,16 @@ function EditPanel({
             </EditRow2>
           </EditSection>
 
+          <EditSection title="Room Assignment">
+            <EditSelect
+              label="Floor / Room"
+              value={String(form.roomId || "")}
+              options={roomOptions}
+              error={errors.roomId}
+              onChange={(v) => update("roomId", v)}
+            />
+          </EditSection>
+
           <EditSection title="Emergency Contact">
             <EditRow2>
               <EditField label="Emergency Name" value={form.emergencyContact} error={errors.emergencyContact} onChange={(v) => update("emergencyContact", v)} />
@@ -1954,10 +2001,6 @@ function validateNurseEditProfile(profile: NurseProfile): ValidationErrors {
 
   if (!String(profile.position || "").trim()) {
     errors.position = "Position is required.";
-  }
-
-  if (!String(profile.workArea || "").trim()) {
-    errors.workArea = "Work area is required.";
   }
 
   const hireDate = String(profile.hireDate || "").trim();
@@ -2069,10 +2112,9 @@ function NurseEditPanel({
 
           <EditSection title="Professional Information">
             <EditRow2>
-              <EditSelect label="Position" value={form.position} options={["Registered Nurse", "LPN", "Geriatric Nurse", "Rehabilitation Nurse"]} error={errors.position} onChange={(v) => update("position", v)} />
-              <EditSelect label="Work Area" value={form.workArea} options={["General Ward", "Memory Care Unit", "Cardiac Care", "Rehabilitation", "Palliative Care"]} error={errors.workArea} onChange={(v) => update("workArea", v)} />
+              <EditSelect label="Position" value={form.position} options={["Assistant Nurse", "Junior Nurse", "Senior Nurse", "Head Nurse"]} error={errors.position} onChange={(v) => update("position", v)} />
+              <EditField label="Hire Date" value={form.hireDate} error={errors.hireDate} onChange={(v) => update("hireDate", v)} />
             </EditRow2>
-            <EditField label="Hire Date" value={form.hireDate} error={errors.hireDate} onChange={(v) => update("hireDate", v)} />
           </EditSection>
         </div>
 
@@ -2359,7 +2401,7 @@ function EditSelect({
 }: {
   label: string;
   value: string;
-  options: string[];
+  options: Array<string | { label: string; value: string }>;
   onChange: (v: string) => void;
   error?: string;
 }) {
@@ -2373,7 +2415,12 @@ function EditSelect({
           className="w-full appearance-none rounded-lg border px-3 py-2 pr-9 text-xs outline-none transition-colors focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
           style={{ borderColor: error ? "#ef4444" : "rgba(0,0,0,0.12)", backgroundColor: "#f8fafc", color: "#1a2b42" }}
         >
-          {options.map((o) => <option key={o} value={o}>{o}</option>)}
+          {options.map((option) => {
+            const optionValue = typeof option === "string" ? option : option.value;
+            const optionLabel = typeof option === "string" ? option : option.label;
+
+            return <option key={optionValue} value={optionValue}>{optionLabel}</option>;
+          })}
         </select>
         <ChevronDown
           size={15}

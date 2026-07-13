@@ -25,7 +25,6 @@ type Session =
         username?: string;
         email?: string;
         licenseNumber?: string | null;
-        workArea?: string | null;
         position?: string | null;
         avatar?: string | null;
         status?: string;
@@ -150,8 +149,7 @@ function SignInScreen({
           username: nurse.username,
           email: nurse.email,
           licenseNumber: nurse.licenseNumber || "",
-          workArea: nurse.workArea || "",
-          position: nurse.position || "Registered Nurse",
+          position: nurse.position || "Nurse",
           avatar: nurse.avatar || "",
           status: nurse.status,
         });

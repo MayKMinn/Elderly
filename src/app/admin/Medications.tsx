@@ -32,7 +32,13 @@ const emptyForm = {
   status: "Active" as "Active" | "Inactive",
 };
 
-export function Medications() {
+type Page = "dashboard" | "manage-profiles" | "schedules" | "medications" | "reports" | "login-history" | "settings";
+
+interface MedicationsProps {
+  onNavigate: (page: Page) => void;
+}
+
+export function Medications({ onNavigate }: MedicationsProps) {
   const [elderlyProfiles, setElderlyProfiles] = useState<ElderlyProfile[]>([]);
   const [medications, setMedications] = useState<ElderlyMedication[]>([]);
   const [selectedElderlyId, setSelectedElderlyId] = useState("");
@@ -203,7 +209,14 @@ export function Medications() {
     <div className="flex-1 overflow-y-auto p-6" style={{ backgroundColor: "#f0f4f8" }}>
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-1.5 text-xs" style={{ color: "#6b7a99" }}>
-          <span>Dashboard</span><span>/</span>
+          <button
+            type="button"
+            onClick={() => onNavigate("dashboard")}
+            className="rounded px-1 py-0.5 hover:underline focus:outline-none focus:ring-2 focus:ring-blue-200"
+            style={{ color: "#6b7a99" }}
+          >
+            Dashboard
+          </button><span>/</span>
           <span>Medications</span><span>/</span>
           <span style={{ color: "#1a2b42", fontWeight: 500 }}>Elderly Medications</span>
         </div>

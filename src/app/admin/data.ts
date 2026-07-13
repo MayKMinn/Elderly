@@ -7,6 +7,10 @@ export type ElderlyProfile = {
   medicalCondition: string;
   emergencyContact: string;
   emergencyAddress: string;
+  roomId: string;
+  floorNumber: string;
+  roomNumber: string;
+  roomLabel: string;
   status: "Active" | "Inactive";
   avatar: string;
   dob: string;
@@ -34,7 +38,6 @@ export type NurseProfile = {
   status: "Active" | "On Leave";
   avatar: string;
   assignedElders: number;
-  workArea: string;
   nurseStatus: string;
 };
 

@@ -39,6 +39,12 @@ function formatDateForSql(d) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+function formatTimeForSql(d) {
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mi = String(d.getMinutes()).padStart(2, '0');
+  return `${hh}:${mi}`;
+}
+
 async function ensureElderlyAvatarColumn() {
   try {
     await pool.query(`ALTER TABLE ${elderlyTable} ADD COLUMN avatar MEDIUMTEXT NULL`);
@@ -53,6 +59,45 @@ async function ensureElderlyAvatarColumn() {
   } catch (error) {
     if (error.code !== "ER_DUP_FIELDNAME") throw error;
   }
+
+  try {
+    await pool.query(`ALTER TABLE ${elderlyTable} ADD COLUMN room_id INT NULL`);
+  } catch (error) {
+    if (error.code !== "ER_DUP_FIELDNAME") throw error;
+  }
+
+  try {
+    await pool.query(`ALTER TABLE ${elderlyTable} ADD UNIQUE KEY unique_elderly_room (room_id)`);
+  } catch (error) {
+    if (error.code !== "ER_DUP_KEYNAME") throw error;
+  }
+}
+
+async function ensureRoomsTable() {
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS rooms (
+      room_id INT AUTO_INCREMENT PRIMARY KEY,
+      floor_number INT NOT NULL,
+      room_number INT NOT NULL,
+      room_label VARCHAR(20) GENERATED ALWAYS AS (CONCAT('F', floor_number, '-R', LPAD(room_number, 2, '0'))) STORED,
+      UNIQUE KEY unique_floor_room (floor_number, room_number),
+      CONSTRAINT chk_floor_number CHECK (floor_number BETWEEN 1 AND 4),
+      CONSTRAINT chk_room_number CHECK (room_number BETWEEN 1 AND 15)
+    )`
+  );
+
+  await pool.query(
+    `INSERT IGNORE INTO rooms (floor_number, room_number)
+     SELECT floors.floor_number, rooms.room_number
+     FROM (
+       SELECT 1 AS floor_number UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4
+     ) floors
+     CROSS JOIN (
+       SELECT 1 AS room_number UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5
+       UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9 UNION ALL SELECT 10
+       UNION ALL SELECT 11 UNION ALL SELECT 12 UNION ALL SELECT 13 UNION ALL SELECT 14 UNION ALL SELECT 15
+     ) rooms`
+  );
 }
 
 async function ensureMedicationLogsTable() {
@@ -162,7 +207,7 @@ async function ensureBloodPressureAndGlucoseTables() {
       nurse_id VARCHAR(40) NULL,
       elderly_id VARCHAR(40) NOT NULL,
       recorded_date DATE NOT NULL,
-      recorded_time VARCHAR(20) NOT NULL,
+      recorded_time TIME NOT NULL,
       systolic INT NULL,
       diastolic INT NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -172,6 +217,12 @@ async function ensureBloodPressureAndGlucoseTables() {
     )`
   );
 
+  try {
+    await pool.query("ALTER TABLE elderly_blood_pressure MODIFY COLUMN recorded_time TIME NOT NULL");
+  } catch (error) {
+    // ignore if modification not applicable
+  }
+
   await pool.query(
     `CREATE TABLE IF NOT EXISTS elderly_blood_glucose (
       glucose_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -179,7 +230,7 @@ async function ensureBloodPressureAndGlucoseTables() {
       nurse_id VARCHAR(40) NULL,
       elderly_id VARCHAR(40) NOT NULL,
       recorded_date DATE NOT NULL,
-      recorded_time VARCHAR(20) NOT NULL,
+      recorded_time TIME NOT NULL,
       glucose_value INT NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_elderly_blood_glucose_elderly_id (elderly_id),
@@ -187,6 +238,12 @@ async function ensureBloodPressureAndGlucoseTables() {
       INDEX idx_elderly_blood_glucose_schedule_id (schedule_id)
     )`
   );
+
+  try {
+    await pool.query("ALTER TABLE elderly_blood_glucose MODIFY COLUMN recorded_time TIME NOT NULL");
+  } catch (error) {
+    // ignore if modification not applicable
+  }
 
   try {
     await pool.query("ALTER TABLE elderly_blood_pressure ADD COLUMN schedule_id INT NULL");
@@ -265,6 +322,22 @@ async function ensureNurseColumns() {
   } catch (error) {
     if (error.code !== "ER_DUP_FIELDNAME") throw error;
   }
+
+
+  await pool.query(`
+    UPDATE nurse
+    SET position = CASE position
+      WHEN 'Registered Nurse' THEN 'Junior Nurse'
+      WHEN 'Charge Nurse' THEN 'Senior Nurse'
+      WHEN 'LPN' THEN 'Assistant Nurse'
+      WHEN 'Geriatric Nurse' THEN 'Assistant Nurse'
+      WHEN 'Rehabilitation Nurse' THEN 'Assistant Nurse'
+      WHEN 'Nurse' THEN 'Junior Nurse'
+      WHEN 'Caregiver' THEN 'Assistant Nurse'
+      WHEN 'Care Assistant' THEN 'Assistant Nurse'
+      ELSE position
+    END
+  `);
 }
 
 async function ensureScheduleColumns() {
@@ -366,27 +439,31 @@ async function ensureHealthLogScheduleColumn() {
 }
 
 const elderlyColumns = `
-  elderly_id AS id,
-  name,
-  age,
-  gender,
-  phone,
-  medical_conditions AS medicalCondition,
-  emergency_name AS emergencyContact,
-  COALESCE(emergency_address, '') AS emergencyAddress,
+  ${elderlyTable}.elderly_id AS id,
+  ${elderlyTable}.name,
+  ${elderlyTable}.age,
+  ${elderlyTable}.gender,
+  ${elderlyTable}.phone,
+  ${elderlyTable}.medical_conditions AS medicalCondition,
+  ${elderlyTable}.emergency_name AS emergencyContact,
+  COALESCE(${elderlyTable}.emergency_address, '') AS emergencyAddress,
+  ${elderlyTable}.room_id AS roomId,
+  rooms.floor_number AS floorNumber,
+  rooms.room_number AS roomNumber,
+  COALESCE(rooms.room_label, '') AS roomLabel,
   CASE elderly_status
     WHEN 'active' THEN 'Active'
     ELSE 'Inactive'
   END AS status,
-  COALESCE(avatar, '') AS avatar,
-  DATE_FORMAT(birthdate, '%Y-%m-%d') AS dob,
-  address,
-  blood_type AS bloodType,
-  allergies,
+  COALESCE(${elderlyTable}.avatar, '') AS avatar,
+  DATE_FORMAT(${elderlyTable}.birthdate, '%Y-%m-%d') AS dob,
+  ${elderlyTable}.address,
+  ${elderlyTable}.blood_type AS bloodType,
+  ${elderlyTable}.allergies,
   '' AS doctorName,
   '' AS relationship,
-  emergency_phone AS emergencyPhone,
-  DATE_FORMAT(enroll_date, '%Y-%m-%d %H:%i:%s') AS admissionDate,
+  ${elderlyTable}.emergency_phone AS emergencyPhone,
+  DATE_FORMAT(${elderlyTable}.enroll_date, '%Y-%m-%d %H:%i:%s') AS admissionDate,
   '' AS notes
 `;
 
@@ -401,7 +478,6 @@ age,
   license_number AS licenseNumber,
   position,
   shift_schedule AS shiftSchedule,
-  work_area AS workArea,
   username,
   address,
   DATE_FORMAT(hire_date, '%Y-%m-%d') AS hireDate,
@@ -428,6 +504,18 @@ age,
     ELSE 'Active'
   END AS nurseStatus
 `;
+
+const roomColumns = `
+  rooms.room_id AS roomId,
+  rooms.floor_number AS floorNumber,
+  rooms.room_number AS roomNumber,
+  rooms.room_label AS roomLabel,
+  occupied.elderly_id AS elderlyId,
+  occupied.name AS elderlyName
+`;
+
+const elderlyFromClause = `${elderlyTable} LEFT JOIN rooms ON rooms.room_id = ${elderlyTable}.room_id`;
+const allowedNursePositions = new Set(["Assistant Nurse", "Junior Nurse", "Senior Nurse", "Head Nurse"]);
 
 function getNurseDbId(id) {
   const value = String(id || "").trim();
@@ -478,6 +566,43 @@ function normalizeHireDate(value) {
   }
 
   return raw;
+}
+
+function getRoomDbId(value) {
+  const roomId = Number(value);
+  return Number.isInteger(roomId) && roomId > 0 ? roomId : null;
+}
+
+async function validateRoomAssignment(connection, roomId, elderlyId = null, { required = true } = {}) {
+  if (!roomId) {
+    return required ? { roomId: "Room is required." } : null;
+  }
+
+  const [roomRows] = await connection.query(
+    "SELECT room_id FROM rooms WHERE room_id = :roomId LIMIT 1",
+    { roomId }
+  );
+
+  if (!roomRows[0]) {
+    return { roomId: "Select a valid room." };
+  }
+
+  const params = { roomId, elderlyId: elderlyId || 0 };
+  const [occupiedRows] = await connection.query(
+    `SELECT elderly_id
+     FROM ${elderlyTable}
+     WHERE room_id = :roomId
+       AND elderly_id <> :elderlyId
+       AND COALESCE(elderly_status, 'active') = 'active'
+     LIMIT 1`,
+    params
+  );
+
+  if (occupiedRows[0]) {
+    return { roomId: "This room is already assigned to another elderly profile." };
+  }
+
+  return null;
 }
 
 const scheduleColumns = `
@@ -540,20 +665,69 @@ function normalizeScheduleDate(value) {
   return String(value || "").trim().replace(/[\/\u2010-\u2015\u2212]/g, "-");
 }
 
+function toDateKey(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function normalizeScheduleDateKey(value) {
+  if (value instanceof Date) {
+    return toDateKey(value);
+  }
+
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  const datePart = raw.split(/[T ]/)[0].replace(/[\/\u2010-\u2015\u2212]/g, "-");
+  if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
+    return datePart;
+  }
+
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    return toDateKey(parsed);
+  }
+
+  return "";
+}
+
+function isScheduleDueForCompletion(scheduleDate, referenceDate = new Date()) {
+  const normalizedTarget = normalizeScheduleDateKey(scheduleDate);
+  const normalizedToday = toDateKey(referenceDate);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedTarget)) return false;
+  return normalizedTarget <= normalizedToday;
+}
+
 function normalizeSchedulePurpose(value) {
   const text = String(value || "").trim();
-  const normalized = text.toLowerCase();
+  if (!text) return text;
+
+  const normalized = text.toLowerCase().replace(/\s+/g, " ");
   const legacyPurposeMap = {
     "vitals check": "Blood Pressure",
     "blood pressure check": "Blood Pressure",
+    "blood pressure": "Blood Pressure",
     "glucose check": "Blood Glucose",
     "blood sugar": "Blood Glucose",
+    "blood glucose": "Blood Glucose",
     "medication check": "Medication",
     "medicine check": "Medication",
+    "medication": "Medication",
+    "medicine": "Medication",
+    "routine visit": "Routine Visit",
     "emergency follow-up": "Routine Visit",
+    "emergency follow up": "Routine Visit",
   };
 
-  return legacyPurposeMap[normalized] || text;
+  if (legacyPurposeMap[normalized]) return legacyPurposeMap[normalized];
+  if (normalized.includes("blood pressure")) return "Blood Pressure";
+  if (normalized.includes("blood glucose") || normalized.includes("glucose")) return "Blood Glucose";
+  if (normalized.includes("medication") || normalized.includes("medicine")) return "Medication";
+  if (normalized.includes("routine") || normalized.includes("visit")) return "Routine Visit";
+
+  return text;
 }
 
 function addDaysToDateKey(dateKey, daysToAdd) {
@@ -1189,6 +1363,14 @@ app.patch("/api/schedules/:id/status", async (req, res) => {
   }
 
   try {
+    const [scheduleRows] = await pool.query("SELECT DATE(visit_date) AS visitDate FROM `schedule` WHERE schedule_id = ? LIMIT 1", [id]);
+    const visitDate = scheduleRows[0]?.visitDate;
+
+    if (scheduleStatus === "completed" && !isScheduleDueForCompletion(visitDate)) {
+      res.status(409).json({ error: "This visit is not available until its scheduled date." });
+      return;
+    }
+
     const result = await transaction(async (db) => {
       const [updateResult] = await db.query(
         "UPDATE `schedule` SET schedule_status = :scheduleStatus WHERE schedule_id = :id",
@@ -1218,6 +1400,9 @@ app.post("/api/health", async (req, res) => {
   const nurseId = Number(req.body.nurseId);
   const elderlyId = Number(req.body.elderlyId);
   const scheduleId = req.body.scheduleId ? Number(req.body.scheduleId) : null;
+  const purpose = normalizeSchedulePurpose(req.body.purpose);
+  const complianceStatus = String(req.body.complianceStatus || "").trim();
+  const medicationName = String(req.body.medicationName || "").trim();
   let systolic = req.body.systolic !== undefined ? Number(req.body.systolic) : null;
   let diastolic = req.body.diastolic !== undefined ? Number(req.body.diastolic) : null;
   let bloodSugar = req.body.bloodSugar !== undefined ? Number(req.body.bloodSugar) : null;
@@ -1233,7 +1418,8 @@ app.post("/api/health", async (req, res) => {
     return;
   }
 
-  if (systolic === null && diastolic === null && bloodSugar === null && !notes) {
+  const allowEmptyMedicationCompletion = purpose === "Medication" && Number.isInteger(scheduleId) && scheduleId > 0;
+  if (!allowEmptyMedicationCompletion && systolic === null && diastolic === null && bloodSugar === null && !notes) {
     res.status(422).json({ error: "At least one measurement or note is required." });
     return;
   }
@@ -1245,27 +1431,79 @@ app.post("/api/health", async (req, res) => {
     if (bloodSugar === null) bloodSugar = 0;
     if (!notes) notes = "";
 
-    // include schedule_id if provided
-    let result;
+    let healthLogResult;
     const nowDate = getForcedNow();
     const nowDateTimeSql = formatDateTimeForSql(nowDate);
     const nowDateOnlySql = formatDateForSql(nowDate);
+    const nowTimeOnlySql = formatTimeForSql(nowDate);
 
     if (Number.isInteger(scheduleId) && scheduleId > 0) {
-      [result] = await pool.query(
+      [healthLogResult] = await pool.query(
         `INSERT INTO health_log (schedule_id, nurse_id, elderly_id, visit_time, visit_date, bloodpressure_systolic, bloodpressure_diastolic, blood_sugar, condition_notes)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [scheduleId, nurseId, elderlyId, nowDateTimeSql, nowDateOnlySql, systolic, diastolic, bloodSugar, notes]
       );
     } else {
-      [result] = await pool.query(
+      [healthLogResult] = await pool.query(
         `INSERT INTO health_log (nurse_id, elderly_id, visit_time, visit_date, bloodpressure_systolic, bloodpressure_diastolic, blood_sugar, condition_notes)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [nurseId, elderlyId, nowDateTimeSql, nowDateOnlySql, systolic, diastolic, bloodSugar, notes]
       );
     }
 
-    const insertId = result.insertId;
+    if (Number.isInteger(scheduleId) && scheduleId > 0) {
+      if (purpose === "Blood Pressure") {
+        const [existingRows] = await pool.query(
+          "SELECT pressure_id AS id FROM elderly_blood_pressure WHERE schedule_id = ? LIMIT 1",
+          [scheduleId]
+        );
+
+        if (existingRows[0]?.id) {
+          await pool.query(
+            `UPDATE elderly_blood_pressure
+             SET nurse_id = ?, elderly_id = ?, recorded_date = ?, recorded_time = ?, systolic = ?, diastolic = ?
+             WHERE pressure_id = ?`,
+            [nurseId, elderlyId, nowDateOnlySql, nowTimeOnlySql, systolic, diastolic, existingRows[0].id]
+          );
+        } else {
+          await pool.query(
+            `INSERT INTO elderly_blood_pressure (schedule_id, nurse_id, elderly_id, recorded_date, recorded_time, systolic, diastolic)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [scheduleId, nurseId, elderlyId, nowDateOnlySql, nowTimeOnlySql, systolic, diastolic]
+          );
+        }
+      } else if (purpose === "Blood Glucose") {
+        const [existingRows] = await pool.query(
+          "SELECT glucose_id AS id FROM elderly_blood_glucose WHERE schedule_id = ? LIMIT 1",
+          [scheduleId]
+        );
+
+        if (existingRows[0]?.id) {
+          await pool.query(
+            `UPDATE elderly_blood_glucose
+             SET nurse_id = ?, elderly_id = ?, recorded_date = ?, recorded_time = ?, glucose_value = ?
+             WHERE glucose_id = ?`,
+            [nurseId, elderlyId, nowDateOnlySql, nowTimeOnlySql, bloodSugar, existingRows[0].id]
+          );
+        } else {
+          await pool.query(
+            `INSERT INTO elderly_blood_glucose (schedule_id, nurse_id, elderly_id, recorded_date, recorded_time, glucose_value)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [scheduleId, nurseId, elderlyId, nowDateOnlySql, nowTimeOnlySql, bloodSugar]
+          );
+        }
+      } else if (purpose === "Medication") {
+        const targetStatus = ["Taken", "Missed"].includes(complianceStatus) ? complianceStatus : "Taken";
+        await pool.query(
+          `UPDATE medication_logs
+           SET compliance_status = ?, report_notes = ?, reported_at = CURRENT_TIMESTAMP
+           WHERE schedule_id = ?`,
+          [targetStatus, notes || medicationName || "Medication completed", scheduleId]
+        );
+      }
+    }
+
+    const insertId = healthLogResult.insertId;
     const [rows] = await pool.query("SELECT * FROM health_log WHERE log_id = ?", [insertId]);
     res.status(201).json(rows[0]);
   } catch (error) {
@@ -1354,7 +1592,15 @@ app.delete("/api/schedules/:id", async (req, res) => {
 app.get("/api/profiles", async (_req, res) => {
   try {
     const [elderly] = await pool.query(
-      `SELECT ${elderlyColumns} FROM ${elderlyTable} ORDER BY elderly_id`
+      `SELECT ${elderlyColumns} FROM ${elderlyFromClause} ORDER BY ${elderlyTable}.elderly_id`
+    );
+    const [rooms] = await pool.query(
+      `SELECT ${roomColumns}
+       FROM rooms
+       LEFT JOIN ${elderlyTable} occupied
+         ON occupied.room_id = rooms.room_id
+        AND COALESCE(occupied.elderly_status, 'active') = 'active'
+       ORDER BY rooms.floor_number, rooms.room_number`
     );
 
     let nurses = [];
@@ -1386,7 +1632,7 @@ app.get("/api/profiles", async (_req, res) => {
       if (error.code !== "ER_NO_SUCH_TABLE") throw error;
     }
 
-    res.json({ elderly, nurses, nurseElderlyAssignments });
+    res.json({ elderly, nurses, rooms, nurseElderlyAssignments });
   } catch (error) {
     res.status(500).json({
       error: "Failed to load profiles",
@@ -1435,6 +1681,7 @@ app.get("/api/nurses/:id/elderly-assignments", async (req, res) => {
          ${elderlyColumns}
        FROM nurse_elderly_assignments nea
        INNER JOIN ${elderlyTable} ON ${elderlyTable}.elderly_id = nea.elderly_id
+       LEFT JOIN rooms ON rooms.room_id = ${elderlyTable}.room_id
        WHERE nea.nurse_id = :nurseId
          AND nea.status = 'active'
          AND COALESCE(${elderlyTable}.elderly_status, 'active') = 'active'
@@ -1751,7 +1998,6 @@ app.post("/api/auth/nurse-login", async (req, res) => {
          email,
          username,
          license_number AS licenseNumber,
-         work_area AS workArea,
          position,
          COALESCE(avatar, '') AS avatar,
          nurse_status
@@ -1781,8 +2027,7 @@ app.post("/api/auth/nurse-login", async (req, res) => {
       name: nurse.name,
       email: nurse.email,
       licenseNumber: nurse.licenseNumber || "",
-      workArea: nurse.workArea || "",
-      position: nurse.position || "Registered Nurse",
+      position: nurse.position || "Nurse",
       avatar: nurse.avatar || "",
       status: nurse.nurse_status,
     });
@@ -1899,28 +2144,47 @@ app.post("/api/elderly", async (req, res) => {
       emergencyName: profile.emergencyName || "",
       emergencyPhone: profile.emergencyPhone || "",
       emergencyAddress: profile.emergencyAddress || "",
+      roomId: getRoomDbId(profile.roomId),
       avatar: profile.avatar || "",
     };
 
-    const [result] = await pool.query(
-      `INSERT INTO ${elderlyTable} (
-        name, age, gender, birthdate, address, phone, medical_conditions,
-        allergies, blood_type, emergency_name, emergency_phone, emergency_address, avatar
-      ) VALUES (
-        :name, :age, :gender, :birthdate, :address, :phone,
-        :medicalCondition, :allergies, :bloodType, :emergencyName,
-        :emergencyPhone, :emergencyAddress, :avatar
-      )`,
-      data
-    );
+    const result = await transaction(async (connection) => {
+      const roomErrors = await validateRoomAssignment(connection, data.roomId);
+
+      if (roomErrors) {
+        const error = new Error("Room validation failed.");
+        error.statusCode = 422;
+        error.validation = { valid: false, errors: roomErrors };
+        throw error;
+      }
+
+      const [insertResult] = await connection.query(
+        `INSERT INTO ${elderlyTable} (
+          name, age, gender, birthdate, address, phone, medical_conditions,
+          allergies, blood_type, emergency_name, emergency_phone, emergency_address, room_id, avatar
+        ) VALUES (
+          :name, :age, :gender, :birthdate, :address, :phone,
+          :medicalCondition, :allergies, :bloodType, :emergencyName,
+          :emergencyPhone, :emergencyAddress, :roomId, :avatar
+        )`,
+        data
+      );
+
+      return insertResult;
+    });
 
     const [rows] = await pool.query(
-      `SELECT ${elderlyColumns} FROM ${elderlyTable} WHERE elderly_id = :elderlyId`,
+      `SELECT ${elderlyColumns} FROM ${elderlyFromClause} WHERE ${elderlyTable}.elderly_id = :elderlyId`,
       { elderlyId: result.insertId }
     );
 
     res.status(201).json(rows[0]);
   } catch (error) {
+    if (error.statusCode === 422 && error.validation) {
+      res.status(422).json(error.validation);
+      return;
+    }
+
     res.status(500).json({
       error: "Failed to create elderly profile",
       details: error.message,
@@ -1939,9 +2203,9 @@ app.get("/api/elderly/search", async (req, res) => {
   try {
     const [elderly] = await pool.query(
       `SELECT ${elderlyColumns}
-       FROM ${elderlyTable}
-       WHERE name LIKE :name
-       ORDER BY name
+       FROM ${elderlyFromClause}
+       WHERE ${elderlyTable}.name LIKE :name
+       ORDER BY ${elderlyTable}.name
        LIMIT 10`,
       { name: `${name}%` }
     );
@@ -1990,11 +2254,23 @@ app.put("/api/elderly/:id", async (req, res) => {
       allergies: profile.allergies || "",
       emergencyPhone: profile.emergencyPhone || "",
       emergencyAddress: profile.emergencyAddress || "",
+      roomId: getRoomDbId(profile.roomId),
       elderlyStatus: profile.status === "Inactive" ? "passed away" : "active",
       avatar: profile.avatar || "",
     };
 
     await transaction(async (connection) => {
+      const roomErrors = await validateRoomAssignment(connection, data.roomId, Number(id), {
+        required: isActiveElderlyStatus(data.elderlyStatus),
+      });
+
+      if (roomErrors) {
+        const error = new Error("Room validation failed.");
+        error.statusCode = 422;
+        error.validation = { valid: false, errors: roomErrors };
+        throw error;
+      }
+
       await connection.query(
         `UPDATE ${elderlyTable}
          SET name = :name,
@@ -2009,6 +2285,7 @@ app.put("/api/elderly/:id", async (req, res) => {
              allergies = :allergies,
              emergency_phone = :emergencyPhone,
              emergency_address = :emergencyAddress,
+             room_id = :roomId,
              elderly_status = :elderlyStatus,
              avatar = :avatar
          WHERE elderly_id = :id`,
@@ -2022,12 +2299,17 @@ app.put("/api/elderly/:id", async (req, res) => {
     });
 
     const [rows] = await pool.query(
-      `SELECT ${elderlyColumns} FROM ${elderlyTable} WHERE elderly_id = :id`,
+      `SELECT ${elderlyColumns} FROM ${elderlyFromClause} WHERE ${elderlyTable}.elderly_id = :id`,
       { id }
     );
 
     res.json(rows[0]);
   } catch (error) {
+    if (error.statusCode === 422 && error.validation) {
+      res.status(422).json(error.validation);
+      return;
+    }
+
     res.status(500).json({
       error: "Failed to update elderly profile",
       details: error.message,
@@ -2477,12 +2759,10 @@ app.get("/api/reports/elderly-summary", async (req, res) => {
       return;
     }
 
-    await ensureBloodPressureAndGlucoseTables();
-
     const [elderlyRows] = await pool.query(
       `SELECT ${elderlyColumns}
-       FROM ${elderlyTable}
-       WHERE elderly_id = :elderlyId
+       FROM ${elderlyFromClause}
+       WHERE ${elderlyTable}.elderly_id = :elderlyId
        LIMIT 1`,
       { elderlyId }
     );
@@ -2532,6 +2812,7 @@ app.get("/api/reports/elderly-summary", async (req, res) => {
        LEFT JOIN ${elderlyTable} e ON CAST(e.elderly_id AS CHAR) = CAST(ml.elderly_id AS CHAR)
        WHERE ml.elderly_id = :elderlyId
          AND ml.scheduled_date BETWEEN :startDate AND :endDate
+         AND ml.compliance_status <> 'Pending'
        ORDER BY ml.scheduled_date ASC, ml.scheduled_time ASC`,
       { elderlyId, startDate, endDate }
     );
@@ -2608,6 +2889,14 @@ app.post("/api/nurses", async (req, res) => {
     return;
   }
 
+  if (!allowedNursePositions.has(String(profile.position || "").trim())) {
+    res.status(422).json({
+      valid: false,
+      errors: { position: "Position must be Assistant Nurse, Junior Nurse, Senior Nurse, or Head Nurse." },
+    });
+    return;
+  }
+
   try {
     const data = {
       name: String(profile.name || "").trim(),
@@ -2618,7 +2907,6 @@ app.post("/api/nurses", async (req, res) => {
       licenseNumber: Number(profile.licenseNumber || profile.license_number) || 0,
       position: String(profile.position || "").trim(),
       shiftSchedule: String(profile.shiftSchedule || profile.shift_schedule || "").trim(),
-      workArea: String(profile.workArea || profile.work_area || "").trim(),
       username: String(profile.username || "").trim(),
       password: String(profile.password || "").trim(),
       address: String(profile.address || "").trim(),
@@ -2653,7 +2941,6 @@ app.post("/api/nurses", async (req, res) => {
         license_number,
         position,
         shift_schedule,
-        work_area,
         username,
         password,
         address,
@@ -2670,7 +2957,6 @@ app.post("/api/nurses", async (req, res) => {
         :licenseNumber,
         :position,
         :shiftSchedule,
-        :workArea,
         :username,
         :password,
         :address,
@@ -2752,7 +3038,9 @@ app.put("/api/nurses/:id", async (req, res) => {
   }
   if (!String(profile.address || "").trim()) errors.address = "Address is required.";
   if (!String(profile.position || "").trim()) errors.position = "Position is required.";
-  if (!String(profile.workArea || profile.work_area || "").trim()) errors.workArea = "Work area is required.";
+  else if (!allowedNursePositions.has(String(profile.position || "").trim())) {
+    errors.position = "Position must be Assistant Nurse, Junior Nurse, Senior Nurse, or Head Nurse.";
+  }
   if (!String(profile.hireDate || profile.hire_date || "").trim()) errors.hireDate = "Hire date is required.";
 
   if (Object.keys(errors).length > 0) {
@@ -2771,7 +3059,6 @@ app.put("/api/nurses/:id", async (req, res) => {
       licenseNumber: String(profile.licenseNumber || "").trim(),
       position: String(profile.position || "").trim(),
       shiftSchedule: String(profile.shiftSchedule || "").trim(),
-      workArea: String(profile.workArea || profile.work_area || "").trim(),
       username: String(profile.username || "").trim(),
       password: String(profile.password || "").trim(),
       address: String(profile.address || "").trim(),
@@ -2809,7 +3096,6 @@ app.put("/api/nurses/:id", async (req, res) => {
            license_number = :licenseNumber,
            position = :position,
            shift_schedule = :shiftSchedule,
-           work_area = :workArea,
            username = :username,
            password = :password,
            address = :address,
@@ -2871,6 +3157,7 @@ app.delete("/api/nurses/:id", async (req, res) => {
 app.listen(port, async () => {
   try {
     await checkDatabase();
+    await ensureRoomsTable();
     await ensureElderlyAvatarColumn();
     await ensureAdminProfileColumns();
     await ensureNurseColumns();

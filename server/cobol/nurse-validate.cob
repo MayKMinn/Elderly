@@ -12,7 +12,6 @@
        01  ADDRESS-TEXT          PIC X(500).
        01  LICENSE-NUMBER-TEXT   PIC X(80).
        01  POSITION-TEXT         PIC X(80).
-       01  WORK-AREA-TEXT        PIC X(80).
        01  HIRE-DATE-TEXT        PIC X(80).
        01  NURSE-STATUS-TEXT     PIC X(40).
        01  USERNAME-TEXT         PIC X(80).
@@ -44,6 +43,7 @@
        01  USERNAME-IDX          PIC 9(3) VALUE 1.
        01  USERNAME-LEN          PIC 9(3) VALUE 0.
        01  USERNAME-BAD          PIC X VALUE "N".
+       01  USERNAME-HAS-LETTER   PIC X VALUE "N".
 
        01  HIRE-DATE-BAD         PIC X VALUE "N".
        01  TODAY-YYYYMMDD        PIC 9(8) VALUE 0.
@@ -62,7 +62,6 @@
            ACCEPT ADDRESS-TEXT.
            ACCEPT LICENSE-NUMBER-TEXT.
            ACCEPT POSITION-TEXT.
-           ACCEPT WORK-AREA-TEXT.
            ACCEPT HIRE-DATE-TEXT.
            ACCEPT NURSE-STATUS-TEXT.
            ACCEPT USERNAME-TEXT.
@@ -136,10 +135,6 @@
 
            IF FUNCTION TRIM(POSITION-TEXT) = SPACES
                PERFORM ADD-POSITION-REQUIRED
-           END-IF.
-
-           IF FUNCTION TRIM(WORK-AREA-TEXT) = SPACES
-               PERFORM ADD-WORK-AREA-REQUIRED
            END-IF.
 
            IF FUNCTION TRIM(HIRE-DATE-TEXT) = SPACES
@@ -267,6 +262,7 @@
 
        CHECK-USERNAME-FORMAT.
            MOVE "N" TO USERNAME-BAD.
+           MOVE "N" TO USERNAME-HAS-LETTER.
            MOVE FUNCTION LENGTH(FUNCTION TRIM(USERNAME-TEXT))
                TO USERNAME-LEN.
 
@@ -279,12 +275,20 @@
                IF NOT ((USERNAME-TEXT(USERNAME-IDX:1) >= "A"
                    AND USERNAME-TEXT(USERNAME-IDX:1) <= "Z")
                    OR (USERNAME-TEXT(USERNAME-IDX:1) >= "a"
-                   AND USERNAME-TEXT(USERNAME-IDX:1) <= "z"))
+                   AND USERNAME-TEXT(USERNAME-IDX:1) <= "z")
+                   OR (USERNAME-TEXT(USERNAME-IDX:1) >= "0"
+                   AND USERNAME-TEXT(USERNAME-IDX:1) <= "9"))
                    MOVE "Y" TO USERNAME-BAD
+               END-IF
+               IF ((USERNAME-TEXT(USERNAME-IDX:1) >= "A"
+                   AND USERNAME-TEXT(USERNAME-IDX:1) <= "Z")
+                   OR (USERNAME-TEXT(USERNAME-IDX:1) >= "a"
+                   AND USERNAME-TEXT(USERNAME-IDX:1) <= "z"))
+                   MOVE "Y" TO USERNAME-HAS-LETTER
                END-IF
            END-PERFORM.
 
-           IF USERNAME-BAD = "Y"
+           IF USERNAME-BAD = "Y" OR USERNAME-HAS-LETTER = "N"
                PERFORM ADD-USERNAME-FORMAT
            END-IF.
 
@@ -403,10 +407,6 @@
            MOVE '"position":"Position is required."' TO FIELD-ERROR.
            PERFORM APPEND-ERROR.
 
-       ADD-WORK-AREA-REQUIRED.
-           MOVE '"workArea":"Work area is required."' TO FIELD-ERROR.
-           PERFORM APPEND-ERROR.
-
        ADD-HIRE-DATE-REQUIRED.
            MOVE '"hireDate":"Hire date is required."' TO FIELD-ERROR.
            PERFORM APPEND-ERROR.
@@ -435,7 +435,7 @@
            PERFORM APPEND-ERROR.
 
        ADD-USERNAME-FORMAT.
-           MOVE '"username":"Username must contain letters only."'
+           MOVE '"username":"Username must contain letters and numbers, with at least one letter."'
                TO FIELD-ERROR.
            PERFORM APPEND-ERROR.
 

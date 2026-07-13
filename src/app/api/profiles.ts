@@ -3,7 +3,17 @@ import type { ElderlyProfile, NurseProfile } from "../admin/data";
 type ProfilesResponse = {
   elderly: ElderlyProfile[];
   nurses: NurseProfile[];
+  rooms?: Room[];
   nurseElderlyAssignments?: NurseElderlyAssignment[];
+};
+
+export type Room = {
+  roomId: string | number;
+  floorNumber: string | number;
+  roomNumber: string | number;
+  roomLabel: string;
+  elderlyId?: string | number | null;
+  elderlyName?: string | null;
 };
 
 export type NurseElderlyAssignment = {
@@ -27,6 +37,7 @@ export type NewProfilePayload = {
   emergencyName: string;
   emergencyPhone: string;
   emergencyAddress: string;
+  roomId: string;
   elderlyStatus: string;
   enrollDate: string;
   doctorName: string;
@@ -35,7 +46,6 @@ export type NewProfilePayload = {
   password: string;
   confirmPassword: string;
   position: string;
-  workArea: string;
   hireDate: string;
   nurseStatus: string;
   licenseNumber: string;

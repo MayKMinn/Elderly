@@ -109,10 +109,6 @@ function todayInputValue() {
   return toDateKey(new Date());
 }
 
-function normalizeDateInput(value: string) {
-  return value.replace(/[\/\u2010-\u2015\u2212]/g, "-");
-}
-
 function toDateKey(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -259,7 +255,13 @@ function normalizeScheduleSearchValue(value: string) {
   return value.replace(/^(nurse|elderly):\s*/i, "").trim().toLowerCase();
 }
 
-export function Schedules() {
+type Page = "dashboard" | "manage-profiles" | "schedules" | "medications" | "reports" | "login-history" | "settings";
+
+interface SchedulesProps {
+  onNavigate: (page: Page) => void;
+}
+
+export function Schedules({ onNavigate }: SchedulesProps) {
   const scheduleFormRef = useRef<HTMLDivElement | null>(null);
   const [nurses, setNurses] = useState<SelectOption[]>([]);
   const [elders, setElders] = useState<SelectOption[]>([]);
@@ -487,7 +489,7 @@ export function Schedules() {
       setSchedules(scheduleResponse.schedules);
     } catch (loadError) {
       console.error("Failed to load schedule data.", loadError);
-      setError("Could not load schedules from MySQL.");
+      setError("Could not load schedules.");
     } finally {
       setLoading(false);
     }
@@ -518,9 +520,15 @@ export function Schedules() {
       : elderlyOptionsForForm[0]?.id || "");
   }, [elderlyOptionsForForm]);
 
+  function firstAssignedElderId(nurseId: string) {
+    const assignedIds = new Set((assignmentMap[nurseId] || []).map(String));
+    return elders.find((item) => assignedIds.has(item.id))?.id || "";
+  }
+
   function resetForm() {
-    setNurse(nurses[0]?.id || "");
-    setElder("");
+    const defaultNurseId = nurses[0]?.id || "";
+    setNurse(defaultNurseId);
+    setElder(firstAssignedElderId(defaultNurseId));
     setPurpose("Blood Pressure");
     setVisitDate(todayInputValue());
     setVisitTime("09:00");
@@ -605,8 +613,9 @@ export function Schedules() {
   function startCreateSchedule(date: Date, hour = 9, lockToSlot = false) {
     refreshElderlyMedications();
     const dateKey = toDateKey(date);
-    setNurse((current) => nurses.some((item) => item.id === current) ? current : nurses[0]?.id || "");
-    setElder("");
+    const defaultNurseId = nurses.some((item) => item.id === nurse) ? nurse : nurses[0]?.id || "";
+    setNurse(defaultNurseId);
+    setElder(firstAssignedElderId(defaultNurseId));
     setPurpose("Blood Pressure");
     setVisitDate(dateKey);
     setVisitTime(`${String(hour).padStart(2, "0")}:00`);
@@ -819,13 +828,13 @@ export function Schedules() {
           ? editingSchedule.recurringGroupId && !recurring
             ? "Recurring schedule stopped. This visit was kept."
             : addingRecurringFromEdit && savedSchedules.length > 1
-              ? `${savedSchedules.length} ${recurrenceFrequency} schedules saved to MySQL.`
+              ? `${savedSchedules.length} ${recurrenceFrequency} schedules saved.`
             : resizingRecurringEdit
               ? `Recurring period updated to ${repeatCount} ${recurrenceFrequency === "daily" ? "day" : "week"}${repeatCount === 1 ? "" : "s"}.`
-            : "Schedule updated in MySQL."
+            : "Schedule updated."
           : savedSchedules.length > 1
-            ? `${savedSchedules.length} ${recurrenceFrequency} schedules saved to MySQL.`
-            : "Schedule saved to MySQL."
+            ? `${savedSchedules.length} ${recurrenceFrequency} schedules saved.`
+            : "Schedule saved."
       );
       if (editingSchedule) {
         setEditingSchedule(saved);
@@ -892,7 +901,14 @@ export function Schedules() {
       {/* Breadcrumb */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-1.5 text-xs" style={{ color: "#6b7a99" }}>
-          <span>Dashboard</span><span>/</span>
+          <button
+            type="button"
+            onClick={() => onNavigate("dashboard")}
+            className="rounded px-1 py-0.5 hover:underline focus:outline-none focus:ring-2 focus:ring-blue-200"
+            style={{ color: "#6b7a99" }}
+          >
+            Dashboard
+          </button><span>/</span>
           <span>Schedules</span><span>/</span>
           <span style={{ color: "#1a2b42", fontWeight: 500 }}>Set Up Schedules</span>
         </div>
@@ -945,7 +961,7 @@ export function Schedules() {
                 options={nurses}
                 onChange={(value) => {
                   setNurse(value);
-                  setElder("");
+                  setElder(firstAssignedElderId(value));
                 }}
               />
             </FormGroup>
@@ -970,12 +986,11 @@ export function Schedules() {
             <div className="grid grid-cols-1 gap-3">
               <FormGroup label="Visit Date">
                   <input
-                    type="text"
-                    inputMode="numeric"
-                    placeholder="YYYY-MM-DD"
+                    type="date"
                     value={visitDate}
+                    min={!editingSchedule ? todayInputValue() : undefined}
                     readOnly={Boolean(createSlotLock)}
-                    onChange={(e) => setVisitDate(normalizeDateInput(e.target.value))}
+                    onChange={(e) => setVisitDate(e.target.value)}
                     className="w-full px-3 py-2 border rounded-lg text-sm outline-none"
                     style={{
                       borderColor: "rgba(0,0,0,0.12)",

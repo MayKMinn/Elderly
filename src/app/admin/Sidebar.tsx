@@ -191,13 +191,7 @@ export function Sidebar({
           onClick={() => onNavigate("login-history")}
           collapsed={collapsed}
         />
-        <NavItem
-          icon={<Settings size={17} />}
-          label="Settings"
-          active={currentPage === "settings"}
-          onClick={() => onNavigate("settings")}
-          collapsed={collapsed}
-        />
+       
       </nav>
 
       {/* Logout */}

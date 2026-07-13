@@ -1,6 +1,7 @@
 import { ImagePlus, Save, X } from "lucide-react";
-import { useState } from "react";
-import type { ValidationErrors } from "../api/profiles";
+import { useEffect, useState } from "react";
+import { getProfiles } from "../api/profiles";
+import type { Room, ValidationErrors } from "../api/profiles";
 import type { ElderlyProfile } from "./data";
 
 interface EditProfilePanelProps {
@@ -62,13 +63,36 @@ function validateProfile(profile: ElderlyProfile) {
     errors.emergencyAddress = "Emergency address must be 500 characters or fewer.";
   }
 
+  if (!profile.roomId) errors.roomId = "Room is required.";
+
   return errors;
 }
 
 export function EditProfilePanel({ profile, onClose, onSave }: EditProfilePanelProps) {
-  const [form, setForm] = useState<ElderlyProfile>({ ...profile, age: Number(profile.age) || 0 });
+  const [form, setForm] = useState<ElderlyProfile>({
+    ...profile,
+    age: Number(profile.age) || 0,
+    roomId: String(profile.roomId || ""),
+    floorNumber: String(profile.floorNumber || ""),
+    roomNumber: String(profile.roomNumber || ""),
+  });
   const [errors, setErrors] = useState<ValidationErrors>({});
   const [saving, setSaving] = useState(false);
+  const [rooms, setRooms] = useState<Room[]>([]);
+
+  useEffect(() => {
+    async function loadRooms() {
+      try {
+        const data = await getProfiles();
+        if (data && data.rooms) {
+          setRooms(data.rooms.filter(r => !r.elderlyId || r.elderlyId === profile.id));
+        }
+      } catch (error) {
+        console.error("Failed to load rooms:", error);
+      }
+    }
+    loadRooms();
+  }, [profile.id]);
 
   const update = (field: keyof ElderlyProfile, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value as never }));
@@ -129,9 +153,49 @@ export function EditProfilePanel({ profile, onClose, onSave }: EditProfilePanelP
               <Field label="Age" type="number" value={String(form.age)} error={errors.age} onChange={(v) => update("age", v)} />
             </FormRow>
             <FormRow>
-              <FieldSelect label="Gender" value={form.gender} options={["Male", "Female", "Other"]} error={errors.gender} onChange={(v) => update("gender", v)} />
+              <FieldSelect label="Gender" value={form.gender} options={["Male", "Female", "Other"].map(g => ({ value: g, label: g }))} error={errors.gender} onChange={(v) => update("gender", v)} />
               <Field label="Date of Birth" value={form.dob} error={errors.dob} onChange={(v) => update("dob", v)} />
             </FormRow>
+           <FormRow>
+  <FieldSelect
+    label="Room"
+    value={form.roomId}
+    options={rooms.map(r => ({
+      value: String(r.roomId),
+      label: r.roomLabel
+    }))}
+    error={errors.roomId}
+    onChange={(value) => {
+      const selectedRoom = rooms.find(
+        r => String(r.roomId) === value
+      );
+
+      if (selectedRoom) {
+        setForm(prev => ({
+          ...prev,
+          roomId: String(selectedRoom.roomId),
+          floorNumber: String(selectedRoom.floorNumber),
+          roomNumber: String(selectedRoom.roomNumber),
+          roomLabel: selectedRoom.roomLabel,
+        }));
+      }
+    }}
+  />
+
+  <Field
+  label="Room Number"
+  value={form.roomNumber}
+  error={errors.roomNumber}
+  onChange={(v) => update("roomNumber", v)}
+/>
+</FormRow>
+
+<Field
+  label="Room Number"
+  value={form.roomNumber}
+  error={errors.roomNumber}
+  onChange={(v) => update("roomNumber", v)}
+/>
             <Field label="Phone" value={form.phone} error={errors.phone} onChange={(v) => update("phone", v)} />
             <Field label="Address" value={form.address} error={errors.address} onChange={(v) => update("address", v)} />
           </FormSection>
@@ -155,7 +219,7 @@ export function EditProfilePanel({ profile, onClose, onSave }: EditProfilePanelP
           </FormSection>
 
           <FormSection title="Status Details">
-            <FieldSelect label="Status" value={form.status} options={["Active", "Inactive"]} onChange={(v) => update("status", v)} />
+            <FieldSelect label="Status" value={form.status} options={[{ value: "Active", label: "Active" }, { value: "Inactive", label: "Inactive" }]} onChange={(v) => update("status", v)} />
             <Field label="Admission Date" value={form.admissionDate} error={errors.admissionDate} onChange={(v) => update("admissionDate", v)} />
           </FormSection>
         </div>
@@ -195,12 +259,14 @@ function Field({
   onChange,
   error,
   type = "text",
+  readOnly = false,
 }: {
   label: string;
   value: string;
-  onChange: (v: string) => void;
+  onChange?: (v: string) => void;
   error?: string;
   type?: string;
+  readOnly?: boolean;
 }) {
   return (
     <div>
@@ -210,15 +276,16 @@ function Field({
       <input
         type={type}
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={onChange ? (e) => onChange(e.target.value) : undefined}
         className="w-full px-3 py-1.5 rounded-lg border text-xs outline-none transition-colors"
         style={{
           borderColor: error ? "#ef4444" : "rgba(0,0,0,0.12)",
           backgroundColor: "#f8fafc",
           color: "#1a2b42",
         }}
-        onFocus={(e) => (e.target.style.borderColor = "#2563eb")}
-        onBlur={(e) => (e.target.style.borderColor = error ? "#ef4444" : "rgba(0,0,0,0.12)")}
+        readOnly={readOnly}
+        onFocus={(e) => !readOnly && (e.target.style.borderColor = "#2563eb")}
+        onBlur={(e) => !readOnly && (e.target.style.borderColor = error ? "#ef4444" : "rgba(0,0,0,0.12)")}
       />
       {error && <p className="mt-1 text-xs" style={{ color: "#ef4444" }}>{error}</p>}
     </div>
@@ -234,7 +301,7 @@ function FieldSelect({
 }: {
   label: string;
   value: string;
-  options: string[];
+  options: { value: string; label: string }[];
   onChange: (v: string) => void;
   error?: string;
 }) {
@@ -254,8 +321,8 @@ function FieldSelect({
         }}
       >
         {options.map((o) => (
-          <option key={o} value={o}>
-            {o}
+          <option key={o.value} value={o.value}>
+            {o.label}
           </option>
         ))}
       </select>

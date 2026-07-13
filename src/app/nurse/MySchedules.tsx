@@ -3,7 +3,6 @@ import { CalendarDays, Clock3, User, HeartPulse } from "lucide-react";
 import type { ScheduleAssignment } from "../api/schedules";
 import { updateScheduleStatus } from "../api/schedules";
 import { createHealthLog } from "../api/health";
-import { fetchHealthLogs } from "../api/health";
 
 interface MySchedulesProps {
   nurseName?: string;
@@ -22,7 +21,32 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
   const [diastolic, setDiastolic] = useState("");
   const [glucoseValue, setGlucoseValue] = useState("");
   const [notes, setNotes] = useState("");
+  const [medicationDetails, setMedicationDetails] = useState<any[]>([]);
   const inputCls = "w-full px-3 py-2.5 bg-muted/60 border border-border rounded-xl outline-none focus:ring-2 focus:ring-primary/30 transition-all";
+
+  function toDateKey(date: Date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  function normalizeDateKey(value: string) {
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    const datePart = raw.split(/[T ]/)[0].replace(/[\/\u2010-\u2015\u2212]/g, "-");
+    if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return datePart;
+    const parsed = new Date(raw);
+    if (!Number.isNaN(parsed.getTime())) return toDateKey(parsed);
+    return "";
+  }
+
+  function compareDateKeys(left: string, right: string) {
+    const normalizedLeft = normalizeDateKey(left);
+    const normalizedRight = normalizeDateKey(right);
+    if (!normalizedLeft || !normalizedRight) return 0;
+    return normalizedLeft.localeCompare(normalizedRight);
+  }
 
   useEffect(() => {
     if (!nurseId) {
@@ -87,6 +111,9 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
             try {
               await updateScheduleStatus(sch.id, "missed");
               setSchedules((prev) => prev.map((it) => (it.id === sch.id ? { ...it, scheduleStatus: "missed" } : it)));
+              if (selectedScheduleId === sch.id) {
+                setSelectedScheduleId((prev) => prev === sch.id ? prev : prev);
+              }
             } catch (err) {
               console.error("Failed to mark schedule missed", sch.id, err);
             }
@@ -164,11 +191,21 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
       return;
     }
 
+    const selectedDateKey = normalizeDateKey(String(selectedSchedule.visitDate || ""));
+    const todayKey = toDateKey(new Date());
+    if (!selectedDateKey || compareDateKeys(selectedDateKey, todayKey) > 0) {
+      setFormMessage(`This visit becomes available on ${selectedSchedule.visitDate}.`);
+      return;
+    }
+
     setSubmitLoading(true);
     setFormMessage(null);
 
+    let statusUpdated = false;
     try {
-      // Save measurement record first
+      await updateScheduleStatus(selectedSchedule.id, "completed");
+      statusUpdated = true;
+
       const created = await createHealthLog({
         nurseId: Number(nurseId || 0),
         elderlyId: Number(selectedSchedule.elderlyId || 0),
@@ -177,20 +214,28 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
         diastolic: diastolic ? Number(diastolic) : null,
         bloodSugar: glucoseValue ? Number(glucoseValue) : null,
         notes,
+        purpose: selectedSchedule.purpose,
+        complianceStatus: selectedSchedule.purpose === "Medication" ? "Taken" : undefined,
+        medicationName: selectedSchedule.purpose === "Medication" ? selectedSchedule.purpose : undefined,
       });
 
-      // show the created record in the UI immediately
       if (created && typeof created.log_id !== "undefined") {
         setLatestRecord(created as any);
       }
 
-      await updateScheduleStatus(selectedSchedule.id, "completed");
       setSchedules((prev) => prev.map((item) => item.id === selectedSchedule.id ? { ...item, scheduleStatus: "completed" } : item));
       setFormMessage("Visit completed.");
       resetFormFields();
     } catch (error) {
-      console.error(error);
-      setFormMessage("Failed to complete visit.");
+      console.error("Failed to complete visit", error);
+      if (statusUpdated) {
+        try {
+          await updateScheduleStatus(selectedSchedule.id, "scheduled");
+        } catch (revertError) {
+          console.error("Failed to revert schedule status after health log error", revertError);
+        }
+      }
+      setFormMessage(error instanceof Error ? error.message : "Failed to complete visit.");
     } finally {
       setSubmitLoading(false);
     }
@@ -198,20 +243,51 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
 
   const [latestRecord, setLatestRecord] = useState<any | null>(null);
 
+  useEffect(() => {
+    let ignore = false;
+    async function loadMedicationDetails() {
+      if (!selectedSchedule || selectedSchedule.purpose !== "Medication") {
+        if (!ignore) setMedicationDetails([]);
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/elderly-medications?elderlyId=${encodeURIComponent(String(selectedSchedule.elderlyId || ""))}`);
+        if (!res.ok) {
+          throw new Error(await res.text());
+        }
+        const data = await res.json();
+        if (!ignore) {
+          setMedicationDetails(Array.isArray(data?.medications) ? data.medications : []);
+        }
+      } catch (err) {
+        console.error("Failed to load medication details", err);
+        if (!ignore) setMedicationDetails([]);
+      }
+    }
+
+    loadMedicationDetails();
+    return () => { ignore = true; };
+  }, [selectedSchedule]);
+
   // Load latest record when a schedule is selected and it's completed
   useEffect(() => {
     let ignore = false;
     async function loadLatest() {
-      if (!selectedSchedule) return;
-      if (selectedSchedule.scheduleStatus !== "completed") {
+      if (!selectedSchedule || selectedSchedule.scheduleStatus !== "completed") {
         setLatestRecord(null);
         return;
       }
 
       try {
-        const res = await fetchHealthLogs({ scheduleId: selectedSchedule.id, limit: 1 });
-        if (!ignore && res?.logs?.length) {
-          setLatestRecord(res.logs[0]);
+        const params = new URLSearchParams({ scheduleId: String(selectedSchedule.id), limit: "1" });
+        const res = await fetch(`/api/health/logs?${params.toString()}`);
+        if (!res.ok) {
+          throw new Error(await res.text());
+        }
+        const data = await res.json();
+        if (!ignore && data?.logs?.length) {
+          setLatestRecord(data.logs[0]);
         }
       } catch (err) {
         console.error("Failed to load latest health log", err);
@@ -226,17 +302,43 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
     const s = String(status || "").toLowerCase();
     switch (s) {
       case "completed":
-        return "rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700";
+        return "inline-flex max-w-full items-center justify-center rounded-full whitespace-nowrap bg-emerald-100 px-1.5 py-0.5 text-[8px] font-semibold uppercase text-emerald-700";
       case "missed":
-        return "rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700";
+        return "inline-flex max-w-full items-center justify-center rounded-full whitespace-nowrap bg-red-100 px-1.5 py-0.5 text-[8px] font-semibold uppercase text-red-700";
+      case "cancelled":
+        return "inline-flex max-w-full items-center justify-center rounded-full whitespace-nowrap bg-rose-100 px-1.5 py-0.5 text-[8px] font-semibold uppercase text-rose-700";
       case "scheduled":
+        return "inline-flex max-w-full items-center justify-center rounded-full whitespace-nowrap bg-indigo-50 px-1.5 py-0.5 text-[8px] font-semibold uppercase text-indigo-700";
       default:
-        return "rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-700";
+        return "inline-flex max-w-full items-center justify-center rounded-full whitespace-nowrap bg-muted/10 px-1.5 py-0.5 text-[8px] font-semibold uppercase text-muted-foreground";
+    }
+  }
+
+  function statusLabel(status: string) {
+    const s = String(status || "").trim().toLowerCase();
+    switch (s) {
+      case "completed":
+        return "Completed";
+      case "missed":
+        return "Missed";
+      case "scheduled":
+        return "Scheduled";
+      case "cancelled":
+        return "Cancelled";
+      default:
+        return s
+          .split(/[-_\s]+/)
+          .filter(Boolean)
+          .map((word) => word[0].toUpperCase() + word.slice(1))
+          .join(" ");
     }
   }
 
   const selectedPurpose = selectedSchedule?.purpose || "";
   const selectedElderlyName = selectedSchedule?.elderlyName || "";
+  const selectedScheduleIsDue = selectedSchedule
+    ? compareDateKeys(String(selectedSchedule.visitDate || ""), toDateKey(new Date())) <= 0
+    : false;
   const selectedDetails = selectedSchedule ? (
     <div className="rounded-2xl border border-border bg-card p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -246,10 +348,9 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
           <p className="text-sm text-muted-foreground">{selectedElderlyName} · {selectedSchedule.visitDate} · {selectedSchedule.visitTime}</p>
         </div>
         <span className={statusBadgeClasses(selectedSchedule.scheduleStatus)}>
-          {selectedSchedule.scheduleStatus}
+          {statusLabel(selectedSchedule.scheduleStatus)}
         </span>
       </div>
-
       <form onSubmit={handleSubmit} className="mt-5 space-y-4">
         {/* If schedule already completed, show last saved record instead of form inputs */}
         {selectedSchedule.scheduleStatus === "completed" && (
@@ -257,9 +358,21 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
             <h4 className="text-sm font-semibold">Last recorded vitals</h4>
             <div id="last-record" className="mt-2 text-sm text-muted-foreground">
               {latestRecord ? (
-                <div className="space-y-1">
-                  <div><strong>Recorded at:</strong> {new Date(latestRecord.visit_time).toLocaleString()}</div>
-                  {typeof latestRecord.bloodpressure_systolic !== "undefined" && (
+                  <div className="space-y-1">
+                  <div>
+                    <strong>Recorded at:</strong>{' '}
+                    {(() => {
+                      const vt = latestRecord.visit_time || latestRecord.visitTime || latestRecord.recorded_time || latestRecord.recordedTime;
+                      const vd = latestRecord.visit_date || latestRecord.visitDate || '';
+                      if (!vt) return vd || 'Unknown';
+                      // If vt looks like a full datetime, parse it; otherwise it's already HH:MM
+                      if (vt.includes('-') || vt.includes('T') || vt.length > 5) {
+                        try { return new Date(vt).toLocaleString(); } catch { /* fallthrough */ }
+                      }
+                      return `${vd} ${vt}`.trim();
+                    })()}
+                  </div>
+                  {typeof latestRecord.bloodpressure_systolic !== "undefined" && latestRecord.bloodpressure_systolic > 0 && (
                     <div><strong>Blood Pressure:</strong> {latestRecord.bloodpressure_systolic}/{latestRecord.bloodpressure_diastolic} mmHg</div>
                   )}
                   {typeof latestRecord.blood_sugar !== "undefined" && latestRecord.blood_sugar > 0 && (
@@ -275,41 +388,71 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
             </div>
           </div>
         )}
-        {selectedPurpose === "Blood Pressure" && selectedSchedule.scheduleStatus === "scheduled" && (
-          <div className="grid gap-3 md:grid-cols-2">
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Systolic (mmHg)</label>
-              <input type="number" className={inputCls} placeholder="e.g. 120" value={systolic} onChange={(e) => setSystolic(e.target.value)} required />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Diastolic (mmHg)</label>
-              <input type="number" className={inputCls} placeholder="e.g. 80" value={diastolic} onChange={(e) => setDiastolic(e.target.value)} required />
-            </div>
+        {selectedSchedule.scheduleStatus === "scheduled" && !selectedScheduleIsDue && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+            This visit becomes available on {selectedSchedule.visitDate}. You can complete it after that date.
           </div>
         )}
 
-        {selectedPurpose === "Blood Glucose" && selectedSchedule.scheduleStatus === "scheduled" && (
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Blood Glucose (mg/dL)</label>
-            <input type="number" className={inputCls} placeholder="e.g. 100" value={glucoseValue} onChange={(e) => setGlucoseValue(e.target.value)} required />
-          </div>
-        )}
+        {selectedSchedule.scheduleStatus === "scheduled" && selectedScheduleIsDue && (
+          <>
+            {selectedPurpose === "Blood Pressure" && (
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Systolic (mmHg)</label>
+                  <input type="number" className={inputCls} placeholder="e.g. 120" value={systolic} onChange={(e) => setSystolic(e.target.value)} required />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Diastolic (mmHg)</label>
+                  <input type="number" className={inputCls} placeholder="e.g. 80" value={diastolic} onChange={(e) => setDiastolic(e.target.value)} required />
+                </div>
+              </div>
+            )}
 
-        {selectedPurpose === "Routine Visit" && selectedSchedule.scheduleStatus === "scheduled" && (
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Visit notes</label>
-            <textarea className={`${inputCls} resize-none`} rows={4} placeholder="Enter observations or care notes" value={notes} onChange={(e) => setNotes(e.target.value)} required />
-          </div>
-        )}
+            {selectedPurpose === "Blood Glucose" && (
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Blood Glucose (mg/dL)</label>
+                <input type="number" className={inputCls} placeholder="e.g. 100" value={glucoseValue} onChange={(e) => setGlucoseValue(e.target.value)} required />
+              </div>
+            )}
 
-        {selectedSchedule.scheduleStatus === "scheduled" && (
-          <button
-            type="submit"
-            disabled={submitLoading}
-            className="inline-flex items-center justify-center rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-60"
-          >
-            {submitLoading ? "Saving…" : selectedPurpose === "Routine Visit" ? "Finish Visit" : "Complete Visit"}
-          </button>
+            {selectedPurpose === "Routine Visit" && (
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Visit notes</label>
+                <textarea className={`${inputCls} resize-none`} rows={4} placeholder="Enter observations or care notes" value={notes} onChange={(e) => setNotes(e.target.value)} required />
+              </div>
+            )}
+
+            {selectedPurpose === "Medication" && (
+              <div className="space-y-3 rounded-lg border border-border bg-muted/5 p-3">
+                <div className="text-sm text-muted-foreground">
+                  This medication visit will be recorded as completed and the medication status will be saved.
+                </div>
+                {medicationDetails.length > 0 ? (
+                  <div className="space-y-2">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Medicine & dosage</div>
+                    {medicationDetails.map((item) => (
+                      <div key={item.id} className="rounded-lg border border-border bg-background/70 p-2.5">
+                        <div className="text-sm font-semibold text-foreground">{item.medicationName}</div>
+                        <div className="text-sm text-muted-foreground">{item.dosage}</div>
+                        {item.instructions ? <div className="mt-1 text-xs text-muted-foreground">{item.instructions}</div> : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-sm text-muted-foreground">No medication details found for this resident.</div>
+                )}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={submitLoading}
+              className="inline-flex items-center justify-center rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-60"
+            >
+              {submitLoading ? "Saving…" : selectedPurpose === "Routine Visit" ? "Finish Visit" : "Complete Visit"}
+            </button>
+          </>
         )}
 
         {formMessage && (
@@ -371,7 +514,7 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
                 const key = dayKey(date);
                 const daySchedules = schedulesByDay[key] || [];
                 return (
-                  <div key={key} className="rounded-2xl border border-border bg-background p-3">
+                  <div key={key} className="rounded-2xl border border-border bg-background p-2.5">
                     <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       {dayLabel(date)}
                     </div>
@@ -386,17 +529,19 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
                           key={item.id}
                           type="button"
                           onClick={() => setSelectedScheduleId(item.id)}
-                          className={`w-full rounded-2xl border px-3 py-2 text-left transition ${selectedScheduleId === item.id ? "border-primary bg-primary/5" : "border-border/70 bg-white hover:bg-slate-50"}`}
+                          className={`w-full overflow-hidden rounded-2xl border px-2.5 py-2 text-left transition ${selectedScheduleId === item.id ? "border-primary bg-primary/5" : "border-border/70 bg-white hover:bg-slate-50"}`}
                         >
-                          <div className="flex justify-between gap-2">
-                            <div>
-                              <div className="text-xs font-semibold text-foreground">{item.purpose}</div>
-                              <div className="text-[11px] text-muted-foreground">{item.elderlyName}</div>
+                          <div className="flex min-w-0 flex-col gap-2">
+                            <div className="min-w-0">
+                              <div className="truncate text-xs font-semibold text-foreground">{item.purpose}</div>
+                              <div className="truncate text-[11px] text-muted-foreground">{item.elderlyName}</div>
                               <div className="text-[11px] text-muted-foreground">{item.visitTime}</div>
                             </div>
-                            <span className={statusBadgeClasses(item.scheduleStatus)}>
-                              {item.scheduleStatus}
-                            </span>
+                            <div className="flex justify-start">
+                              <span className={statusBadgeClasses(item.scheduleStatus)}>
+                                {statusLabel(item.scheduleStatus)}
+                              </span>
+                            </div>
                           </div>
                         </button>
                       ))}
