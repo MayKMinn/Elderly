@@ -63,6 +63,17 @@ function getAgeFromBirthdate(value: string) {
   return age;
 }
 
+function getBirthdateFromAge(value: string) {
+  const age = Number(value);
+  if (!Number.isInteger(age) || age < 50 || age > 120) return "";
+
+  const birthdate = new Date();
+  birthdate.setHours(0, 0, 0, 0);
+  birthdate.setFullYear(birthdate.getFullYear() - age);
+
+  return formatDateInput(birthdate);
+}
+
 function validateElderlyBirthdate(value: string) {
   if (!value) return undefined;
 
@@ -342,6 +353,16 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
     setForm((prevForm) => {
       const nextForm = { ...prevForm, [field]: value };
 
+      if (nextForm.type === "elderly" && field === "age") {
+        const defaultBirthdate = getBirthdateFromAge(value);
+        nextForm.birthdate = defaultBirthdate || "";
+      }
+
+      if (nextForm.type === "elderly" && field === "birthdate") {
+        const age = getAgeFromBirthdate(value);
+        if (age !== undefined) nextForm.age = String(age);
+      }
+
       setErrors((prevErrors) => {
         const nextErrors = { ...prevErrors };
         const fieldError = validateField(field, value, nextForm);
@@ -423,7 +444,7 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
                   placeholder={isNurse ? "e.g. 30" : "e.g. 75"}
                   value={form.age}
                   error={errors.age}
-                  onChange={(value) => setField("age", value)}
+                  onChange={(value) => setField("age", value.replace(/\D/g, "").slice(0, 3))}
                 />
               </FormRow2>
               <FormRow2>
@@ -472,7 +493,6 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
                     max={elderlyBirthdateLimits.max}
                     value={form.birthdate}
                     error={errors.birthdate}
-                    blockTyping
                     onChange={(value) => setField("birthdate", value)}
                   />
                   <FormField
