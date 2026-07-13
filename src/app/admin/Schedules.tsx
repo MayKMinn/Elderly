@@ -257,6 +257,7 @@ function normalizeScheduleSearchValue(value: string) {
 
 type Page = "dashboard" | "manage-profiles" | "schedules" | "medications" | "reports" | "login-history" | "settings";
 type ScheduleSummaryFilter = "all" | "today" | "upcoming" | "missed";
+type ScheduleSummaryAction = ScheduleSummaryFilter | "all-schedules" | "nurses";
 
 interface SchedulesProps {
   onNavigate: (page: Page) => void;
@@ -288,8 +289,13 @@ export function Schedules({ onNavigate, onOpenNurses }: SchedulesProps) {
   const [weekStart, setWeekStart] = useState(() => getWeekStart(new Date()));
   const [scheduleSearch, setScheduleSearch] = useState("");
   const [scheduleSearchOpen, setScheduleSearchOpen] = useState(false);
+  const [scheduleStartDateFilter, setScheduleStartDateFilter] = useState("");
+  const [scheduleEndDateFilter, setScheduleEndDateFilter] = useState("");
+  const [scheduleStatusFilter, setScheduleStatusFilter] = useState("");
+  const [scheduleDayFilter, setScheduleDayFilter] = useState("");
   const [summaryFilter, setSummaryFilter] = useState<ScheduleSummaryFilter>("all");
   const [showAllSchedules, setShowAllSchedules] = useState(false);
+  const [showFullScheduleList, setShowFullScheduleList] = useState(false);
   const [selectedSchedule, setSelectedSchedule] = useState<ScheduleAssignment | null>(null);
   const [activeCalendarSlot, setActiveCalendarSlot] = useState<{ dateKey: string; hour: number } | null>(null);
   const [createSlotLock, setCreateSlotLock] = useState<{ dateKey: string; hour: number } | null>(null);
@@ -353,7 +359,13 @@ export function Schedules({ onNavigate, onOpenNurses }: SchedulesProps) {
       .filter((schedule) => currentWeekKeys.has(schedule.visitDate) && schedule.scheduleStatus !== "cancelled")
       .sort((a, b) => a.visitDate.localeCompare(b.visitDate) || a.visitTime.localeCompare(b.visitTime));
   }, [filteredSchedules]);
-  const tableSchedules = showAllSchedules ? filteredSchedules : currentWeekSchedules;
+  const tableSchedules = (showAllSchedules ? filteredSchedules : currentWeekSchedules).filter((schedule) => (
+    (!scheduleStartDateFilter || schedule.visitDate >= scheduleStartDateFilter)
+    && (!scheduleEndDateFilter || schedule.visitDate <= scheduleEndDateFilter)
+    && (!showFullScheduleList || schedule.scheduleStatus !== "cancelled")
+    && (!scheduleStatusFilter || schedule.scheduleStatus === scheduleStatusFilter)
+    && (!scheduleDayFilter || String(dateFromKey(schedule.visitDate)?.getDay() ?? "") === scheduleDayFilter)
+  ));
   const scheduleSearchSuggestions = useMemo(() => {
     const query = normalizeScheduleSearchValue(scheduleSearch);
     const suggestions: ScheduleSearchSuggestion[] = [
@@ -431,7 +443,7 @@ export function Schedules({ onNavigate, onOpenNurses }: SchedulesProps) {
         action: "today" as const,
       },
       {
-        label: "Upcoming Visits",
+        label: "This Week Visits",
         value: upcomingVisits,
         sub: `${upcomingVisits} this week`,
         icon: <Calendar size={20} />,
@@ -451,6 +463,16 @@ export function Schedules({ onNavigate, onOpenNurses }: SchedulesProps) {
         action: "missed" as const,
       },
       {
+        label: "All Schedules",
+        value: schedules.filter((schedule) => schedule.scheduleStatus !== "cancelled").length,
+        sub: "View complete list",
+        icon: <CheckCircle2 size={20} />,
+        iconBg: "#f0fdf4",
+        iconColor: "#16a34a",
+        subColor: "#2563eb",
+        action: "all-schedules" as const,
+      },
+      {
         label: "Active Nurses",
         value: nurses.length,
         sub: `${nurses.length} available`,
@@ -463,28 +485,26 @@ export function Schedules({ onNavigate, onOpenNurses }: SchedulesProps) {
     ];
   }, [nurses.length, schedules, todayKey]);
 
-  function applySummaryAction(action: ScheduleSummaryFilter | "nurses") {
+  function applySummaryAction(action: ScheduleSummaryAction) {
     if (action === "nurses") {
       onOpenNurses();
       return;
     }
 
-    setSummaryFilter(action);
+    setSummaryFilter(action === "all-schedules" ? "all" : action);
     setScheduleSearch("");
     setScheduleSearchOpen(false);
+    setScheduleStartDateFilter("");
+    setScheduleEndDateFilter("");
+    setScheduleStatusFilter("");
+    setScheduleDayFilter("");
     setActiveCalendarSlot(null);
     setSelectedSchedule(null);
     setShowAllSchedules(true);
+    setShowFullScheduleList(action === "all-schedules");
 
-    if (action === "today") {
-      const today = new Date();
-      setSelectedDateKey(toDateKey(today));
-      setWeekStart(getWeekStart(today));
-      setView("Day");
-    } else if (action === "upcoming") {
-      setWeekStart(getWeekStart(new Date()));
-      setView("Week");
-    }
+    // Summary cards open the filtered schedule list below instead of changing
+    // the calendar to a day or week view.
   }
 
   async function loadScheduleData() {
@@ -601,6 +621,10 @@ export function Schedules({ onNavigate, onOpenNurses }: SchedulesProps) {
     const query = normalizeScheduleSearchValue(value);
 
     if (!query) return;
+    if (showFullScheduleList) {
+      setShowAllSchedules(true);
+      return;
+    }
     setShowAllSchedules(false);
 
     const matchingSchedules = schedules
@@ -970,14 +994,20 @@ export function Schedules({ onNavigate, onOpenNurses }: SchedulesProps) {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-4 mb-5">
+      <div className="grid grid-cols-1 gap-4 mb-5 sm:grid-cols-2 xl:grid-cols-5">
         {summaryStats.map((s) => (
           <button
             key={s.label}
             type="button"
             onClick={() => applySummaryAction(s.action)}
             className="rounded-xl border bg-white p-4 text-left transition hover:-translate-y-0.5 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-            style={{ borderColor: summaryFilter === s.action ? "#2563eb" : "rgba(0,0,0,0.06)" }}
+            style={{
+              borderColor: s.action === "all-schedules"
+                ? showFullScheduleList ? "#2563eb" : "rgba(0,0,0,0.06)"
+                : summaryFilter === s.action && !showFullScheduleList
+                  ? "#2563eb"
+                  : "rgba(0,0,0,0.06)",
+            }}
             title={s.action === "nurses" ? "View active nurses" : `Show ${s.label.toLowerCase()}`}
           >
             <div className="w-10 h-10 rounded-full flex items-center justify-center mb-3" style={{ backgroundColor: s.iconBg, color: s.iconColor }}>
@@ -990,12 +1020,28 @@ export function Schedules({ onNavigate, onOpenNurses }: SchedulesProps) {
         ))}
       </div>
 
-      {summaryFilter !== "all" && (
+      {(summaryFilter !== "all" || showFullScheduleList) && (
         <div className="mb-4 flex items-center justify-between rounded-lg border bg-white px-3 py-2 text-xs" style={{ borderColor: "#bfdbfe", color: "#1d4ed8" }}>
-          <span>Showing {summaryFilter === "today" ? "today's visits" : summaryFilter === "upcoming" ? "upcoming visits this week" : "missed visits"}.</span>
+          <span>
+            Showing {showFullScheduleList
+              ? "all schedules"
+              : summaryFilter === "today"
+                ? "today's visits"
+                : summaryFilter === "upcoming"
+                  ? "this week's visits"
+                  : "missed visits"}.
+          </span>
           <button
             type="button"
-            onClick={() => setSummaryFilter("all")}
+            onClick={() => {
+              setSummaryFilter("all");
+              setShowAllSchedules(false);
+              setShowFullScheduleList(false);
+              setScheduleStartDateFilter("");
+              setScheduleEndDateFilter("");
+              setScheduleStatusFilter("");
+              setScheduleDayFilter("");
+            }}
             className="font-semibold hover:underline"
           >
             Clear filter
@@ -1236,6 +1282,7 @@ export function Schedules({ onNavigate, onOpenNurses }: SchedulesProps) {
         {/* Calendar + Table */}
         <div className="space-y-4">
           {/* Weekly Calendar */}
+          {summaryFilter === "all" && !showFullScheduleList && (
           <div className="relative bg-white rounded-xl border overflow-visible" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
             <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: "rgba(0,0,0,0.06)" }}>
               <h3 className="text-sm" style={{ color: "#1a2b42", fontWeight: 700 }}>Weekly Schedule Overview</h3>
@@ -1697,22 +1744,143 @@ export function Schedules({ onNavigate, onOpenNurses }: SchedulesProps) {
               </div>
             )}
           </div>
+          )}
 
           {/* Upcoming Schedules Table */}
           <div className="bg-white rounded-xl border overflow-hidden" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
-            <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: "rgba(0,0,0,0.06)" }}>
-              <h3 className="text-sm" style={{ color: "#1a2b42", fontWeight: 700 }}>Upcoming Schedules</h3>
-              <button
-                onClick={() => {
-                  setScheduleSearch("");
-                  setShowAllSchedules((current) => !current);
-                  if (showAllSchedules) setView("Week");
-                }}
-                className="text-xs"
-                style={{ color: "#2563eb" }}
-              >
-                {showAllSchedules ? "View week" : "View all"}
-              </button>
+            <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b" style={{ borderColor: "rgba(0,0,0,0.06)" }}>
+              <h3 className="text-sm" style={{ color: "#1a2b42", fontWeight: 700 }}>
+                {showFullScheduleList
+                  ? "All Schedules"
+                  : summaryFilter === "today"
+                  ? "Today's Schedules"
+                  : summaryFilter === "missed"
+                    ? "Missed Schedules"
+                    : "This Week Schedules"}
+              </h3>
+              <div className="flex flex-1 flex-wrap items-center justify-end gap-2 sm:flex-none">
+                <div className="relative min-w-[220px] flex-1 sm:flex-none">
+                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "#6b7a99" }} />
+                  <input
+                    value={scheduleSearch}
+                    onChange={(event) => handleScheduleSearch(event.target.value)}
+                    placeholder="Search nurse or elderly..."
+                    className="w-full rounded-lg border py-1.5 pl-8 pr-8 text-xs outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    style={{ borderColor: "rgba(0,0,0,0.1)", backgroundColor: "#f8fafc", color: "#1a2b42" }}
+                  />
+                  {scheduleSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setScheduleSearch("")}
+                      className="absolute right-2 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded hover:bg-gray-200"
+                      aria-label="Clear schedule search"
+                    >
+                      <X size={12} style={{ color: "#6b7a99" }} />
+                    </button>
+                  )}
+                </div>
+                {summaryFilter !== "today" && summaryFilter !== "upcoming" && (
+                <>
+                <label className="flex items-center gap-1.5 text-xs" style={{ color: "#6b7a99" }}>
+                  <span>From</span>
+                  <input
+                    type="date"
+                    value={scheduleStartDateFilter}
+                    max={scheduleEndDateFilter || undefined}
+                    onChange={(event) => setScheduleStartDateFilter(event.target.value)}
+                    className="rounded-lg border px-2 py-1.5 text-xs outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    style={{ borderColor: "rgba(0,0,0,0.1)", backgroundColor: "#f8fafc", color: "#1a2b42" }}
+                  />
+                </label>
+                <label className="flex items-center gap-1.5 text-xs" style={{ color: "#6b7a99" }}>
+                  <span>To</span>
+                  <input
+                    type="date"
+                    value={scheduleEndDateFilter}
+                    min={scheduleStartDateFilter || undefined}
+                    onChange={(event) => setScheduleEndDateFilter(event.target.value)}
+                    className="rounded-lg border px-2 py-1.5 text-xs outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    style={{ borderColor: "rgba(0,0,0,0.1)", backgroundColor: "#f8fafc", color: "#1a2b42" }}
+                  />
+                </label>
+                {(scheduleStartDateFilter || scheduleEndDateFilter) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setScheduleStartDateFilter("");
+                      setScheduleEndDateFilter("");
+                    }}
+                    className="text-xs hover:underline"
+                    style={{ color: "#2563eb" }}
+                  >
+                    Clear dates
+                  </button>
+                )}
+                </>
+                )}
+                {summaryFilter === "upcoming" && (
+                  <label className="flex items-center gap-1.5 text-xs" style={{ color: "#6b7a99" }}>
+                    <span>Day</span>
+                    <div className="relative">
+                      <select
+                        value={scheduleDayFilter}
+                        onChange={(event) => setScheduleDayFilter(event.target.value)}
+                        className="appearance-none rounded-lg border py-1.5 pl-2.5 pr-8 text-xs outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                        style={{ borderColor: "rgba(0,0,0,0.1)", backgroundColor: "#f8fafc", color: "#1a2b42" }}
+                      >
+                        <option value="">All days</option>
+                        <option value="1">Monday</option>
+                        <option value="2">Tuesday</option>
+                        <option value="3">Wednesday</option>
+                        <option value="4">Thursday</option>
+                        <option value="5">Friday</option>
+                        <option value="6">Saturday</option>
+                        <option value="0">Sunday</option>
+                      </select>
+                      <ChevronDown
+                        size={13}
+                        className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2"
+                        style={{ color: "#6b7a99" }}
+                      />
+                    </div>
+                  </label>
+                )}
+                {showFullScheduleList && (
+                  <label className="flex items-center gap-1.5 text-xs" style={{ color: "#6b7a99" }}>
+                    <span>Status</span>
+                    <div className="relative">
+                      <select
+                        value={scheduleStatusFilter}
+                        onChange={(event) => setScheduleStatusFilter(event.target.value)}
+                        className="appearance-none rounded-lg border py-1.5 pl-2.5 pr-8 text-xs outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                        style={{ borderColor: "rgba(0,0,0,0.1)", backgroundColor: "#f8fafc", color: "#1a2b42" }}
+                      >
+                        <option value="">All statuses</option>
+                        <option value="scheduled">Scheduled</option>
+                        <option value="completed">Completed</option>
+                        <option value="missed">Missed</option>
+                      </select>
+                      <ChevronDown
+                        size={13}
+                        className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2"
+                        style={{ color: "#6b7a99" }}
+                      />
+                    </div>
+                  </label>
+                )}
+                {!showAllSchedules && (
+                  <button
+                    onClick={() => {
+                      setScheduleSearch("");
+                      setShowAllSchedules(true);
+                    }}
+                    className="text-xs"
+                    style={{ color: "#2563eb" }}
+                  >
+                    View all
+                  </button>
+                )}
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full">
