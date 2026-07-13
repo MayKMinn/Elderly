@@ -7,6 +7,7 @@ import { Schedules } from "./Schedules";
 import { Medications } from "./Medications";
 import { Reports } from "./Reports";
 import { LoginHistory } from "./LoginHistory";
+import type { AdminProfile } from "../api/auth";
 
 type Page =
   | "dashboard"
@@ -29,6 +30,7 @@ interface AdminPortalProps {
   };
   signedInAt?: string;
   onSignOut?: () => void;
+  onAdminProfileChange?: (profile: AdminProfile) => void;
 }
 
 const adminPageStorageKey = "elderease.admin.currentPage";
@@ -47,7 +49,7 @@ function readSavedProfileTab() {
   return profileTabs.includes(saved as ProfileTab) ? (saved as ProfileTab) : "elderly";
 }
 
-export function AdminPortal({ adminName, adminProfile, signedInAt, onSignOut }: AdminPortalProps) {
+export function AdminPortal({ adminName, adminProfile, signedInAt, onSignOut, onAdminProfileChange }: AdminPortalProps) {
   const [currentPage, setCurrentPageState] = useState<Page>(readSavedPage);
   const [profileTab, setProfileTabState] = useState<ProfileTab>(readSavedProfileTab);
 
@@ -102,6 +104,7 @@ export function AdminPortal({ adminName, adminProfile, signedInAt, onSignOut }: 
           adminProfile={adminProfile}
           signedInAt={signedInAt}
           onSignOut={onSignOut}
+          onProfileChange={onAdminProfileChange}
           subtitle={
             currentPage === "schedules" || currentPage === "medications" || currentPage === "reports"
               ? undefined

@@ -16,6 +16,7 @@ interface TopBarProps {
   };
   signedInAt?: string;
   onSignOut?: () => void;
+  onProfileChange?: (profile: AdminProfile) => void;
 }
 
 function formatSignedInAt(value?: string) {
@@ -27,7 +28,7 @@ function formatSignedInAt(value?: string) {
   return date.toLocaleString();
 }
 
-export function TopBar({ title, subtitle, adminName, adminProfile, signedInAt, onSignOut }: TopBarProps) {
+export function TopBar({ title, subtitle, adminName, adminProfile, signedInAt, onSignOut, onProfileChange }: TopBarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [profile, setProfile] = useState<AdminProfile | null>(
     adminProfile?.username
@@ -43,10 +44,13 @@ export function TopBar({ title, subtitle, adminName, adminProfile, signedInAt, o
   );
   const [photoSaving, setPhotoSaving] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const avatarSrc = profile
-    ? profile.avatar || "https://i.pravatar.cc/80?img=33"
-    : adminProfile?.avatar || "https://i.pravatar.cc/80?img=33";
+  const avatarSrc = String(profile?.avatar ?? adminProfile?.avatar ?? "").trim();
   const profileUsername = profile?.username || adminProfile?.username || adminName;
+
+  const applyProfile = (nextProfile: AdminProfile) => {
+    setProfile(nextProfile);
+    onProfileChange?.(nextProfile);
+  };
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -71,7 +75,7 @@ export function TopBar({ title, subtitle, adminName, adminProfile, signedInAt, o
 
     getAdminProfile(username)
       .then((nextProfile) => {
-        if (!ignore) setProfile(nextProfile);
+        if (!ignore) applyProfile(nextProfile);
       })
       .catch((error) => {
         console.error("Failed to load admin profile.", error);
@@ -86,11 +90,23 @@ export function TopBar({ title, subtitle, adminName, adminProfile, signedInAt, o
     const adminId = profile?.id || adminProfile?.id;
     if (!adminId) return;
 
+    const previousProfile = profile;
+    const optimisticProfile: AdminProfile = {
+      id: adminId,
+      username: profile?.username || adminProfile?.username || adminName,
+      name: profile?.name || adminProfile?.name || "Admin",
+      email: profile?.email ?? adminProfile?.email ?? null,
+      avatar,
+      status: profile?.status || "active",
+    };
+
+    applyProfile(optimisticProfile);
     setPhotoSaving(true);
     try {
       const nextProfile = await updateAdminAvatar(adminId, avatar);
-      setProfile(nextProfile);
+      applyProfile(nextProfile);
     } catch (error) {
+      if (previousProfile) applyProfile(previousProfile);
       console.error("Failed to update admin photo.", error);
     } finally {
       setPhotoSaving(false);
@@ -132,12 +148,7 @@ export function TopBar({ title, subtitle, adminName, adminProfile, signedInAt, o
             onClick={() => setMenuOpen((open) => !open)}
             className="flex items-center gap-2 rounded-xl px-2 py-1.5 transition-colors hover:bg-gray-50"
           >
-            <img
-              src={avatarSrc}
-              alt={adminName}
-              className="w-9 h-9 rounded-full object-cover border-2"
-              style={{ borderColor: "#dbeafe" }}
-            />
+            <AdminAvatar src={avatarSrc} name={adminName} className="w-9 h-9 border-2" iconSize={20} />
             <div className="hidden sm:block text-left">
               <div className="text-xs" style={{ color: "#1a2b42", fontWeight: 600 }}>
                 {adminName}
@@ -160,12 +171,7 @@ export function TopBar({ title, subtitle, adminName, adminProfile, signedInAt, o
             >
               <div className="p-4 border-b" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
                 <div className="flex items-center gap-3">
-                  <img
-                    src={avatarSrc}
-                    alt={adminName}
-                    className="h-14 w-14 rounded-full border-2 object-cover"
-                    style={{ borderColor: "#dbeafe" }}
-                  />
+                  <AdminAvatar src={avatarSrc} name={adminName} className="h-14 w-14 border-2" iconSize={28} />
                   <label
                     className="absolute ml-9 mt-8 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border-2 bg-white shadow-sm hover:bg-blue-50"
                     style={{ borderColor: "#fff", color: "#2563eb" }}
@@ -243,6 +249,40 @@ function ProfileRow({ label, value }: { label: string; value: string }) {
       <span className="max-w-[150px] break-words text-right text-xs" style={{ color: "#1a2b42", fontWeight: 600 }}>
         {value}
       </span>
+    </div>
+  );
+}
+
+function AdminAvatar({
+  src,
+  name,
+  className,
+  iconSize,
+}: {
+  src: string;
+  name: string;
+  className: string;
+  iconSize: number;
+}) {
+  if (src) {
+    return (
+      <img
+        src={src}
+        alt={name}
+        className={`${className} rounded-full object-cover`}
+        style={{ borderColor: "#dbeafe" }}
+      />
+    );
+  }
+
+  return (
+    <div
+      className={`${className} flex items-center justify-center rounded-full bg-blue-50`}
+      style={{ borderColor: "#dbeafe", color: "#2563eb" }}
+      aria-label={name}
+      role="img"
+    >
+      <UserCircle size={iconSize} />
     </div>
   );
 }
