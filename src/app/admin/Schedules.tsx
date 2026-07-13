@@ -256,12 +256,14 @@ function normalizeScheduleSearchValue(value: string) {
 }
 
 type Page = "dashboard" | "manage-profiles" | "schedules" | "medications" | "reports" | "login-history" | "settings";
+type ScheduleSummaryFilter = "all" | "today" | "upcoming" | "missed";
 
 interface SchedulesProps {
   onNavigate: (page: Page) => void;
+  onOpenNurses: () => void;
 }
 
-export function Schedules({ onNavigate }: SchedulesProps) {
+export function Schedules({ onNavigate, onOpenNurses }: SchedulesProps) {
   const scheduleFormRef = useRef<HTMLDivElement | null>(null);
   const [nurses, setNurses] = useState<SelectOption[]>([]);
   const [elders, setElders] = useState<SelectOption[]>([]);
@@ -286,6 +288,7 @@ export function Schedules({ onNavigate }: SchedulesProps) {
   const [weekStart, setWeekStart] = useState(() => getWeekStart(new Date()));
   const [scheduleSearch, setScheduleSearch] = useState("");
   const [scheduleSearchOpen, setScheduleSearchOpen] = useState(false);
+  const [summaryFilter, setSummaryFilter] = useState<ScheduleSummaryFilter>("all");
   const [showAllSchedules, setShowAllSchedules] = useState(false);
   const [selectedSchedule, setSelectedSchedule] = useState<ScheduleAssignment | null>(null);
   const [activeCalendarSlot, setActiveCalendarSlot] = useState<{ dateKey: string; hour: number } | null>(null);
@@ -301,6 +304,10 @@ export function Schedules({ onNavigate }: SchedulesProps) {
   const todayKey = toDateKey(new Date());
   const filteredSchedules = useMemo(() => {
     const query = normalizeScheduleSearchValue(scheduleSearch);
+    const currentWeekStart = getWeekStart(new Date());
+    const currentWeekKeys = new Set(
+      Array.from({ length: 7 }, (_, index) => toDateKey(addDays(currentWeekStart, index)))
+    );
 
     return schedules.filter((schedule) => {
       const matchesSearch = query
@@ -312,9 +319,14 @@ export function Schedules({ onNavigate }: SchedulesProps) {
           ].some((value) => String(value || "").toLowerCase().includes(query))
         : true;
 
-      return matchesSearch;
+      const matchesSummary = summaryFilter === "all"
+        || (summaryFilter === "today" && schedule.visitDate === todayKey)
+        || (summaryFilter === "upcoming" && currentWeekKeys.has(schedule.visitDate) && schedule.scheduleStatus !== "cancelled")
+        || (summaryFilter === "missed" && schedule.scheduleStatus === "missed");
+
+      return matchesSearch && matchesSummary;
     });
-  }, [scheduleSearch, schedules]);
+  }, [scheduleSearch, schedules, summaryFilter, todayKey]);
   const overviewSchedules = useMemo(() => {
     const weekKeys = new Set(weekDays.map(toDateKey));
     return filteredSchedules.filter((schedule) => (
@@ -416,6 +428,7 @@ export function Schedules({ onNavigate }: SchedulesProps) {
         iconBg: "#eff6ff",
         iconColor: "#818cf8",
         subColor: "#22c55e",
+        action: "today" as const,
       },
       {
         label: "Upcoming Visits",
@@ -425,6 +438,7 @@ export function Schedules({ onNavigate }: SchedulesProps) {
         iconBg: "#ecfdf5",
         iconColor: "#22c55e",
         subColor: "#22c55e",
+        action: "upcoming" as const,
       },
       {
         label: "Missed Visits",
@@ -434,6 +448,7 @@ export function Schedules({ onNavigate }: SchedulesProps) {
         iconBg: "#fff7ed",
         iconColor: "#f97316",
         subColor: "#ef4444",
+        action: "missed" as const,
       },
       {
         label: "Active Nurses",
@@ -443,9 +458,34 @@ export function Schedules({ onNavigate }: SchedulesProps) {
         iconBg: "#eff6ff",
         iconColor: "#2563eb",
         subColor: "#22c55e",
+        action: "nurses" as const,
       },
     ];
   }, [nurses.length, schedules, todayKey]);
+
+  function applySummaryAction(action: ScheduleSummaryFilter | "nurses") {
+    if (action === "nurses") {
+      onOpenNurses();
+      return;
+    }
+
+    setSummaryFilter(action);
+    setScheduleSearch("");
+    setScheduleSearchOpen(false);
+    setActiveCalendarSlot(null);
+    setSelectedSchedule(null);
+    setShowAllSchedules(true);
+
+    if (action === "today") {
+      const today = new Date();
+      setSelectedDateKey(toDateKey(today));
+      setWeekStart(getWeekStart(today));
+      setView("Day");
+    } else if (action === "upcoming") {
+      setWeekStart(getWeekStart(new Date()));
+      setView("Week");
+    }
+  }
 
   async function loadScheduleData() {
     setLoading(true);
@@ -664,6 +704,12 @@ export function Schedules({ onNavigate }: SchedulesProps) {
       return;
     }
 
+    if (purpose === "Medication" && selectedElderlyMedications.length === 0) {
+      setSaving(false);
+      setError("Add an active medication for this elderly profile before scheduling a medication visit.");
+      return;
+    }
+
     if (!editingSchedule && createSlotLock) {
       if (visitDate !== createSlotLock.dateKey || visitHour !== createSlotLock.hour) {
         setSaving(false);
@@ -874,20 +920,22 @@ export function Schedules({ onNavigate }: SchedulesProps) {
     }
   }
 
-  async function confirmDeleteSchedule(row: ScheduleAssignment) {
+  async function confirmDeleteSchedule(row: ScheduleAssignment, deleteGroup = false) {
     setUpdatingScheduleId(row.id);
     setError("");
     setMessage("");
 
     try {
-      await deleteSchedule(row.id, { group: Boolean(row.recurringGroupId) });
+      await deleteSchedule(row.id, { group: deleteGroup });
       setSchedules((current) => current.filter((schedule) => (
-        row.recurringGroupId ? schedule.recurringGroupId !== row.recurringGroupId : schedule.id !== row.id
+        deleteGroup && row.recurringGroupId
+          ? schedule.recurringGroupId !== row.recurringGroupId
+          : schedule.id !== row.id
       )));
       setSelectedSchedule((current) => current?.id === row.id ? null : current);
       setPendingDeleteSchedule(null);
       setActionMenuId(null);
-      setMessage(row.recurringGroupId ? "Recurring schedules deleted." : "Schedule deleted.");
+      setMessage(deleteGroup && row.recurringGroupId ? "Recurring schedules deleted." : "Schedule deleted.");
     } catch (deleteError) {
       console.error("Failed to delete schedule.", deleteError);
       setError(deleteError instanceof Error ? deleteError.message : "Failed to delete schedule.");
@@ -924,16 +972,36 @@ export function Schedules({ onNavigate }: SchedulesProps) {
       {/* Stats */}
       <div className="grid grid-cols-4 gap-4 mb-5">
         {summaryStats.map((s) => (
-          <div key={s.label} className="bg-white rounded-xl p-4 border" style={{ borderColor: "rgba(0,0,0,0.06)" }}>
+          <button
+            key={s.label}
+            type="button"
+            onClick={() => applySummaryAction(s.action)}
+            className="rounded-xl border bg-white p-4 text-left transition hover:-translate-y-0.5 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+            style={{ borderColor: summaryFilter === s.action ? "#2563eb" : "rgba(0,0,0,0.06)" }}
+            title={s.action === "nurses" ? "View active nurses" : `Show ${s.label.toLowerCase()}`}
+          >
             <div className="w-10 h-10 rounded-full flex items-center justify-center mb-3" style={{ backgroundColor: s.iconBg, color: s.iconColor }}>
               {s.icon}
             </div>
             <div className="text-2xl mb-0.5" style={{ color: "#1a2b42", fontWeight: 700 }}>{s.value}</div>
             <div className="text-xs mb-0.5" style={{ color: "#1a2b42" }}>{s.label}</div>
             <div className="text-xs" style={{ color: s.subColor }}>{s.sub}</div>
-          </div>
+          </button>
         ))}
       </div>
+
+      {summaryFilter !== "all" && (
+        <div className="mb-4 flex items-center justify-between rounded-lg border bg-white px-3 py-2 text-xs" style={{ borderColor: "#bfdbfe", color: "#1d4ed8" }}>
+          <span>Showing {summaryFilter === "today" ? "today's visits" : summaryFilter === "upcoming" ? "upcoming visits this week" : "missed visits"}.</span>
+          <button
+            type="button"
+            onClick={() => setSummaryFilter("all")}
+            className="font-semibold hover:underline"
+          >
+            Clear filter
+          </button>
+        </div>
+      )}
 
       <div>
         {/* Create Schedule Form */}
@@ -1861,7 +1929,7 @@ export function Schedules({ onNavigate }: SchedulesProps) {
                 </p>
                 {pendingDeleteSchedule.recurringGroupId && (
                   <p className="mt-2 text-xs leading-relaxed" style={{ color: "#991b1b" }}>
-                    This will delete every visit in this recurring series.
+                    Choose whether to delete only this visit or every visit in the recurring series.
                   </p>
                 )}
               </div>
@@ -1876,13 +1944,25 @@ export function Schedules({ onNavigate }: SchedulesProps) {
               >
                 Cancel
               </button>
+              {pendingDeleteSchedule.recurringGroupId && (
+                <button
+                  onClick={() => confirmDeleteSchedule(pendingDeleteSchedule)}
+                  disabled={updatingScheduleId === pendingDeleteSchedule.id}
+                  className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-white disabled:opacity-60"
+                  style={{ backgroundColor: "#dc2626" }}
+                >
+                  <Trash2 size={12} /> {updatingScheduleId === pendingDeleteSchedule.id ? "Deleting..." : "This visit only"}
+                </button>
+              )}
               <button
-                onClick={() => confirmDeleteSchedule(pendingDeleteSchedule)}
+                onClick={() => confirmDeleteSchedule(pendingDeleteSchedule, Boolean(pendingDeleteSchedule.recurringGroupId))}
                 disabled={updatingScheduleId === pendingDeleteSchedule.id}
                 className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-white disabled:opacity-60"
                 style={{ backgroundColor: "#dc2626" }}
               >
-                <Trash2 size={12} /> {updatingScheduleId === pendingDeleteSchedule.id ? "Deleting..." : "Delete"}
+                <Trash2 size={12} /> {updatingScheduleId === pendingDeleteSchedule.id
+                  ? "Deleting..."
+                  : pendingDeleteSchedule.recurringGroupId ? "Entire series" : "Delete"}
               </button>
             </div>
           </div>

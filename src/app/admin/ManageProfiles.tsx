@@ -726,7 +726,11 @@ export function ManageProfiles({ activeTab, onTabChange, onNavigate }: ManagePro
       )));
       setModal({ type: "viewNurse", profile: { ...profile, assignedElders: savedIds.length } });
       setError(null);
-      setSuccessMessage("Assigned elderly updated successfully.");
+      setSuccessMessage(
+        response.deletedScheduleCount > 0
+          ? `Assigned elderly updated. ${response.deletedScheduleCount} future schedule${response.deletedScheduleCount === 1 ? " was" : "s were"} deleted.`
+          : "Assigned elderly updated successfully."
+      );
     } catch (err) {
       let message = "Failed to save assigned elderly.";
 

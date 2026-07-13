@@ -14,6 +14,7 @@ program-id. validate-schedule.
        01 slot-lock-hour    pic x(2).
        01 recurrence-days   pic x(10).
        01 has-assigned-elder pic x(1).
+       01 has-active-medication pic x(1).
        01 hour-text         pic x(2).
        01 minute-text       pic x(2).
        01 hour-number       pic 99.
@@ -43,10 +44,12 @@ program-id. validate-schedule.
           accept slot-lock-hour
           accept recurrence-days
           accept has-assigned-elder
+          accept has-active-medication
       
           perform validate-nurse-id
           perform validate-elderly-id
           perform validate-assigned-elder
+          perform validate-active-medication
           perform validate-visit-date
           perform validate-visit-time
           perform validate-future-date-time
@@ -282,6 +285,18 @@ program-id. validate-schedule.
                       move "recurrenceIntervalDays" to error-field
                  move "Recurring schedule must repeat daily or weekly."
                   to error-message
+                  end-if
+              end-if
+          end-if.
+
+       validate-active-medication.
+          if valid-flag = "Y"
+              if function trim(visit-purpose) = "Medication"
+                  if function trim(has-active-medication) not = "Y"
+                      move "N" to valid-flag
+                      move "purpose" to error-field
+                      move "Add an active medication for this elderly profile before scheduling a medication visit."
+                          to error-message
                   end-if
               end-if
           end-if.

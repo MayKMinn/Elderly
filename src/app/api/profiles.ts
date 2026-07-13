@@ -121,7 +121,7 @@ export function getNurseElderlyAssignments(nurseId: string) {
 }
 
 export function updateNurseElderlyAssignments(nurseId: string, elderlyIds: string[]) {
-  return request<{ assignments: NurseElderlyAssignment[] }>(`/api/nurses/${nurseId}/elderly-assignments`, {
+  return request<{ assignments: NurseElderlyAssignment[]; deletedScheduleCount: number }>(`/api/nurses/${nurseId}/elderly-assignments`, {
     method: "PUT",
     body: JSON.stringify({ elderlyIds }),
   });
