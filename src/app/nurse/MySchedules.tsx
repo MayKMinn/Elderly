@@ -155,26 +155,65 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
   }, [filteredSchedules]);
 
   const selectedSchedule = schedules.find((item) => item.id === selectedScheduleId) || null;
-  const currentDate = new Date();
-  const currentDay = currentDate.getDay();
-  const monday = new Date(currentDate);
-  monday.setDate(currentDate.getDate() - ((currentDay + 6) % 7));
-  const weekDays = Array.from({ length: 7 }).map((_, index) => {
-    const date = new Date(monday);
-    date.setDate(monday.getDate() + index);
-    return date;
-  });
+  const normalizedScheduleDates = useMemo(() => {
+    return filteredSchedules
+      .map((schedule) => normalizeDateKey(String(schedule.visitDate || "")))
+      .filter(Boolean)
+      .sort((left, right) => left.localeCompare(right));
+  }, [filteredSchedules]);
 
-  const dayKey = (date: Date) => date.toISOString().slice(0, 10);
+  const weekStart = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const sunday = new Date(today);
+    sunday.setDate(today.getDate() - today.getDay());
+    sunday.setHours(0, 0, 0, 0);
+
+    if (normalizedScheduleDates.length === 0) {
+      return sunday;
+    }
+
+    const currentWeekStart = new Date(sunday);
+    const hasCurrentWeek = normalizedScheduleDates.some((date) => {
+      const target = new Date(date);
+      return target >= currentWeekStart && target <= new Date(currentWeekStart.getFullYear(), currentWeekStart.getMonth(), currentWeekStart.getDate() + 6);
+    });
+
+    if (hasCurrentWeek) {
+      return currentWeekStart;
+    }
+
+    return sunday;
+  }, [normalizedScheduleDates]);
+
+  const weekEnd = useMemo(() => {
+    const end = new Date(weekStart);
+    end.setDate(end.getDate() + 6);
+    end.setHours(23, 59, 59, 999);
+    return end;
+  }, [weekStart]);
+
+  const weekDays = useMemo(() => {
+    const days: Date[] = [];
+    const cursor = new Date(weekStart);
+    cursor.setHours(0, 0, 0, 0);
+    while (cursor <= weekEnd) {
+      days.push(new Date(cursor));
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return days;
+  }, [weekStart, weekEnd]);
+
+  const dayKey = (date: Date) => toDateKey(date);
   const dayLabel = (date: Date) => date.toLocaleDateString(undefined, { weekday: "short" });
 
   const schedulesByDay = useMemo(() => {
     return weekDays.reduce<Record<string, ScheduleAssignment[]>>((groups, date) => {
       const key = dayKey(date);
-      groups[key] = filteredSchedules.filter((schedule) => schedule.visitDate === key);
+      groups[key] = filteredSchedules.filter((schedule) => normalizeDateKey(String(schedule.visitDate || "")) === key);
       return groups;
     }, {} as Record<string, ScheduleAssignment[]>);
-  }, [schedules, weekDays]);
+  }, [filteredSchedules, weekDays]);
 
   function resetFormFields() {
     setSystolic("");

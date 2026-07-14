@@ -84,7 +84,7 @@ export function AssignedResidentsSidebar({
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold text-foreground truncate">{resident.name}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Room {resident.room} · Age {resident.age}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Age {resident.age}</p>
                 <p className="text-xs text-muted-foreground mt-2 truncate">
                   {todays.length > 0 ? `Today · ${todays.length} check${todays.length > 1 ? "s" : ""}` : next ? `Next ${next.visitDate} ${next.visitTime}` : "No upcoming visits"}
                 </p>
@@ -130,7 +130,7 @@ export function ResidentDetailsPanel({
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-semibold text-foreground">{resident.name}</p>
-              <p className="text-xs text-muted-foreground mt-1">Room {resident.room} · Age {resident.age} · {resident.bloodType}</p>
+              <p className="text-xs text-muted-foreground mt-1">Age {resident.age} · {resident.bloodType}</p>
             </div>
             <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold capitalize ${statusColor[resident.status]}`}>
               {resident.status}
@@ -254,7 +254,7 @@ export function ResidentsPage({
                 <h3 className="text-xl font-semibold text-foreground" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>{selected.name}</h3>
                 <span className={`text-xs px-2.5 py-0.5 rounded-full font-semibold capitalize ${statusColor[selected.status]}`}>{selected.status}</span>
               </div>
-              <p className="text-sm text-muted-foreground mb-3">Age {selected.age} · Room {selected.room} · {selected.bloodType}</p>
+              <p className="text-sm text-muted-foreground mb-3">Age {selected.age} · {selected.bloodType}</p>
               <div className="flex flex-wrap gap-1.5">
                 {selected.conditions.map((condition) => (
                   <span key={condition} className="text-xs bg-red-50 text-red-700 border border-red-200 px-2.5 py-0.5 rounded-full">{condition}</span>
@@ -345,7 +345,7 @@ export function ResidentsPage({
                   <p className="font-semibold text-foreground" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>{resident.name}</p>
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${statusColor[resident.status]}`}>{resident.status}</span>
                 </div>
-                <p className="text-sm text-muted-foreground">Age {resident.age} · Room {resident.room} · {resident.bloodType}</p>
+                <p className="text-sm text-muted-foreground">Age {resident.age} · {resident.bloodType}</p>
                 <div className="text-xs text-muted-foreground mt-1">
                   {(() => {
                     const today = new Date().toISOString().slice(0, 10);

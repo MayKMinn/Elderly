@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   Activity, Pill, Stethoscope, Heart, Clock, Check, X, ChevronLeft,
   ChevronRight, Bell, AlertCircle, CheckCircle, Users, Calendar,
@@ -65,18 +65,83 @@ function makeChecks(residents: Resident[]): CheckEntry[] {
       });
     });
   });
-  // Pre-fill a couple as done for realism
-  const pre = (rid: number, type: "bp" | "medication" | "glucose", slot: "morning" | "evening") => {
-    const e = entries.find((e) => e.residentId === rid && e.type === type && e.slot === slot);
-    if (!e) return;
-    e.done = true; e.time = "07:45";
-    if (type === "bp") { e.systolic = "138"; e.diastolic = "85"; }
-    if (type === "glucose") { e.glucoseValue = "124"; }
-    if (type === "medication") { e.medGiven = true; e.notes = ""; }
-  };
-  pre(1, "bp", "morning");
-  pre(1, "medication", "morning");
-  pre(2, "bp", "morning");
+  return entries;
+}
+
+function normalizeDateKey(value: string | undefined | null) {
+  return String(value || "").slice(0, 10);
+}
+
+function getCheckTypeForPurpose(purpose: string | undefined) {
+  const normalized = String(purpose || "").toLowerCase();
+  if (normalized.includes("blood pressure")) return "bp" as const;
+  if (normalized.includes("glucose")) return "glucose" as const;
+  if (normalized.includes("medication")) return "medication" as const;
+  return null;
+}
+
+function getSlotForTime(timeValue: string | undefined) {
+  const rawTime = String(timeValue || "").trim();
+  const hourMatch = rawTime.match(/^(\d{1,2})/);
+  if (!hourMatch) return "morning" as const;
+  const hour = Number(hourMatch[1]);
+  return Number.isFinite(hour) && hour >= 12 ? "evening" as const : "morning" as const;
+}
+
+function buildChecksFromSchedules(
+  residents: Resident[],
+  scheduleAssignments: ScheduleAssignment[],
+  logs: any[]
+): CheckEntry[] {
+  const entries: CheckEntry[] = [];
+  const todayKey = normalizeDateKey(new Date().toISOString());
+
+  const todaySchedules = scheduleAssignments.filter((schedule) => normalizeDateKey(schedule.visitDate) === todayKey);
+
+  residents.forEach((resident) => {
+    const residentSchedules = todaySchedules.filter((schedule) => String(schedule.elderlyId) === String(resident.id));
+    if (residentSchedules.length === 0) return;
+
+    const residentLogs = logs.filter((log) => String(log.elderly_id ?? log.elderlyId ?? "") === String(resident.id));
+
+    residentSchedules.forEach((schedule) => {
+      const type = getCheckTypeForPurpose(schedule.purpose);
+      if (!type) return;
+
+      const slot = getSlotForTime(schedule.visitTime);
+      const matchingLog = residentLogs.find((log) => {
+        const logDate = normalizeDateKey(log.visitDate || log.visit_date || log.created_at);
+        if (logDate !== todayKey) return false;
+        const scheduleIdValue = String(log.schedule_id ?? log.scheduleId ?? "");
+        if (scheduleIdValue && scheduleIdValue === String(schedule.id)) return true;
+        const purposeValue = String(log.purpose || "").toLowerCase();
+        return purposeValue.includes(String(schedule.purpose || "").toLowerCase());
+      });
+
+      const entry: CheckEntry = {
+        residentId: resident.id,
+        type,
+        slot,
+        done: Boolean(matchingLog),
+        time: matchingLog ? String(matchingLog.visitTime || matchingLog.visit_time || "") : null,
+      };
+
+      if (matchingLog && type === "bp") {
+        entry.systolic = matchingLog.systolic != null ? String(matchingLog.systolic) : undefined;
+        entry.diastolic = matchingLog.diastolic != null ? String(matchingLog.diastolic) : undefined;
+      }
+      if (matchingLog && type === "glucose") {
+        entry.glucoseValue = matchingLog.bloodSugar != null ? String(matchingLog.bloodSugar) : undefined;
+      }
+      if (matchingLog && type === "medication") {
+        entry.medGiven = true;
+        entry.notes = matchingLog.notes || "";
+      }
+
+      entries.push(entry);
+    });
+  });
+
   return entries;
 }
 
@@ -227,7 +292,7 @@ function FillForm({ entry, resident, onSave, onClose }: {
           </div>
           <div>
             <p className="text-sm font-semibold text-foreground" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>{resident.name}</p>
-            <p className="text-xs text-muted-foreground">Room {resident.room} · Age {resident.age}</p>
+            <p className="text-xs text-muted-foreground">Age {resident.age}</p>
           </div>
           {resident.allergies.length > 0 && (
             <div className="ml-auto flex items-center gap-1 text-xs text-amber-600 bg-amber-50 border border-amber-200 px-2 py-1 rounded-full">
@@ -360,7 +425,7 @@ function CheckCard({ entry, resident, onFill }: {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-foreground truncate" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>{resident.name}</p>
-            <p className="text-xs text-muted-foreground">Room {resident.room}</p>
+            <p className="text-xs text-muted-foreground"></p>
           </div>
           {resident.status === "critical" && (
             <AlertTriangle size={14} className="text-red-500 flex-shrink-0" />
@@ -616,7 +681,7 @@ function SchedulePage({ residents, checks, setChecks, isLoading, error }: {
             </span>
           </div>
           <p className="text-sm text-muted-foreground">
-            Age {selectedResident.age} · Room {selectedResident.room} · {selectedResident.bloodType}
+            Age {selectedResident.age} · {selectedResident.bloodType}
           </p>
         </div>
       </div>
@@ -651,18 +716,37 @@ function WeeklyReportPage({ residents, checks, weeklyLogs, loading }: { resident
   const rawSelectedDate = new Date(selectedDate);
   const selectedDateObj = Number.isNaN(rawSelectedDate.getTime()) ? new Date() : rawSelectedDate;
 
-  const weekStart = new Date(selectedDateObj);
-  const offset = (weekStart.getDay() + 6) % 7;
-  weekStart.setDate(weekStart.getDate() - offset);
-  weekStart.setHours(0, 0, 0, 0);
-  const weekEnd = new Date(weekStart);
-  weekEnd.setDate(weekStart.getDate() + 6);
-  weekEnd.setHours(23, 59, 59, 999);
+  const logsThisWeek = Array.isArray(weeklyLogs) ? weeklyLogs : [];
+  const normalizedDates = logsThisWeek
+    .map((log) => String(log.visitDate || log.visit_date || "").slice(0, 10))
+    .filter(Boolean)
+    .sort((left, right) => left.localeCompare(right));
+
+  const fallbackWeekStart = new Date(selectedDateObj);
+  fallbackWeekStart.setDate(fallbackWeekStart.getDate() - fallbackWeekStart.getDay());
+  fallbackWeekStart.setHours(0, 0, 0, 0);
+  const fallbackWeekEnd = new Date(fallbackWeekStart);
+  fallbackWeekEnd.setDate(fallbackWeekStart.getDate() + 6);
+  fallbackWeekEnd.setHours(23, 59, 59, 999);
+
+  const weekStart = normalizedDates.length > 0
+    ? (() => {
+        const start = new Date(normalizedDates[0]);
+        start.setHours(0, 0, 0, 0);
+        return start;
+      })()
+    : fallbackWeekStart;
+  const weekEnd = normalizedDates.length > 0
+    ? (() => {
+        const end = new Date(normalizedDates[normalizedDates.length - 1]);
+        end.setHours(23, 59, 59, 999);
+        return end;
+      })()
+    : fallbackWeekEnd;
 
   const weekLabel = `${weekStart.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })} – ${weekEnd.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`;
   const weekDateLabel = `${weekStart.toLocaleDateString(undefined, { weekday: "short" })} – ${weekEnd.toLocaleDateString(undefined, { weekday: "short" })}`;
 
-  const logsThisWeek = Array.isArray(weeklyLogs) ? weeklyLogs : [];
   const filteredLogs = logsThisWeek.filter((log) => {
     const dateValue = String(log.visitDate || log.visit_date || "").slice(0, 10);
     const date = new Date(dateValue);
@@ -678,7 +762,7 @@ function WeeklyReportPage({ residents, checks, weeklyLogs, loading }: { resident
     const key = date.toISOString().slice(0, 10);
     const count = filteredLogs.filter((log) => String(log.visitDate || log.visit_date || "").slice(0, 10) === key).length;
     return {
-      day: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][index],
+      day: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][index],
       date: date.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
       count,
     };
@@ -932,7 +1016,7 @@ interface NursePortalProps {
 }
 
 export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSignOut }: NursePortalProps) {
-  const [page, setPage] = useState<Page>("schedule");
+  const [page, setPage] = useState<Page>("overview");
   const [collapsed, setCollapsed] = useState(false);
   const [residents, setResidents] = useState<Resident[]>([]);
   const [residentsLoading, setResidentsLoading] = useState(false);
@@ -941,6 +1025,7 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [medicationAssignments, setMedicationAssignments] = useState<MedicationAssignment[]>([]);
   const [scheduleAssignments, setScheduleAssignments] = useState<ScheduleAssignment[]>([]);
+  const [healthLogs, setHealthLogs] = useState<any[]>([]);
   const [weeklyLogs, setWeeklyLogs] = useState<any[]>([]);
   const [weeklyLogsLoading, setWeeklyLogsLoading] = useState(false);
   const [selectedResidentId, setSelectedResidentId] = useState<number | null>(null);
@@ -948,6 +1033,8 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
   const [hiddenScheduleNotificationIds, setHiddenScheduleNotificationIds] = useState<number[]>([]);
   const [notificationMessage, setNotificationMessage] = useState("");
   const [profileOpen, setProfileOpen] = useState(false);
+  const notificationRef = useRef<HTMLDivElement | null>(null);
+  const profileRef = useRef<HTMLDivElement | null>(null);
   const currentNurseId = nurseId || (nurseProfile?.id ? String(nurseProfile.id) : undefined);
 
   const displayName = nurseProfile?.name || nurseName || "Nurse";
@@ -956,17 +1043,38 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
   const displayLicenseNumber = nurseProfile?.licenseNumber || "-";
   const displayPosition = nurseProfile?.position || "Nurse";
   const displayAvatar = String(nurseProfile?.avatar || "").trim();
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const todaySchedules = scheduleAssignments.filter((item) => normalizeDateKey(item.visitDate) === todayKey);
+  const todayCompleted = todaySchedules.filter((item) => String(item.scheduleStatus).toLowerCase() === "completed").length;
+  const todayMissed = todaySchedules.filter((item) => String(item.scheduleStatus).toLowerCase() === "missed").length;
+  const activeSchedules = todaySchedules.filter((item) => String(item.scheduleStatus).toLowerCase() === "scheduled").length;
   const totalChecks = checks.length;
   const doneChecks = checks.filter((c) => c.done).length;
   const morningPending = checks.filter((c) => c.slot === "morning" && !c.done).length;
   const eveningPending = checks.filter((c) => c.slot === "evening" && !c.done).length;
   const criticalCount = residents.filter((r) => r.status === "critical").length;
-  const todayKey = new Date().toISOString().slice(0, 10);
   const visibleScheduleNotifications = scheduleAssignments.filter((item) =>
     item.scheduleStatus === "scheduled" && (!item.visitDate || item.visitDate >= todayKey) && !hiddenScheduleNotificationIds.includes(item.id)
   );
   const scheduleNotificationCount = visibleScheduleNotifications.length;
   const notificationCount = scheduleNotificationCount;
+
+  useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (notificationRef.current && !notificationRef.current.contains(target)) {
+        setNotificationsOpen(false);
+      }
+      if (profileRef.current && !profileRef.current.contains(target)) {
+        setProfileOpen(false);
+      }
+    };
+
+    window.addEventListener("mousedown", handleOutsideClick);
+    return () => {
+      window.removeEventListener("mousedown", handleOutsideClick);
+    };
+  }, []);
 
   useEffect(() => {
     let ignore = false;
@@ -1084,11 +1192,12 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
       if (!currentNurseId) {
         setMedicationAssignments([]);
         setScheduleAssignments([]);
+        setHealthLogs([]);
         return;
       }
 
       try {
-        const [medicationResponse, scheduleResponse] = await Promise.all([
+        const [medicationResponse, scheduleResponse, healthResponse] = await Promise.all([
           getMedicationAssignments(nurseName),
           fetch(`/api/schedules?nurseId=${encodeURIComponent(currentNurseId)}`)
             .then(async (response) => {
@@ -1097,11 +1206,13 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
               }
               return response.json();
             }),
+          fetchHealthLogs({ nurseId: currentNurseId, limit: 500 }),
         ]);
 
         if (!ignore) {
           setMedicationAssignments(medicationResponse.medications);
           setScheduleAssignments(scheduleResponse.schedules || []);
+          setHealthLogs(Array.isArray(healthResponse.logs) ? healthResponse.logs : []);
         }
       } catch (error) {
         console.error("Failed to load nurse notifications.", error);
@@ -1118,6 +1229,16 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
   }, [currentNurseId, nurseName]);
 
   useEffect(() => {
+    if (!currentNurseId) {
+      setChecks([]);
+      return;
+    }
+
+    const nextChecks = buildChecksFromSchedules(residents, scheduleAssignments, healthLogs);
+    setChecks(nextChecks);
+  }, [currentNurseId, residents, scheduleAssignments, healthLogs]);
+
+  useEffect(() => {
     let ignore = false;
 
     const loadWeeklyLogs = async () => {
@@ -1132,13 +1253,12 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
         if (ignore) return;
 
         const today = new Date();
-        const monday = new Date(today);
-        const offset = (today.getDay() + 6) % 7;
-        monday.setDate(today.getDate() - offset);
-        monday.setHours(0, 0, 0, 0);
-        const sunday = new Date(monday);
-        sunday.setDate(monday.getDate() + 6);
-        sunday.setHours(23, 59, 59, 999);
+        const sunday = new Date(today);
+        sunday.setDate(today.getDate() - today.getDay());
+        sunday.setHours(0, 0, 0, 0);
+        const saturday = new Date(sunday);
+        saturday.setDate(sunday.getDate() + 6);
+        saturday.setHours(23, 59, 59, 999);
 
         const logs = Array.isArray(response.logs) ? response.logs : [];
 
@@ -1291,7 +1411,7 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
             <div className="hidden md:flex items-center gap-1.5 text-xs text-muted-foreground bg-muted px-3 py-1.5 rounded-full">
               <Clock size={11} /> {formatLongDate(new Date())}
             </div>
-            <div className="relative">
+            <div ref={notificationRef} className="relative">
               <button
                 onClick={() => setNotificationsOpen((open) => !open)}
                 className="relative p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted"
@@ -1370,7 +1490,7 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
                 </div>
               )}
             </div>
-              <div className="relative">
+              <div ref={profileRef} className="relative">
                 <button
                   type="button"
                   onClick={() => setProfileOpen((open) => !open)}
@@ -1457,7 +1577,7 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
                 <p className="text-sm text-muted-foreground">Good morning,</p>
                 <h3 className="text-2xl font-semibold text-foreground mt-0.5" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>{nurseName}</h3>
                 <p className="text-sm text-muted-foreground mt-1.5">
-                  You have <strong className="text-foreground">{totalChecks - doneChecks} checks</strong> remaining across <strong className="text-foreground">{residents.length} residents</strong> today.
+                  You have <strong className="text-foreground">{activeSchedules} active schedules</strong> and <strong className="text-foreground">{todayCompleted} completed</strong> today for <strong className="text-foreground">{residents.length} residents</strong>.
                 </p>
               </div>
 
@@ -1465,9 +1585,9 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {[
                   { label: "Residents", value: residents.length, icon: Users, color: "bg-primary/10 text-primary" },
-                  { label: "Done Today", value: `${doneChecks}/${totalChecks}`, icon: CheckCircle, color: "bg-emerald-100 text-emerald-600" },
-                  { label: "Morning Left", value: morningPending, icon: Activity, color: "bg-amber-100 text-amber-600" },
-                  { label: "Evening Left", value: eveningPending, icon: Pill, color: "bg-violet-100 text-violet-600" },
+                  { label: "Active Today", value: activeSchedules, icon: Calendar, color: "bg-emerald-100 text-emerald-600" },
+                  { label: "Completed Today", value: todayCompleted, icon: CheckCircle, color: "bg-emerald-100 text-emerald-600" },
+                  { label: "Missed Today", value: todayMissed, icon: AlertCircle, color: "bg-red-100 text-red-600" },
                 ].map((k) => (
                   <div key={k.label} className="bg-card border border-border rounded-xl p-4">
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${k.color}`}><k.icon size={15} /></div>
@@ -1482,44 +1602,38 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
                 <div key={r.id} className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
                   <AlertTriangle size={16} className="text-red-500 flex-shrink-0" />
                   <div>
-                    <p className="text-sm font-semibold text-red-800">{r.name} · Room {r.room} — Critical Status</p>
+                    <p className="text-sm font-semibold text-red-800">{r.name} — Critical Status</p>
                     <p className="text-xs text-red-600">{r.conditions.join(", ")}</p>
                   </div>
                 </div>
               ))}
 
-              {/* Today's check summary per resident */}
+              {/* Today's schedule summary per resident */}
               <div className="bg-card border border-border rounded-xl overflow-hidden">
                 <div className="px-5 py-4 border-b border-border">
-                  <h4 className="font-semibold text-foreground" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>Today's Check Summary</h4>
+                  <h4 className="font-semibold text-foreground" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>Today's Schedule Summary</h4>
                 </div>
                 <div className="divide-y divide-border">
-                  {residents.map((r) => {
-                    const rChecks = checks.filter((c) => c.residentId === r.id);
-                    const rDone = rChecks.filter((c) => c.done).length;
+                  {residents.map((resident) => {
+                    const residentSchedules = todaySchedules.filter((schedule) => String(schedule.elderlyId) === String(resident.id));
+                    const residentCompleted = residentSchedules.filter((schedule) => String(schedule.scheduleStatus).toLowerCase() === "completed").length;
+                    const residentMissed = residentSchedules.filter((schedule) => String(schedule.scheduleStatus).toLowerCase() === "missed").length;
+                    const residentActive = residentSchedules.filter((schedule) => String(schedule.scheduleStatus).toLowerCase() === "scheduled").length;
+
                     return (
-                      <div key={r.id} className="flex items-center gap-4 px-5 py-3.5">
+                      <div key={resident.id} className="flex items-center gap-4 px-5 py-3.5">
                         <div className="w-9 h-9 rounded-full overflow-hidden bg-muted flex-shrink-0">
-                          <img src={r.photo} alt={r.name} className="w-full h-full object-cover" />
+                          <img src={resident.photo} alt={resident.name} className="w-full h-full object-cover" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-foreground truncate">{r.name}</p>
-                          <p className="text-xs text-muted-foreground">Room {r.room}</p>
+                          <p className="text-sm font-semibold text-foreground truncate">{resident.name}</p>
+                          <p className="text-xs text-muted-foreground">{residentActive} active · {residentCompleted} completed · {residentMissed} missed</p>
                         </div>
-                        {/* Per-check icons */}
                         <div className="flex gap-2">
-                          {(["bp", "medication", "glucose"] as const).map((type) => {
-                            const meta = CHECK_META[type];
-                            const done = checks.filter((c) => c.residentId === r.id && c.type === type && c.done).length;
-                            const total = 2;
-                            return (
-                              <div key={type} className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium ${done === total ? "bg-emerald-50 text-emerald-600" : "bg-muted text-muted-foreground"}`}>
-                                <meta.icon size={11} />{done}/{total}
-                              </div>
-                            );
-                          })}
+                          <div className="rounded-lg bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">{residentCompleted}</div>
+                          <div className="rounded-lg bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700">{residentActive}</div>
+                          <div className="rounded-lg bg-red-50 px-2 py-1 text-xs font-medium text-red-700">{residentMissed}</div>
                         </div>
-                        <div className="text-xs font-semibold text-muted-foreground" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>{rDone}/{rChecks.length}</div>
                       </div>
                     );
                   })}
