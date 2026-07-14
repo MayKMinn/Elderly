@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlertCircle, ChevronLeft, ChevronRight, Phone } from "lucide-react";
+import { AlertCircle, CalendarDays, ChevronLeft, ChevronRight, Droplets, HeartPulse, IdCard, Phone, ShieldAlert, UserRound } from "lucide-react";
 
 export type Status = "stable" | "attention" | "critical";
 
@@ -7,6 +7,8 @@ export interface Resident {
   id: number;
   name: string;
   age: number;
+  gender: string;
+  birthdate: string;
   room: string;
   photo: string;
   conditions: string[];
@@ -46,21 +48,21 @@ export function AssignedResidentsSidebar({
   residents: Resident[];
   scheduleAssignments?: { elderlyId: number | string; visitDate?: string; visitTime?: string; scheduleStatus?: string }[];
   selectedId?: number | null;
-  onSelect?: (id: number) => void;
+  onSelect?: (id: number | null) => void;
 }) {
   return (
-    <aside className="w-full border-r border-border p-4 hidden md:block">
-      <div className="mb-4 rounded-3xl border border-border bg-background/60 p-4">
+    <aside className="w-full rounded-3xl border border-border bg-card p-4 lg:w-[340px] lg:flex-shrink-0">
+      <div className="mb-4 rounded-2xl bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold text-foreground">Assigned Residents</p>
-            <p className="text-xs text-muted-foreground mt-1">Review your residents and their next scheduled check-ins.</p>
+            <p className="text-sm font-semibold text-foreground">Assigned Elderly</p>
+            <p className="text-xs text-muted-foreground mt-1">Select a person to review their essential care information.</p>
           </div>
           <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">{residents.length} total</span>
         </div>
       </div>
 
-      <div className="space-y-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
         {residents.map((resident) => {
           const today = new Date().toISOString().slice(0, 10);
           const todays = (scheduleAssignments || []).filter(
@@ -73,8 +75,9 @@ export function AssignedResidentsSidebar({
           return (
             <button
               key={resident.id}
-              onClick={() => onSelect?.(resident.id)}
-              className={`w-full flex items-center gap-3 rounded-3xl border p-3 text-left transition-all ${selectedId === resident.id ? "border-primary bg-primary/5 shadow-sm" : "border-border bg-card hover:border-primary/40 hover:shadow-sm"}`}
+              onClick={() => onSelect?.(selectedId === resident.id ? null : resident.id)}
+              aria-pressed={selectedId === resident.id}
+              className={`w-full flex items-center gap-3 rounded-2xl border p-3 text-left transition-all ${selectedId === resident.id ? "border-primary bg-primary/10 shadow-sm ring-2 ring-primary/10" : "border-border bg-background hover:border-primary/40 hover:shadow-sm"}`}
             >
               <div className="relative flex-shrink-0">
                 <div className="w-12 h-12 rounded-2xl overflow-hidden bg-muted">
@@ -111,9 +114,9 @@ export function ResidentDetailsPanel({
         <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
           <ChevronRight size={20} />
         </div>
-        <h3 className="text-lg font-semibold text-foreground">Select a resident</h3>
+        <h3 className="text-lg font-semibold text-foreground">Select an elderly profile</h3>
         <p className="mt-2 max-w-sm text-sm text-muted-foreground">
-          Choose an assigned resident from the left to view their profile, allergies, and upcoming visits.
+          Choose an assigned elderly person to view their identity and essential medical information.
         </p>
       </div>
     );
@@ -124,43 +127,55 @@ export function ResidentDetailsPanel({
   );
 
   return (
-    <div className="flex h-full flex-col gap-5 rounded-3xl border border-border bg-card p-6 shadow-sm">
-      <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-        <div className="rounded-3xl border border-border bg-background/70 p-5">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-sm font-semibold text-foreground">{resident.name}</p>
-              <p className="text-xs text-muted-foreground mt-1">Age {resident.age} · {resident.bloodType}</p>
+    <div className="flex h-full flex-col gap-5 rounded-3xl border border-border bg-card p-5 shadow-sm sm:p-6">
+      <div className="overflow-hidden rounded-3xl border border-primary/10 bg-gradient-to-br from-primary/10 via-background to-background p-5">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-4">
+            <div className="h-20 w-20 flex-shrink-0 overflow-hidden rounded-3xl bg-muted shadow-sm ring-4 ring-background">
+              <img src={resident.photo} alt={resident.name} className="h-full w-full object-cover" />
             </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Elderly profile</p>
+              <h2 className="mt-1 text-2xl font-bold text-foreground">{resident.name}</h2>
+              <p className="mt-1 text-sm text-muted-foreground">ID: {resident.id}</p>
+            </div>
+          </div>
             <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold capitalize ${statusColor[resident.status]}`}>
               {resident.status}
             </span>
+        </div>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[1.35fr_0.65fr]">
+        <div className="space-y-4">
+          <div className="rounded-3xl border border-border bg-background/70 p-5">
+            <p className="mb-4 text-sm font-semibold text-foreground">Personal information</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {[
+                { label: "ID", value: String(resident.id), icon: IdCard },
+                { label: "Full name", value: resident.name, icon: UserRound },
+                { label: "Age", value: resident.age ? `${resident.age} years` : "Not recorded", icon: CalendarDays },
+                { label: "Gender", value: resident.gender || "Not recorded", icon: UserRound },
+                { label: "Birthdate", value: resident.birthdate || "Not recorded", icon: CalendarDays },
+                { label: "Blood type", value: resident.bloodType || "Not recorded", icon: Droplets },
+              ].map(({ label, value, icon: Icon }) => (
+                <div key={label} className="flex items-start gap-3 rounded-2xl border border-border/70 bg-card p-3.5">
+                  <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"><Icon size={17} /></div>
+                  <div className="min-w-0"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-0.5 break-words text-sm font-semibold text-foreground">{value}</p></div>
+                </div>
+              ))}
+            </div>
           </div>
 
-          <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3">
-              <div className="h-16 w-16 overflow-hidden rounded-3xl bg-muted shadow-sm">
-                <img src={resident.photo} alt={resident.name} className="h-full w-full object-cover" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-foreground">Medical conditions</p>
-                <p className="text-xs text-muted-foreground">{resident.conditions.length > 0 ? resident.conditions.join(", ") : "No conditions recorded"}</p>
-              </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="rounded-3xl border border-rose-200 bg-rose-50/70 p-5">
+              <div className="flex items-center gap-2 text-rose-800"><HeartPulse size={17} /><p className="text-sm font-semibold">Medical conditions</p></div>
+              <p className="mt-3 text-sm leading-6 text-rose-700">{resident.conditions.length > 0 ? resident.conditions.join(", ") : "No conditions recorded"}</p>
             </div>
-            {resident.allergies.length > 0 ? (
-              <div className="rounded-3xl border border-amber-200 bg-amber-50 px-4 py-3">
-                <div className="flex items-center gap-2 text-amber-800">
-                  <AlertCircle size={16} />
-                  <span className="text-sm font-semibold">Allergies</span>
-                </div>
-                <p className="mt-2 text-sm text-amber-700">{resident.allergies.join(", ")}</p>
-              </div>
-            ) : (
-              <div className="rounded-3xl border border-border bg-muted/50 px-4 py-3">
-                <p className="text-sm font-semibold text-foreground">No recorded allergies</p>
-                <p className="text-xs text-muted-foreground mt-1">Keep the care team updated with any changes.</p>
-              </div>
-            )}
+            <div className="rounded-3xl border border-amber-200 bg-amber-50/80 p-5">
+              <div className="flex items-center gap-2 text-amber-800"><ShieldAlert size={17} /><p className="text-sm font-semibold">Allergies</p></div>
+              <p className="mt-3 text-sm leading-6 text-amber-700">{resident.allergies.length > 0 ? resident.allergies.join(", ") : "No allergies recorded"}</p>
+            </div>
           </div>
         </div>
 
@@ -242,7 +257,7 @@ export function ResidentsPage({
     return (
       <div className="flex flex-col gap-5">
         <button onClick={() => setSelected(null)} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground w-fit">
-          <ChevronLeft size={14} /> Back to residents
+          <ChevronLeft size={14} /> Back to elderly
         </button>
         <div className="bg-card border border-border rounded-2xl p-5">
           <div className="flex gap-4 items-start">
@@ -309,10 +324,10 @@ export function ResidentsPage({
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-sm text-muted-foreground">{residents.length} residents assigned to you</p>
+      <p className="text-sm text-muted-foreground">{residents.length} elderly people assigned to you</p>
       {isLoading && (
         <div className="bg-card border border-border rounded-2xl px-4 py-8 text-center text-sm text-muted-foreground">
-          Loading assigned residents...
+          Loading assigned elderly...
         </div>
       )}
       {!isLoading && error && (

@@ -1,5 +1,5 @@
-identification division.
-program-id. validate-schedule.
+       identification division.
+       program-id. validate-schedule.
 
        data division.
        working-storage section.
@@ -33,67 +33,67 @@ program-id. validate-schedule.
 
        procedure division.
         main-procedure.
-          accept nurse-id
-          accept elderly-id
-          accept visit-date
-          accept visit-time
-          accept visit-purpose
-          accept schedule-status
-          accept allow-past
-          accept slot-lock-date
-          accept slot-lock-hour
-          accept recurrence-days
-          accept has-assigned-elder
-          accept has-active-medication
+           accept nurse-id
+           accept elderly-id
+           accept visit-date
+           accept visit-time
+           accept visit-purpose
+           accept schedule-status
+           accept allow-past
+           accept slot-lock-date
+           accept slot-lock-hour
+           accept recurrence-days
+           accept has-assigned-elder
+           accept has-active-medication
       
-          perform validate-nurse-id
-          perform validate-elderly-id
-          perform validate-assigned-elder
-          perform validate-active-medication
-          perform validate-visit-date
-          perform validate-visit-time
-          perform validate-future-date-time
-          perform validate-slot-lock
-          perform validate-recurrence-days
-          perform validate-purpose
-          perform validate-schedule-status
-      
-          if valid-flag = "Y"
-              display '{"valid":true,"errors":{}}'
-          else
-              display '{"valid":false,"errors":{"'
-                  function trim(error-field) '":"'
-                  function trim(error-message) '"}}'
-          end-if
-      
-          goback.
+            perform validate-nurse-id
+            perform validate-elderly-id
+            perform validate-assigned-elder
+            perform validate-active-medication
+            perform validate-visit-date
+            perform validate-visit-time
+            perform validate-future-date-time
+            perform validate-slot-lock
+            perform validate-recurrence-days
+            perform validate-purpose
+            perform validate-schedule-status
+        
+            if valid-flag = "Y"
+                display '{"valid":true,"errors":{}}'
+            else
+                display '{"valid":false,"errors":{"'
+                    function trim(error-field) '":"'
+                    function trim(error-message) '"}}'
+            end-if
+        
+            goback.
 
        validate-nurse-id.
-        if valid-flag = "Y"
-        if function trim(nurse-id) = spaces
-            move "N" to valid-flag
-            move "nurseId" to error-field
-            move "Select a valid nurse." to error-message
-        else
-            if function trim(nurse-id) is not numeric
-                move "N" to valid-flag
-                move "nurseId" to error-field
-                move "Select a valid nurse." to error-message
-            end-if
-        end-if
-       end-if.
+           if valid-flag = "Y"
+           if function trim(nurse-id) = spaces
+               move "N" to valid-flag
+               move "nurseId" to error-field
+               move "Select a valid nurse." to error-message
+           else
+               if function trim(nurse-id) is not numeric
+                   move "N" to valid-flag
+                   move "nurseId" to error-field
+                   move "Select a valid nurse." to error-message
+               end-if
+           end-if
+           end-if.
 
        validate-elderly-id.
-          if valid-flag = "Y"
+            if valid-flag = "Y"
               if function trim(elderly-id) = spaces
                   move "N" to valid-flag
                   move "elderlyId" to error-field
-                  move "Select a valid elderly profile." to error-message
+              move "Select a valid elderly profile." to error-message
               else
                   if function trim(elderly-id) is not numeric
                       move "N" to valid-flag
                       move "elderlyId" to error-field
-                      move "Select a valid elderly profile." to error-message
+                move "Select a valid elderly profile." to error-message
                   end-if
               end-if
           end-if.
@@ -103,17 +103,17 @@ program-id. validate-schedule.
               if function trim(has-assigned-elder) not = "Y"
                   move "N" to valid-flag
                   move "elderlyId" to error-field
-                  move "There is no assigned elder. Please assign first."
+                move "There is no assigned elder. Please assign first."
                    to error-message
               end-if
-          end-if.
+           end-if.
 
        validate-visit-date.
-          if valid-flag = "Y"
+           if valid-flag = "Y"
               if function length(function trim(visit-date)) not = 10
                   move "N" to valid-flag
                   move "visitDate" to error-field
-                  move "Enter visit date as YYYY-MM-DD." to error-message
+                 move "Enter visit date as YYYY-MM-DD." to error-message
               else
                   if visit-date(5:1) not = "-"
                       move "N" to valid-flag
@@ -205,7 +205,7 @@ program-id. validate-schedule.
           end-if.
 
        validate-purpose.
-          if valid-flag = "Y"
+           if valid-flag = "Y"
               evaluate function trim(visit-purpose)
                   when "Blood Pressure"
                       continue
@@ -223,7 +223,7 @@ program-id. validate-schedule.
           end-if.
 
        validate-schedule-status.
-          if valid-flag = "Y"
+           if valid-flag = "Y"
               evaluate function trim(schedule-status)
                   when "scheduled"
                       continue
@@ -236,12 +236,12 @@ program-id. validate-schedule.
                   when other
                       move "N" to valid-flag
                       move "scheduleStatus" to error-field
-                      move "Select a valid schedule status." to error-message
+              move "Select a valid schedule status." to error-message
               end-evaluate
-          end-if.
+           end-if.
 
        validate-slot-lock.
-          if valid-flag = "Y"
+           if valid-flag = "Y"
               if function trim(slot-lock-date) not = spaces
                   if function trim(slot-lock-date) not =
                    function trim(visit-date)
@@ -274,10 +274,10 @@ program-id. validate-schedule.
                       end-if
                   end-if
               end-if
-          end-if.
+           end-if.
       
        validate-recurrence-days.
-          if valid-flag = "Y"
+           if valid-flag = "Y"
               if function trim(recurrence-days) not = spaces
                   if function trim(recurrence-days) not = "1"
                       and function trim(recurrence-days) not = "7"
@@ -287,17 +287,18 @@ program-id. validate-schedule.
                   to error-message
                   end-if
               end-if
-          end-if.
+           end-if.
 
        validate-active-medication.
-          if valid-flag = "Y"
+           if valid-flag = "Y"
               if function trim(visit-purpose) = "Medication"
                   if function trim(has-active-medication) not = "Y"
                       move "N" to valid-flag
                       move "purpose" to error-field
-                      move "Add an active medication for this elderly profile before scheduling a medication visit."
+            move 
+            "Add an active medication for this elderly profile before scheduling
                           to error-message
                   end-if
               end-if
-          end-if.
+           end-if.
       

@@ -193,6 +193,9 @@ function profileToResident(profile: {
   id: string | number;
   name: string;
   age?: number;
+  gender?: string;
+  dob?: string;
+  birthdate?: string;
   avatar?: string;
   medicalCondition?: string;
   allergies?: string;
@@ -206,6 +209,8 @@ function profileToResident(profile: {
     id: Number(profile.id),
     name: profile.name,
     age: Number(profile.age) || 0,
+    gender: profile.gender || "Not recorded",
+    birthdate: profile.dob || profile.birthdate || "Not recorded",
     room: `ELD-${String(profile.id).padStart(4, "0")}`,
     photo: profile.avatar || `https://i.pravatar.cc/120?u=elderly-${profile.id}`,
     conditions: splitList(profile.medicalCondition),
@@ -1128,6 +1133,8 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
                 id: Number(a.elderlyId),
                 name: `Elderly ${a.elderlyId}`,
                 age: 0,
+                gender: "Not recorded",
+                birthdate: "Not recorded",
                 room: `ELD-${String(a.elderlyId).padStart(4, "0")}`,
                 photo: `https://i.pravatar.cc/120?u=elderly-${a.elderlyId}`,
                 conditions: [],
@@ -1309,7 +1316,7 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
   const nav: { id: Page; label: string; icon: React.ElementType }[] = [
     { id: "overview",     label: "Overview",      icon: LayoutDashboard },
     { id: "schedule",     label: "My Schedule",   icon: Calendar },
-    { id: "residents",    label: "Residents",     icon: Users },
+    { id: "residents",    label: "Elderly",       icon: Users },
     { id: "weeklyReport", label: "Weekly Record", icon: FileText },
   ];
 
@@ -1649,7 +1656,7 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
                 residents={residents}
                 scheduleAssignments={scheduleAssignments}
                 selectedId={selectedResidentId}
-                onSelect={(id) => setSelectedResidentId(id)}
+                onSelect={setSelectedResidentId}
               />
               <div className="flex-1">
                 <ResidentDetailsPanel
