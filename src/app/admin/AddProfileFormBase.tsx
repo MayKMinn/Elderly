@@ -113,53 +113,15 @@ function formatDateInput(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
-function normalizeDateInputValue(value: string) {
-  const trimmedValue = value.trim();
-
-  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmedValue)) {
-    return trimmedValue;
-  }
-
-  const slashMatch = trimmedValue.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (!slashMatch) return trimmedValue;
-
-  const [, day, month, year] = slashMatch;
-  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
-}
-
-function parseDateInputValue(value: string) {
-  const normalizedValue = normalizeDateInputValue(value);
-  const match = normalizedValue.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-
-  if (!match) return undefined;
-
-  const [, yearText, monthText, dayText] = match;
-  const year = Number(yearText);
-  const month = Number(monthText);
-  const day = Number(dayText);
-  const date = new Date(`${normalizedValue}T00:00:00`);
-
-  if (Number.isNaN(date.getTime())) return undefined;
-  if (date.getFullYear() !== year || date.getMonth() + 1 !== month || date.getDate() !== day) {
-    return undefined;
-  }
-
-  return date;
-}
-
 function validateHireDate(value: string) {
   if (!value) return "Hire date is required.";
 
-  const hireDate = parseDateInputValue(value);
+  const hireDate = new Date(`${value}T00:00:00`);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const earliestDate = new Date(today);
-  earliestDate.setDate(today.getDate() - 6);
-
-  if (!hireDate) return "Enter a valid hire date.";
+  if (Number.isNaN(hireDate.getTime())) return "Enter a valid hire date.";
   if (hireDate > today) return "Hire date cannot be in the future.";
-  if (hireDate < earliestDate) return "Hire date must be within the past 7 days.";
 
   return undefined;
 }
@@ -177,19 +139,6 @@ function getElderlyBirthdateLimits() {
   return {
     min: formatDateInput(min),
     max: formatDateInput(max),
-  };
-}
-
-function getNurseHireDateLimits() {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const min = new Date(today);
-  min.setDate(today.getDate() - 6);
-
-  return {
-    min: formatDateInput(min),
-    max: formatDateInput(today),
   };
 }
 
@@ -228,7 +177,6 @@ const nurseRequiredFields: Array<keyof NewProfilePayload> = [
 export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseProps) {
   const isNurse = type === "nurse";
   const elderlyBirthdateLimits = getElderlyBirthdateLimits();
-  const nurseHireDateLimits = getNurseHireDateLimits();
   const [form, setForm] = useState<NewProfilePayload>({
     ...emptyProfile,
     type,
@@ -487,7 +435,7 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
     setErrors({});
 
     try {
-      const validationErrors = await onSave(form.type === "nurse" ? { ...form, hireDate: normalizeDateInputValue(form.hireDate) } : form);
+      const validationErrors = await onSave(form);
       if (validationErrors && Object.keys(validationErrors).length > 0) {
         setErrors(validationErrors);
       }
@@ -614,8 +562,7 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
                     label="Hire Date *"
                     placeholder="YYYY-MM-DD"
                     type="date"
-                    min={nurseHireDateLimits.min}
-                    max={nurseHireDateLimits.max}
+                    max={formatDateInput(new Date())}
                     value={form.hireDate}
                     error={errors.hireDate}
                     onChange={(value) => setField("hireDate", value)}
