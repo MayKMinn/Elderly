@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Activity, Pill, Stethoscope, Heart, Clock, Check, X, ChevronLeft,
   ChevronRight, Bell, AlertCircle, CheckCircle, Users, Calendar,
@@ -948,8 +948,6 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
   const [hiddenScheduleNotificationIds, setHiddenScheduleNotificationIds] = useState<number[]>([]);
   const [notificationMessage, setNotificationMessage] = useState("");
   const [profileOpen, setProfileOpen] = useState(false);
-  const notificationRef = useRef<HTMLDivElement | null>(null);
-  const profileRef = useRef<HTMLDivElement | null>(null);
   const currentNurseId = nurseId || (nurseProfile?.id ? String(nurseProfile.id) : undefined);
 
   const displayName = nurseProfile?.name || nurseName || "Nurse";
@@ -969,26 +967,6 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
   );
   const scheduleNotificationCount = visibleScheduleNotifications.length;
   const notificationCount = scheduleNotificationCount;
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Node;
-
-      if (notificationRef.current && !notificationRef.current.contains(target)) {
-        setNotificationsOpen(false);
-      }
-
-      if (profileRef.current && !profileRef.current.contains(target)) {
-        setProfileOpen(false);
-      }
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, []);
 
   useEffect(() => {
     let ignore = false;
@@ -1313,12 +1291,9 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
             <div className="hidden md:flex items-center gap-1.5 text-xs text-muted-foreground bg-muted px-3 py-1.5 rounded-full">
               <Clock size={11} /> {formatLongDate(new Date())}
             </div>
-            <div ref={notificationRef} className="relative">
+            <div className="relative">
               <button
-                onClick={() => {
-                  setNotificationsOpen((open) => !open);
-                  setProfileOpen(false);
-                }}
+                onClick={() => setNotificationsOpen((open) => !open)}
                 className="relative p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted"
                 title="Notifications"
               >
@@ -1395,13 +1370,10 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
                 </div>
               )}
             </div>
-              <div ref={profileRef} className="relative">
+              <div className="relative">
                 <button
                   type="button"
-                  onClick={() => {
-                    setProfileOpen((open) => !open);
-                    setNotificationsOpen(false);
-                  }}
+                  onClick={() => setProfileOpen((open) => !open)}
                   className="flex items-center gap-2 rounded-2xl pl-1 pr-2 py-1 hover:bg-white"
                   title="Nurse profile"
                 >
