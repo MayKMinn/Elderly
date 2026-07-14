@@ -568,6 +568,26 @@ function normalizeHireDate(value) {
   return raw;
 }
 
+
+function validateNurseHireDatePastWeek(value) {
+  const normalized = normalizeHireDate(value);
+
+  if (!normalized) return "Hire date is required.";
+
+  const hireDate = new Date(`${normalized}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const earliestDate = new Date(today);
+  earliestDate.setDate(today.getDate() - 7);
+
+  if (Number.isNaN(hireDate.getTime())) return "Enter a valid hire date.";
+  if (hireDate > today) return "Hire date cannot be in the future.";
+  if (hireDate < earliestDate) return "Hire date must be within the past 7 days.";
+
+  return "";
+}
+
 function getRoomDbId(value) {
   const roomId = Number(value);
   return Number.isInteger(roomId) && roomId > 0 ? roomId : null;
@@ -2942,6 +2962,16 @@ app.post("/api/nurses", async (req, res) => {
     return;
   }
 
+  const hireDateError = validateNurseHireDatePastWeek(profile.hireDate || profile.hire_date);
+
+  if (hireDateError) {
+    res.status(422).json({
+      valid: false,
+      errors: { hireDate: hireDateError },
+    });
+    return;
+  }
+
   try {
     const data = {
       name: String(profile.name || "").trim(),
@@ -3087,6 +3117,9 @@ app.put("/api/nurses/:id", async (req, res) => {
     errors.position = "Position must be Assistant Nurse, Junior Nurse, Senior Nurse, or Head Nurse.";
   }
   if (!String(profile.hireDate || profile.hire_date || "").trim()) errors.hireDate = "Hire date is required.";
+
+  const hireDateRangeError = validateNurseHireDatePastWeek(profile.hireDate || profile.hire_date);
+  if (hireDateRangeError) errors.hireDate = hireDateRangeError;
 
   if (Object.keys(errors).length > 0) {
     res.status(422).json({ valid: false, errors });
