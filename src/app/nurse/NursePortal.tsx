@@ -193,9 +193,6 @@ function profileToResident(profile: {
   id: string | number;
   name: string;
   age?: number;
-  gender?: string;
-  dob?: string;
-  birthdate?: string;
   avatar?: string;
   medicalCondition?: string;
   allergies?: string;
@@ -209,8 +206,6 @@ function profileToResident(profile: {
     id: Number(profile.id),
     name: profile.name,
     age: Number(profile.age) || 0,
-    gender: profile.gender || "Not recorded",
-    birthdate: profile.dob || profile.birthdate || "Not recorded",
     room: `ELD-${String(profile.id).padStart(4, "0")}`,
     photo: profile.avatar || `https://i.pravatar.cc/120?u=elderly-${profile.id}`,
     conditions: splitList(profile.medicalCondition),
@@ -716,56 +711,58 @@ function SchedulePage({ residents, checks, setChecks, isLoading, error }: {
   );
 }
 
-function WeeklyReportPage({ residents, checks, weeklyLogs, loading }: { residents: Resident[]; checks: CheckEntry[]; weeklyLogs: any[]; loading: boolean }) {
+function WeeklyReportPage({ residents, scheduleAssignments, loading }: { residents: Resident[]; scheduleAssignments: ScheduleAssignment[]; loading: boolean }) {
+  const parseDateInput = (value: string) => {
+    const parts = String(value).split("-").map((part) => Number(part));
+    if (parts.length !== 3 || parts.some((part) => !Number.isFinite(part))) return null;
+    const [year, month, day] = parts;
+    return new Date(year, month - 1, day);
+  };
+
   const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const rawSelectedDate = new Date(selectedDate);
-  const selectedDateObj = Number.isNaN(rawSelectedDate.getTime()) ? new Date() : rawSelectedDate;
+  const selectedDateObj = parseDateInput(selectedDate) || new Date();
 
-  const logsThisWeek = Array.isArray(weeklyLogs) ? weeklyLogs : [];
-  const normalizedDates = logsThisWeek
-    .map((log) => String(log.visitDate || log.visit_date || "").slice(0, 10))
-    .filter(Boolean)
-    .sort((left, right) => left.localeCompare(right));
+  const handleDateChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const nextValue = event.target.value;
+    if (!nextValue) {
+      setSelectedDate("");
+      return;
+    }
 
-  const fallbackWeekStart = new Date(selectedDateObj);
-  fallbackWeekStart.setDate(fallbackWeekStart.getDate() - fallbackWeekStart.getDay());
-  fallbackWeekStart.setHours(0, 0, 0, 0);
-  const fallbackWeekEnd = new Date(fallbackWeekStart);
-  fallbackWeekEnd.setDate(fallbackWeekStart.getDate() + 6);
-  fallbackWeekEnd.setHours(23, 59, 59, 999);
+    const parsed = parseDateInput(nextValue);
+    if (parsed) {
+      setSelectedDate(nextValue);
+    }
+  };
 
-  const weekStart = normalizedDates.length > 0
-    ? (() => {
-        const start = new Date(normalizedDates[0]);
-        start.setHours(0, 0, 0, 0);
-        return start;
-      })()
-    : fallbackWeekStart;
-  const weekEnd = normalizedDates.length > 0
-    ? (() => {
-        const end = new Date(normalizedDates[normalizedDates.length - 1]);
-        end.setHours(23, 59, 59, 999);
-        return end;
-      })()
-    : fallbackWeekEnd;
+  const weekStart = new Date(selectedDateObj);
+  const dayIndex = weekStart.getDay();
+  weekStart.setDate(weekStart.getDate() - dayIndex);
+  weekStart.setHours(0, 0, 0, 0);
+
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekStart.getDate() + 6);
+  weekEnd.setHours(23, 59, 59, 999);
 
   const weekLabel = `${weekStart.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })} – ${weekEnd.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`;
   const weekDateLabel = `${weekStart.toLocaleDateString(undefined, { weekday: "short" })} – ${weekEnd.toLocaleDateString(undefined, { weekday: "short" })}`;
 
-  const filteredLogs = logsThisWeek.filter((log) => {
-    const dateValue = String(log.visitDate || log.visit_date || "").slice(0, 10);
+  const filteredSchedules = (Array.isArray(scheduleAssignments) ? scheduleAssignments : []).filter((schedule) => {
+    if (String(schedule.scheduleStatus).toLowerCase() === "cancelled") return false;
+    const dateValue = normalizeDateKey(schedule.visitDate);
+    if (!dateValue) return false;
     const date = new Date(dateValue);
     return !Number.isNaN(date.getTime()) && date >= weekStart && date <= weekEnd;
   });
 
-  const recordCount = filteredLogs.length;
-  const uniqueResidentIds = Array.from(new Set(filteredLogs.map((log) => String(log.elderly_id ?? log.elderlyId ?? "")))).filter(Boolean);
+  const recordCount = filteredSchedules.length;
+  const uniqueResidentIds = Array.from(new Set(filteredSchedules.map((schedule) => String(schedule.elderlyId ?? "")))).filter(Boolean);
   const residentWithRecordCount = uniqueResidentIds.length;
   const days = Array.from({ length: 7 }).map((_, index) => {
     const date = new Date(weekStart);
     date.setDate(weekStart.getDate() + index);
     const key = date.toISOString().slice(0, 10);
-    const count = filteredLogs.filter((log) => String(log.visitDate || log.visit_date || "").slice(0, 10) === key).length;
+    const count = filteredSchedules.filter((schedule) => normalizeDateKey(schedule.visitDate) === key).length;
     return {
       day: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][index],
       date: date.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
@@ -777,9 +774,9 @@ function WeeklyReportPage({ residents, checks, weeklyLogs, loading }: { resident
   const averagePerResident = residentWithRecordCount === 0 ? 0 : Math.round((recordCount / residentWithRecordCount) * 10) / 10;
   const maxDailyCount = Math.max(...days.map((day) => day.count), 1);
 
-  const logsByResident = residents.reduce<Record<string, any[]>>((groups, resident) => {
+  const schedulesByResident = residents.reduce<Record<string, ScheduleAssignment[]>>((groups, resident) => {
     const key = String(resident.id);
-    groups[key] = filteredLogs.filter((log) => String(log.elderly_id ?? log.elderlyId ?? "") === key);
+    groups[key] = filteredSchedules.filter((schedule) => String(schedule.elderlyId) === key);
     return groups;
   }, {});
 
@@ -788,7 +785,6 @@ function WeeklyReportPage({ residents, checks, weeklyLogs, loading }: { resident
       <div className="bg-card border border-border rounded-2xl p-5">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="text-sm text-muted-foreground">Weekly Record to Admin</p>
             <h3 className="text-xl font-semibold text-foreground mt-1" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>
               {weekLabel}
             </h3>
@@ -801,9 +797,10 @@ function WeeklyReportPage({ residents, checks, weeklyLogs, loading }: { resident
               id="weekly-record-date"
               type="date"
               value={selectedDate}
-              onChange={(event) => setSelectedDate(event.target.value)}
+              onChange={handleDateChange}
               className="w-full rounded-2xl border border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/10"
             />
+            <p className="text-[11px] text-muted-foreground">The week shown is Sunday through Saturday for the selected date.</p>
           </div>
         </div>
       </div>
@@ -886,8 +883,8 @@ function WeeklyReportPage({ residents, checks, weeklyLogs, loading }: { resident
 
         <div className="divide-y divide-border">
           {residents.map((resident) => {
-            const residentLogs = logsByResident[String(resident.id)] || [];
-            const latestLog = residentLogs.sort((a, b) => String(b.visit_time || b.recorded_time || "").localeCompare(String(a.visit_time || a.recorded_time || "")))[0];
+            const residentSchedules = schedulesByResident[String(resident.id)] || [];
+            const latestSchedule = [...residentSchedules].sort((a, b) => String(b.visitTime || "").localeCompare(String(a.visitTime || "")))[0];
 
             return (
               <div key={resident.id} className="px-5 py-4 flex items-center gap-4">
@@ -898,7 +895,7 @@ function WeeklyReportPage({ residents, checks, weeklyLogs, loading }: { resident
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold text-foreground truncate">{resident.name}</p>
                   <p className="text-xs text-muted-foreground">
-                    {residentLogs.length} record{residentLogs.length === 1 ? "" : "s"} · Latest: {latestLog ? `${String(latestLog.visitDate || latestLog.visit_date || "")} ${String(latestLog.visitTime || latestLog.visit_time || "")}` : "No records this week"}
+                    {residentSchedules.length} schedule{residentSchedules.length === 1 ? "" : "s"} · Latest: {latestSchedule ? `${normalizeDateKey(latestSchedule.visitDate)} ${String(latestSchedule.visitTime || "")}` : "No schedules this week"}
                   </p>
                 </div>
 
@@ -1133,8 +1130,6 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
                 id: Number(a.elderlyId),
                 name: `Elderly ${a.elderlyId}`,
                 age: 0,
-                gender: "Not recorded",
-                birthdate: "Not recorded",
                 room: `ELD-${String(a.elderlyId).padStart(4, "0")}`,
                 photo: `https://i.pravatar.cc/120?u=elderly-${a.elderlyId}`,
                 conditions: [],
@@ -1316,7 +1311,7 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
   const nav: { id: Page; label: string; icon: React.ElementType }[] = [
     { id: "overview",     label: "Overview",      icon: LayoutDashboard },
     { id: "schedule",     label: "My Schedule",   icon: Calendar },
-    { id: "residents",    label: "Elderly",       icon: Users },
+    { id: "residents",    label: "Residents",     icon: Users },
     { id: "weeklyReport", label: "Weekly Record", icon: FileText },
   ];
 
@@ -1656,7 +1651,7 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
                 residents={residents}
                 scheduleAssignments={scheduleAssignments}
                 selectedId={selectedResidentId}
-                onSelect={setSelectedResidentId}
+                onSelect={(id) => setSelectedResidentId(id)}
               />
               <div className="flex-1">
                 <ResidentDetailsPanel
@@ -1669,8 +1664,7 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
           {page === "weeklyReport" && (
             <WeeklyReportPage
               residents={residents}
-              checks={checks}
-              weeklyLogs={weeklyLogs}
+              scheduleAssignments={scheduleAssignments}
               loading={weeklyLogsLoading}
             />
           )}
