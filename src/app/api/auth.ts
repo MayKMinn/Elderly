@@ -39,12 +39,19 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     ...options,
   });
 
+  const contentType = response.headers.get("content-type") || "";
+  const isJson = contentType.includes("application/json");
+  const payload = isJson ? await response.json() : await response.text();
+
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || `Request failed with ${response.status}`);
+    if (payload && typeof payload === "object" && "error" in payload) {
+      throw new Error(JSON.stringify(payload));
+    }
+
+    throw new Error(typeof payload === "string" ? payload : `Request failed with ${response.status}`);
   }
 
-  return response.json();
+  return payload as T;
 }
 
 export function signInAdmin(login: string, password: string) {

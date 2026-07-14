@@ -18,7 +18,7 @@ function figmaAssetResolver() {
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  const backendPort = env.SERVER_PORT || '3002'
+  const backendPort = env.SERVER_PORT || '3001'
 
   return {
     server: {
