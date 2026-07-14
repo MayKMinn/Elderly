@@ -55,16 +55,21 @@ export function TopBar({ title, subtitle, adminName, adminProfile, signedInAt, o
   useEffect(() => {
     if (!menuOpen) return;
 
-    const handlePointerDown = (event: PointerEvent) => {
+    const handlePointerDown = (event: PointerEvent | MouseEvent | TouchEvent) => {
       const target = event.target as Node;
-
       if (!menuRef.current?.contains(target)) {
         setMenuOpen(false);
       }
     };
 
     window.addEventListener("pointerdown", handlePointerDown);
-    return () => window.removeEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("touchstart", handlePointerDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("touchstart", handlePointerDown);
+    };
   }, [menuOpen]);
 
   useEffect(() => {

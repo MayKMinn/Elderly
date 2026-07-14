@@ -157,11 +157,11 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
   const selectedSchedule = schedules.find((item) => item.id === selectedScheduleId) || null;
   const currentDate = new Date();
   const currentDay = currentDate.getDay();
-  const monday = new Date(currentDate);
-  monday.setDate(currentDate.getDate() - ((currentDay + 6) % 7));
+  const sunday = new Date(currentDate);
+  sunday.setDate(currentDate.getDate() - currentDay);
   const weekDays = Array.from({ length: 7 }).map((_, index) => {
-    const date = new Date(monday);
-    date.setDate(monday.getDate() + index);
+    const date = new Date(sunday);
+    date.setDate(sunday.getDate() + index);
     return date;
   });
 

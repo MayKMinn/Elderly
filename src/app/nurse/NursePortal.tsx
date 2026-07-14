@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   Activity, Pill, Stethoscope, Heart, Clock, Check, X, ChevronLeft,
   ChevronRight, Bell, AlertCircle, CheckCircle, Users, Calendar,
@@ -158,6 +158,23 @@ function profileToResident(profile: {
 function now() {
   const d = new Date();
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+function toDateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getWeekRange(date: Date) {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - start.getDay());
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  end.setHours(23, 59, 59, 999);
+  return { start, end };
 }
 
 function formatLongDate(d: Date) {
@@ -651,13 +668,7 @@ function WeeklyReportPage({ residents, checks, weeklyLogs, loading }: { resident
   const rawSelectedDate = new Date(selectedDate);
   const selectedDateObj = Number.isNaN(rawSelectedDate.getTime()) ? new Date() : rawSelectedDate;
 
-  const weekStart = new Date(selectedDateObj);
-  const offset = (weekStart.getDay() + 6) % 7;
-  weekStart.setDate(weekStart.getDate() - offset);
-  weekStart.setHours(0, 0, 0, 0);
-  const weekEnd = new Date(weekStart);
-  weekEnd.setDate(weekStart.getDate() + 6);
-  weekEnd.setHours(23, 59, 59, 999);
+  const { start: weekStart, end: weekEnd } = getWeekRange(selectedDateObj);
 
   const weekLabel = `${weekStart.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })} – ${weekEnd.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`;
   const weekDateLabel = `${weekStart.toLocaleDateString(undefined, { weekday: "short" })} – ${weekEnd.toLocaleDateString(undefined, { weekday: "short" })}`;
@@ -675,10 +686,10 @@ function WeeklyReportPage({ residents, checks, weeklyLogs, loading }: { resident
   const days = Array.from({ length: 7 }).map((_, index) => {
     const date = new Date(weekStart);
     date.setDate(weekStart.getDate() + index);
-    const key = date.toISOString().slice(0, 10);
+    const key = toDateKey(date);
     const count = filteredLogs.filter((log) => String(log.visitDate || log.visit_date || "").slice(0, 10) === key).length;
     return {
-      day: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][index],
+      day: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][index],
       date: date.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
       count,
     };
@@ -939,6 +950,7 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
   const [residentsError, setResidentsError] = useState("");
   const [checks, setChecks] = useState<CheckEntry[]>([]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const notificationAnchorRef = useRef<HTMLDivElement | null>(null);
   const [medicationAssignments, setMedicationAssignments] = useState<MedicationAssignment[]>([]);
   const [scheduleAssignments, setScheduleAssignments] = useState<ScheduleAssignment[]>([]);
   const [weeklyLogs, setWeeklyLogs] = useState<any[]>([]);
@@ -967,6 +979,36 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
   );
   const scheduleNotificationCount = visibleScheduleNotifications.length;
   const notificationCount = scheduleNotificationCount;
+  const todaySchedules = scheduleAssignments.filter((item) => item.visitDate === todayKey);
+  const activeScheduleCount = scheduleAssignments.filter((item) => item.scheduleStatus === "scheduled").length;
+  const completedTodayCount = scheduleAssignments.filter((item) => item.scheduleStatus === "completed" && item.visitDate === todayKey).length;
+  const missedTodayCount = scheduleAssignments.filter((item) => item.scheduleStatus === "missed" && item.visitDate === todayKey).length;
+  const nextSchedules = [...scheduleAssignments]
+    .filter((item) => item.scheduleStatus === "scheduled")
+    .sort((a, b) => {
+      const dateCompare = String(a.visitDate).localeCompare(String(b.visitDate));
+      if (dateCompare !== 0) return dateCompare;
+      return String(a.visitTime).localeCompare(String(b.visitTime));
+    })
+    .slice(0, 4);
+  const todaySchedulesByResident = residents.map((r) => ({
+    resident: r,
+    todayCount: todaySchedules.filter((item) => String(item.elderlyId) === String(r.id)).length,
+  }));
+
+  useEffect(() => {
+    if (!notificationsOpen) return;
+
+    const handleDocumentClick = (event: MouseEvent) => {
+      if (notificationAnchorRef.current?.contains(event.target as Node)) return;
+      setNotificationsOpen(false);
+    };
+
+    document.addEventListener("mousedown", handleDocumentClick);
+    return () => {
+      document.removeEventListener("mousedown", handleDocumentClick);
+    };
+  }, [notificationsOpen]);
 
   useEffect(() => {
     let ignore = false;
@@ -1131,19 +1173,16 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
         const response = await fetchHealthLogs({ nurseId: currentNurseId, limit: 500 });
         if (ignore) return;
 
-        const today = new Date();
-        const monday = new Date(today);
-        const offset = (today.getDay() + 6) % 7;
-        monday.setDate(today.getDate() - offset);
-        monday.setHours(0, 0, 0, 0);
-        const sunday = new Date(monday);
-        sunday.setDate(monday.getDate() + 6);
-        sunday.setHours(23, 59, 59, 999);
-
+        const { start: weekStart, end: weekEnd } = getWeekRange(new Date());
         const logs = Array.isArray(response.logs) ? response.logs : [];
+        const filteredLogs = logs.filter((log: any) => {
+          const dateValue = String(log.visitDate || log.visit_date || "").slice(0, 10);
+          const date = new Date(dateValue);
+          return !Number.isNaN(date.getTime()) && date >= weekStart && date <= weekEnd;
+        });
 
         if (!ignore) {
-          setWeeklyLogs(logs);
+          setWeeklyLogs(filteredLogs);
         }
       } catch (error) {
         if (!ignore) {
@@ -1306,7 +1345,7 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
               </button>
 
               {notificationsOpen && (
-                <div className="absolute right-0 top-full z-50 mt-2 w-88 overflow-hidden rounded-xl border bg-white shadow-xl" style={{ borderColor: "rgba(0,0,0,0.08)" }}>
+                <div ref={notificationAnchorRef} className="absolute right-0 top-full z-50 mt-2 w-88 overflow-hidden rounded-xl border bg-white shadow-xl" style={{ borderColor: "rgba(0,0,0,0.08)" }}>
                   <div className="border-b px-4 py-3" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
                     <div className="text-sm" style={{ color: "#1a2b42", fontWeight: 700 }}>Notifications</div>
                     <div className="text-xs" style={{ color: "#6b7a99" }}>Medication and schedule updates from admin</div>
@@ -1456,18 +1495,15 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
               <div className="bg-gradient-to-br from-primary/10 via-accent/5 to-transparent border border-border rounded-2xl p-5">
                 <p className="text-sm text-muted-foreground">Good morning,</p>
                 <h3 className="text-2xl font-semibold text-foreground mt-0.5" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>{nurseName}</h3>
-                <p className="text-sm text-muted-foreground mt-1.5">
-                  You have <strong className="text-foreground">{totalChecks - doneChecks} checks</strong> remaining across <strong className="text-foreground">{residents.length} residents</strong> today.
-                </p>
               </div>
 
               {/* KPI cards */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {[
                   { label: "Residents", value: residents.length, icon: Users, color: "bg-primary/10 text-primary" },
-                  { label: "Done Today", value: `${doneChecks}/${totalChecks}`, icon: CheckCircle, color: "bg-emerald-100 text-emerald-600" },
-                  { label: "Morning Left", value: morningPending, icon: Activity, color: "bg-amber-100 text-amber-600" },
-                  { label: "Evening Left", value: eveningPending, icon: Pill, color: "bg-violet-100 text-violet-600" },
+                  { label: "Active schedule", value: activeScheduleCount, icon: Calendar, color: "bg-emerald-100 text-emerald-600" },
+                  { label: "Completed today", value: completedTodayCount, icon: CheckCircle, color: "bg-amber-100 text-amber-600" },
+                  { label: "Missed today", value: missedTodayCount, icon: AlertTriangle, color: "bg-red-100 text-red-600" },
                 ].map((k) => (
                   <div key={k.label} className="bg-card border border-border rounded-xl p-4">
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${k.color}`}><k.icon size={15} /></div>
@@ -1488,41 +1524,31 @@ export function NursePortal({ nurseName = "Nurse", nurseId, nurseProfile, onSign
                 </div>
               ))}
 
-              {/* Today's check summary per resident */}
+              {/* Today's schedule summary */}
               <div className="bg-card border border-border rounded-xl overflow-hidden">
                 <div className="px-5 py-4 border-b border-border">
-                  <h4 className="font-semibold text-foreground" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>Today's Check Summary</h4>
+                  <h4 className="font-semibold text-foreground" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>Today's Schedule</h4>
+                  <p className="text-xs text-muted-foreground">{todaySchedules.length} visit{todaySchedules.length === 1 ? "" : "s"} scheduled for today</p>
                 </div>
                 <div className="divide-y divide-border">
-                  {residents.map((r) => {
-                    const rChecks = checks.filter((c) => c.residentId === r.id);
-                    const rDone = rChecks.filter((c) => c.done).length;
-                    return (
-                      <div key={r.id} className="flex items-center gap-4 px-5 py-3.5">
+                  {todaySchedules.length === 0 ? (
+                    <div className="px-5 py-6 text-center text-sm text-muted-foreground">No scheduled visits for today.</div>
+                  ) : (
+                    todaySchedules.map((item) => (
+                      <div key={item.id} className="flex items-center gap-4 px-5 py-3.5">
                         <div className="w-9 h-9 rounded-full overflow-hidden bg-muted flex-shrink-0">
-                          <img src={r.photo} alt={r.name} className="w-full h-full object-cover" />
+                          <img src={item.elderlyAvatar || `https://i.pravatar.cc/120?u=elderly-${item.elderlyId}`} alt={item.elderlyName} className="w-full h-full object-cover" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-foreground truncate">{r.name}</p>
-                          <p className="text-xs text-muted-foreground">Room {r.room}</p>
+                          <p className="text-sm font-semibold text-foreground truncate">{item.elderlyName}</p>
+                          <p className="text-xs text-muted-foreground">{item.purpose} · {item.visitTime}</p>
                         </div>
-                        {/* Per-check icons */}
-                        <div className="flex gap-2">
-                          {(["bp", "medication", "glucose"] as const).map((type) => {
-                            const meta = CHECK_META[type];
-                            const done = checks.filter((c) => c.residentId === r.id && c.type === type && c.done).length;
-                            const total = 2;
-                            return (
-                              <div key={type} className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium ${done === total ? "bg-emerald-50 text-emerald-600" : "bg-muted text-muted-foreground"}`}>
-                                <meta.icon size={11} />{done}/{total}
-                              </div>
-                            );
-                          })}
-                        </div>
-                        <div className="text-xs font-semibold text-muted-foreground" style={{ fontFamily: "Plus Jakarta Sans, sans-serif" }}>{rDone}/{rChecks.length}</div>
+                        <span className={`text-[11px] rounded-full px-2 py-1 font-semibold ${item.scheduleStatus === "scheduled" ? "bg-blue-50 text-blue-700" : item.scheduleStatus === "completed" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}> 
+                          {item.scheduleStatus}
+                        </span>
                       </div>
-                    );
-                  })}
+                    ))
+                  )}
                 </div>
               </div>
             </div>
