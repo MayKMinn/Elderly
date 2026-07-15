@@ -276,7 +276,6 @@ export function Schedules({ onNavigate, onOpenNurses }: SchedulesProps) {
   const [purpose, setPurpose] = useState("Blood Pressure");
   const [visitDate, setVisitDate] = useState(todayInputValue());
   const [visitTime, setVisitTime] = useState("09:00");
-  const [notes, setNotes] = useState("");
   const [recurring, setRecurring] = useState(false);
   const [recurrenceFrequency, setRecurrenceFrequency] = useState<"daily" | "weekly">("weekly");
   const [repeatWeeks, setRepeatWeeks] = useState(4);
@@ -592,7 +591,6 @@ export function Schedules({ onNavigate, onOpenNurses }: SchedulesProps) {
     setPurpose("Blood Pressure");
     setVisitDate(todayInputValue());
     setVisitTime("09:00");
-    setNotes("");
     setRecurring(false);
     setRecurrenceFrequency("weekly");
     setRepeatWeeks(4);
@@ -660,7 +658,6 @@ export function Schedules({ onNavigate, onOpenNurses }: SchedulesProps) {
     setPurpose(row.purpose);
     setVisitDate(row.visitDate);
     setVisitTime(row.visitTime);
-    setNotes("");
     setRecurring(Boolean(row.recurringGroupId));
     setRecurrenceFrequency(row.recurringGroupId ? inferRecurringFrequency(recurringSeries) : "weekly");
     setRepeatWeeks(row.recurringGroupId ? Math.max(recurringSeries.length, Number(row.recurringSequence) || 1) : 4);
@@ -683,7 +680,6 @@ export function Schedules({ onNavigate, onOpenNurses }: SchedulesProps) {
     setPurpose("Blood Pressure");
     setVisitDate(dateKey);
     setVisitTime(`${String(hour).padStart(2, "0")}:00`);
-    setNotes("");
     setRecurring(false);
     setRecurrenceFrequency("weekly");
     setRepeatWeeks(4);
@@ -1176,18 +1172,6 @@ export function Schedules({ onNavigate, onOpenNurses }: SchedulesProps) {
                 )}
               </div>
             )}
-
-            <FormGroup label="Notes">
-              <textarea
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="Add visit notes or special instructions..."
-                rows={3}
-                className="w-full px-2 py-1.5 border rounded-lg text-xs outline-none resize-none"
-                style={{ borderColor: "rgba(0,0,0,0.12)", color: "#1a2b42" }}
-              />
-              <div className="text-right text-xs" style={{ color: "#6b7a99" }}>{notes.length}/500</div>
-            </FormGroup>
 
             <FormGroup label="Recurring Schedule">
               <div className="flex items-center gap-2">
