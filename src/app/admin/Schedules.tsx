@@ -1852,18 +1852,6 @@ export function Schedules({ onNavigate, onOpenNurses }: SchedulesProps) {
                     </div>
                   </label>
                 )}
-                {!showAllSchedules && (
-                  <button
-                    onClick={() => {
-                      setScheduleSearch("");
-                      setShowAllSchedules(true);
-                    }}
-                    className="text-xs"
-                    style={{ color: "#2563eb" }}
-                  >
-                    View all
-                  </button>
-                )}
               </div>
             </div>
             <div className="overflow-x-auto">
