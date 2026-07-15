@@ -36,9 +36,10 @@ type Page = "dashboard" | "manage-profiles" | "schedules" | "medications" | "rep
 
 interface MedicationsProps {
   onNavigate: (page: Page) => void;
+  onEditElderlyProfile: (profileId: string) => void;
 }
 
-export function Medications({ onNavigate }: MedicationsProps) {
+export function Medications({ onNavigate, onEditElderlyProfile }: MedicationsProps) {
   const [elderlyProfiles, setElderlyProfiles] = useState<ElderlyProfile[]>([]);
   const [medications, setMedications] = useState<ElderlyMedication[]>([]);
   const [selectedElderlyId, setSelectedElderlyId] = useState("");
@@ -122,6 +123,11 @@ export function Medications({ onNavigate }: MedicationsProps) {
   }
 
   function openEditForm(medication: ElderlyMedication) {
+    const elderly = elderlyProfiles.find((profile) => String(profile.id) === String(medication.elderlyId));
+    if (!elderly || elderly.status !== "Active") {
+      setMessage("Medication cannot be updated because this elderly profile is inactive.");
+      return;
+    }
     setEditingMedication(medication);
     setFormElderlyId(String(medication.elderlyId));
     setForm({
@@ -140,6 +146,7 @@ export function Medications({ onNavigate }: MedicationsProps) {
     const nextErrors: Record<string, string> = {};
 
     if (!selectedElderly) nextErrors.elderlyId = "Select an elderly profile.";
+    else if (selectedElderly.status !== "Active") nextErrors.elderlyId = "Medication cannot be saved because this elderly profile is inactive.";
     if (!form.medicationName.trim()) nextErrors.medicationName = "Medicine name is required.";
     if (!form.dosage.trim()) nextErrors.dosage = "Dosage is required.";
     if (!form.instructions.trim()) nextErrors.instructions = "Instructions are required.";
@@ -183,7 +190,8 @@ export function Medications({ onNavigate }: MedicationsProps) {
       setShowForm(false);
       resetForm();
     } catch (error) {
-      setMessage("Failed to save medication.");
+      const errorMessage = error instanceof Error ? error.message : "";
+      setMessage(errorMessage.includes("inactive") ? "Medication cannot be saved because this elderly profile is inactive." : "Failed to save medication.");
       console.error(error);
     } finally {
       setSaving(false);
@@ -247,6 +255,19 @@ export function Medications({ onNavigate }: MedicationsProps) {
         ))}
       </div>
 
+      {message && !showForm && (
+        <div
+          className="mb-4 rounded-lg border px-3 py-2 text-xs"
+          style={{
+            backgroundColor: message.includes("cannot") || message.startsWith("Failed") ? "#fee2e2" : "#dcfce7",
+            borderColor: message.includes("cannot") || message.startsWith("Failed") ? "#fecaca" : "#bbf7d0",
+            color: message.includes("cannot") || message.startsWith("Failed") ? "#dc2626" : "#15803d",
+          }}
+        >
+          {message}
+        </div>
+      )}
+
       {showForm ? (
         <div className="flex gap-4">
           <div className="flex-1 rounded-xl border bg-white p-5" style={{ borderColor: "rgba(0,0,0,0.07)" }}>
@@ -294,7 +315,7 @@ export function Medications({ onNavigate }: MedicationsProps) {
                     <>
                       <option value="">Select elderly</option>
                       {elderlyProfiles.map((elderly) => (
-                        <option key={elderly.id} value={String(elderly.id)}>{elderly.name} ({elderly.id})</option>
+                        <option key={elderly.id} value={String(elderly.id)} disabled={elderly.status !== "Active"}>{elderly.name} ({elderly.id}){elderly.status !== "Active" ? " — Inactive" : ""}</option>
                       ))}
                     </>
                   )}
@@ -375,7 +396,10 @@ export function Medications({ onNavigate }: MedicationsProps) {
         <ViewProfileModal
           profile={selectedElderly}
           onClose={() => setViewProfile(false)}
-          onEdit={() => setViewProfile(false)}
+          onEdit={() => {
+            setViewProfile(false);
+            onEditElderlyProfile(String(selectedElderly.id));
+          }}
         />
       )}
       {pendingDeleteMedication && (

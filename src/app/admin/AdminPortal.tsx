@@ -52,6 +52,7 @@ function readSavedProfileTab() {
 export function AdminPortal({ adminName, adminProfile, signedInAt, onSignOut, onAdminProfileChange }: AdminPortalProps) {
   const [currentPage, setCurrentPageState] = useState<Page>(readSavedPage);
   const [profileTab, setProfileTabState] = useState<ProfileTab>(readSavedProfileTab);
+  const [editElderlyProfileId, setEditElderlyProfileId] = useState<string | null>(null);
 
   function setCurrentPage(page: Page) {
     localStorage.setItem(adminPageStorageKey, page);
@@ -123,6 +124,8 @@ export function AdminPortal({ adminName, adminProfile, signedInAt, onSignOut, on
             activeTab={profileTab}
             onTabChange={setProfileTab}
             onNavigate={setCurrentPage}
+            editElderlyProfileId={editElderlyProfileId}
+            onEditElderlyProfileOpened={() => setEditElderlyProfileId(null)}
           />
         )}
         {currentPage === "schedules" && (
@@ -134,7 +137,16 @@ export function AdminPortal({ adminName, adminProfile, signedInAt, onSignOut, on
             }}
           />
         )}
-        {currentPage === "medications" && <Medications onNavigate={setCurrentPage} />}
+        {currentPage === "medications" && (
+          <Medications
+            onNavigate={setCurrentPage}
+            onEditElderlyProfile={(profileId) => {
+              setEditElderlyProfileId(profileId);
+              setProfileTab("elderly");
+              setCurrentPage("manage-profiles");
+            }}
+          />
+        )}
         {currentPage === "reports" && <Reports onNavigate={setCurrentPage} />}
         {currentPage === "login-history" && <LoginHistory />}
         {currentPage === "settings" && (
