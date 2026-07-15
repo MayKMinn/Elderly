@@ -547,12 +547,13 @@ export function ManageProfiles({ activeTab, onTabChange, onNavigate, editElderly
         setElderlyList((prev) => prev.filter((e) => e.id !== modal.profile.id));
         setSelectedRow(null);
         setError(null);
+        setSuccessMessage("Elderly profile deleted successfully.");
+        setModal(null);
       } catch (err) {
         setError("Failed to delete profile.");
         console.error(err);
       }
     }
-    setModal(null);
   };
 
   const handleSaveNurseEdit = async (updated: NurseProfile): Promise<ValidationErrors | void> => {

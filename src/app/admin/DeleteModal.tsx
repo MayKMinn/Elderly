@@ -16,6 +16,7 @@ export function DeleteModal({ name, onConfirm, onCancel }: DeleteModalProps) {
       <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
         <div className="flex justify-end p-3">
           <button
+            type="button"
             onClick={onCancel}
             className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-gray-100"
           >
@@ -34,11 +35,12 @@ export function DeleteModal({ name, onConfirm, onCancel }: DeleteModalProps) {
             Delete {name}?
           </h2>
           <p className="text-sm" style={{ color: "#6b7a99" }}>
-            This action cannot be undone. This will permanently remove Mary Wilson's profile and all associated data.
+            This action cannot be undone. This will permanently remove {name}'s profile and all associated data.
           </p>
 
           <div className="flex gap-3 mt-6">
             <button
+              type="button"
               onClick={onCancel}
               className="flex-1 py-2 rounded-lg border text-sm transition-colors hover:bg-gray-50"
               style={{ borderColor: "rgba(0,0,0,0.12)", color: "#6b7a99" }}
@@ -46,6 +48,7 @@ export function DeleteModal({ name, onConfirm, onCancel }: DeleteModalProps) {
               Cancel
             </button>
             <button
+              type="button"
               onClick={onConfirm}
               className="flex-1 py-2 rounded-lg text-sm text-white transition-colors hover:opacity-90"
               style={{ backgroundColor: "#ef4444" }}
