@@ -164,12 +164,14 @@ function buildProfessionalPdfDoc(summaryInput: ElderlyReportSummary | ElderlyRep
     doc.text(sub, x + 12, y + 61);
     if (status) {
       const stable = status === "Stable";
-      doc.setFillColor(stable ? 220 : 254, stable ? 252 : 226, stable ? 231 : 226);
+      const noData = status.toLowerCase().startsWith("no blood");
+      const statusLabel = noData ? "No data" : status.slice(0, 8);
+      doc.setFillColor(noData ? 241 : stable ? 220 : 254, noData ? 245 : stable ? 252 : 226, noData ? 249 : stable ? 231 : 226);
       doc.roundedRect(x + 76, y + 52, 36, 14, 7, 7, "F");
       doc.setFont("helvetica", "bold");
       doc.setFontSize(7);
-      doc.setTextColor(stable ? 22 : 220, stable ? 163 : 38, stable ? 74 : 38);
-      doc.text(status.slice(0, 8), x + 83, y + 62);
+      doc.setTextColor(noData ? 100 : stable ? 22 : 220, noData ? 116 : stable ? 163 : 38, noData ? 139 : stable ? 74 : 38);
+      doc.text(statusLabel, x + 94, y + 62, { align: "center" });
     }
   };
 
@@ -319,7 +321,7 @@ function buildProfessionalPdfDoc(summaryInput: ElderlyReportSummary | ElderlyRep
     (item) => String(item.complianceStatus || "").trim().toLowerCase() !== "pending",
   );
   table(
-    ["Date", "Time", "Medication", "Dosage", "Status", "Nurse Notes"],
+    ["Date", "Time", "Medication", "Dosage", "Status"],
     reportMedications.length
       ? reportMedications.map((item) => [
           displayDate(item.scheduledDate),
@@ -327,10 +329,9 @@ function buildProfessionalPdfDoc(summaryInput: ElderlyReportSummary | ElderlyRep
           item.medicationName || "-",
           item.dosage || "-",
           item.complianceStatus || "-",
-          item.reportNotes || "-",
         ])
-      : [["No medication records found for this date range.", "", "", "", "", ""]],
-    [72, 54, 116, 74, 66, 150],
+      : [["No medication records found for this date range.", "", "", "", ""]],
+    [84, 64, 152, 108, 124],
   );
   });
 
@@ -695,14 +696,14 @@ export function Reports({ onNavigate }: ReportsProps) {
               <table className="w-full">
                 <thead>
                   <tr style={{ backgroundColor: "#f8fafc" }}>
-                    {["Elderly", "Date", "Medicine", "Dosage", "Status", "Report Notes"].map((column) => (
+                    {["Elderly", "Date", "Medicine", "Dosage", "Status"].map((column) => (
                       <th key={column} className="px-3 py-2 text-left text-xs" style={{ color: "#6b7a99" }}>{column}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {medicationRows.length === 0 ? (
-                    <tr><td colSpan={6} className="px-3 py-6 text-center text-sm" style={{ color: "#6b7a99" }}>No completed, missed, or due-soon medication rows for this date range.</td></tr>
+                    <tr><td colSpan={5} className="px-3 py-6 text-center text-sm" style={{ color: "#6b7a99" }}>No completed, missed, or due-soon medication rows for this date range.</td></tr>
                   ) : medicationRows.map(({ report, item }) => (
                     <tr key={`${report.elderly.id}-${item.id}`} className="border-t" style={{ borderColor: "rgba(0,0,0,0.06)" }}>
                       <td className="px-3 py-2 text-xs" style={{ color: "#1a2b42", fontWeight: 600 }}>{report.elderly.name}</td>
@@ -710,7 +711,6 @@ export function Reports({ onNavigate }: ReportsProps) {
                       <td className="px-3 py-2 text-xs" style={{ color: "#1a2b42", fontWeight: 600 }}>{item.medicationName}</td>
                       <td className="px-3 py-2 text-xs" style={{ color: "#1a2b42" }}>{item.dosage}</td>
                       <td className="px-3 py-2 text-xs" style={{ color: item.complianceStatus === "Missed" ? "#dc2626" : "#16a34a" }}>{item.complianceStatus}</td>
-                      <td className="px-3 py-2 text-xs" style={{ color: "#6b7a99" }}>{item.reportNotes || item.notes || "-"}</td>
                     </tr>
                   ))}
                 </tbody>
