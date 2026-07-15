@@ -100,10 +100,9 @@ export function ViewProfileModal({ profile, onClose, onEdit }: ViewProfileModalP
 
           {/* Emergency Contact */}
           <Section title="Emergency Contact" icon={<Phone size={14} />}>
-            <InfoRow label="Contact Name" value={profile.emergencyContact} />
-            <InfoRow label="Relationship" value={profile.relationship} />
-            <InfoRow label="Phone" value={profile.emergencyPhone} />
-            <InfoRow label="Address" value={profile.emergencyAddress} />
+            <InfoRow label="Emergency Name" value={profile.emergencyContact || "-"} />
+            <InfoRow label="Emergency Phone" value={profile.emergencyPhone} />
+            <InfoRow label="Emergency Address" value={profile.emergencyAddress} />
           </Section>
 
           {/* Status */}
