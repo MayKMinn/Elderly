@@ -1452,9 +1452,9 @@ function SideProfile({
         </SideSection>
 
         <SideSection title="Emergency Contact">
-          <SideRow label="Relationship" value={profile.relationship} />
-          <SideRow label="Phone" value={profile.emergencyPhone} />
-          <SideRow label="Address" value={profile.emergencyAddress} />
+          <SideRow label="Emergency Name" value={profile.emergencyContact || "-"} />
+          <SideRow label="Emergency Phone" value={profile.emergencyPhone} />
+          <SideRow label="Emergency Address" value={profile.emergencyAddress} />
         </SideSection>
 
         <button
@@ -1594,9 +1594,9 @@ function ViewModal({
           </ModalSection>
 
           <ModalSection title="Emergency Contact">
-            <ModalRow label="Relationship" value={profile.relationship} />
-            <ModalRow label="Phone" value={profile.emergencyPhone} />
-            <ModalRow label="Address" value={profile.emergencyAddress} />
+            <ModalRow label="Emergency Name" value={profile.emergencyContact || "-"} />
+            <ModalRow label="Emergency Phone" value={profile.emergencyPhone} />
+            <ModalRow label="Emergency Address" value={profile.emergencyAddress} />
           </ModalSection>
 
           <ModalSection title="Status Details">
