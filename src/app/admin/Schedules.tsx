@@ -2014,7 +2014,7 @@ export function Schedules({ onNavigate, onOpenNurses }: SchedulesProps) {
 
             <div className="space-y-4 px-5 py-4">
               <div className="grid grid-cols-2 gap-3">
-                <DetailCard label="Caregiver" value={selectedSchedule.nurseName} sub={selectedSchedule.nurseId} avatar={selectedSchedule.nurseAvatar} />
+                <DetailCard label="Nurse" value={selectedSchedule.nurseName} sub={selectedSchedule.nurseId} avatar={selectedSchedule.nurseAvatar} />
                 <DetailCard label="Elderly" value={selectedSchedule.elderlyName} sub={selectedSchedule.elderlyId} avatar={selectedSchedule.elderlyAvatar} />
               </div>
 
