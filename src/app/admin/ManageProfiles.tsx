@@ -48,6 +48,8 @@ interface ManageProfilesProps {
   activeTab: ProfileTab;
   onTabChange: (tab: ProfileTab) => void;
   onNavigate: (page: Page) => void;
+  editElderlyProfileId?: string | null;
+  onEditElderlyProfileOpened?: () => void;
 }
 
 type Modal =
@@ -320,7 +322,7 @@ function getNurseSqlDisplayId(profile: NurseProfile) {
   return formattedMatch ? formattedMatch[1] : value;
 }
 
-export function ManageProfiles({ activeTab, onTabChange, onNavigate }: ManageProfilesProps) {
+export function ManageProfiles({ activeTab, onTabChange, onNavigate, editElderlyProfileId, onEditElderlyProfileOpened }: ManageProfilesProps) {
   const useApi = import.meta.env.VITE_USE_API !== "false";
   const [modal, setModal] = useState<Modal>(null);
   const [elderlyList, setElderlyList] = useState<ElderlyProfile[]>([]);
@@ -381,6 +383,19 @@ export function ManageProfiles({ activeTab, onTabChange, onNavigate }: ManagePro
 
     return () => window.clearTimeout(timer);
   }, [successMessage]);
+
+  useEffect(() => {
+    if (!editElderlyProfileId || loading || activeTab !== "elderly") return;
+
+    const profile = elderlyList.find((item) => String(item.id) === String(editElderlyProfileId));
+    if (profile) {
+      setModal({ type: "edit", profile });
+      setSelectedRow(String(profile.id));
+    } else {
+      setError("The selected elderly profile could not be found.");
+    }
+    onEditElderlyProfileOpened?.();
+  }, [activeTab, editElderlyProfileId, elderlyList, loading, onEditElderlyProfileOpened]);
 
   useEffect(() => {
     setPage(1);

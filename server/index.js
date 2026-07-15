@@ -2340,6 +2340,10 @@ app.put("/api/elderly/:id", async (req, res) => {
       if (!isActiveElderlyStatus(data.elderlyStatus)) {
         await connection.query("DELETE FROM `schedule` WHERE elderly_id = :id", data);
         await connection.query("UPDATE nurse_elderly_assignments SET status = 'inactive' WHERE elderly_id = :id", data);
+        await connection.query(
+          "UPDATE elderly_medications SET medication_status = 'Inactive' WHERE elderly_id = :id",
+          data
+        );
       }
     });
 
@@ -2476,6 +2480,19 @@ app.post("/api/elderly-medications", async (req, res) => {
       status: payload.status === "Inactive" ? "Inactive" : "Active",
     };
 
+    const [elderlyRows] = await pool.query(
+      `SELECT elderly_status FROM ${elderlyTable} WHERE elderly_id = :elderlyId`,
+      data
+    );
+    if (elderlyRows.length === 0) {
+      res.status(404).json({ error: "Elderly profile not found." });
+      return;
+    }
+    if (!isActiveElderlyStatus(elderlyRows[0].elderly_status)) {
+      res.status(409).json({ error: "Medication cannot be assigned because this elderly profile is inactive." });
+      return;
+    }
+
     const [result] = await pool.query(
       `INSERT INTO elderly_medications (
         elderly_id, elderly_name, medication_name, dosage, instructions, notes, medication_status
@@ -2527,6 +2544,19 @@ app.put("/api/elderly-medications/:id", async (req, res) => {
       notes: String(payload.notes || "").trim(),
       status: payload.status === "Inactive" ? "Inactive" : "Active",
     };
+
+    const [elderlyRows] = await pool.query(
+      `SELECT elderly_status FROM ${elderlyTable} WHERE elderly_id = :elderlyId`,
+      data
+    );
+    if (elderlyRows.length === 0) {
+      res.status(404).json({ error: "Elderly profile not found." });
+      return;
+    }
+    if (!isActiveElderlyStatus(elderlyRows[0].elderly_status)) {
+      res.status(409).json({ error: "Medication cannot be updated because this elderly profile is inactive." });
+      return;
+    }
 
     const [result] = await pool.query(
       `UPDATE elderly_medications
