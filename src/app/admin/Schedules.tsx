@@ -1976,10 +1976,6 @@ export function Schedules({ onNavigate, onOpenNurses }: SchedulesProps) {
                 </tbody>
               </table>
             </div>
-            <div className="px-4 py-2 border-t text-xs" style={{ borderColor: "rgba(0,0,0,0.06)", color: "#6b7a99" }}>
-              <CheckCircle2 size={12} className="inline mr-1.5" style={{ color: "#22c55e" }} />
-              All data is secure and HIPAA compliant
-            </div>
           </div>
         </div>
       </div>
