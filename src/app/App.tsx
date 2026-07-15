@@ -219,9 +219,6 @@ function SignInScreen({
           <p className="text-muted-foreground mt-1 text-sm">
             Care Management System
           </p>
-          <p className="text-xs text-muted-foreground mt-2">
-            Demo admin: admin / admin123 or database users: admin1 / admin1
-          </p>
         </div>
 
         <div className="bg-card border border-border rounded-2xl shadow-xl overflow-hidden">
