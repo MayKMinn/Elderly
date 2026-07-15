@@ -2388,14 +2388,38 @@ app.put("/api/elderly/:id", async (req, res) => {
 app.delete("/api/elderly/:id", async (req, res) => {
   try {
     await transaction(async (connection) => {
-      await connection.query("DELETE FROM `schedule` WHERE elderly_id = :id", { id: req.params.id });
-      await connection.query("DELETE FROM nurse_elderly_assignments WHERE elderly_id = :id", { id: req.params.id });
-      await connection.query(`DELETE FROM ${elderlyTable} WHERE elderly_id = :id`, { id: req.params.id });
+      const data = { id: req.params.id };
+      const [elderlyRows] = await connection.query(
+        `SELECT elderly_id FROM ${elderlyTable} WHERE elderly_id = :id FOR UPDATE`,
+        data
+      );
+
+      if (elderlyRows.length === 0) {
+        const error = new Error("Elderly profile not found.");
+        error.statusCode = 404;
+        throw error;
+      }
+
+      const [scheduleRows] = await connection.query(
+        "SELECT schedule_id AS id FROM `schedule` WHERE elderly_id = :id",
+        data
+      );
+      await deleteScheduleReportRecords(connection, scheduleRows.map((row) => row.id));
+      await connection.query("DELETE FROM health_log WHERE elderly_id = :id", data);
+      await connection.query("DELETE FROM report WHERE elderly_id = :id", data);
+      await connection.query("DELETE FROM medication_assignments WHERE elderly_id = :id", data);
+      await connection.query("DELETE FROM medication_logs WHERE elderly_id = :id", data);
+      await connection.query("DELETE FROM elderly_blood_pressure WHERE elderly_id = :id", data);
+      await connection.query("DELETE FROM elderly_blood_glucose WHERE elderly_id = :id", data);
+      await connection.query("DELETE FROM elderly_medications WHERE elderly_id = :id", data);
+      await connection.query("DELETE FROM `schedule` WHERE elderly_id = :id", data);
+      await connection.query("DELETE FROM nurse_elderly_assignments WHERE elderly_id = :id", data);
+      await connection.query(`DELETE FROM ${elderlyTable} WHERE elderly_id = :id`, data);
     });
 
     res.status(204).end();
   } catch (error) {
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       error: "Failed to delete elderly profile",
       details: error.message,
     });
