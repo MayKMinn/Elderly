@@ -1857,6 +1857,7 @@ function EditPanel({
   const [form, setForm] = useState({ ...profile, dob: toDateInputValue(profile.dob) });
   const [errors, setErrors] = useState<ValidationErrors>({});
   const [saving, setSaving] = useState(false);
+  const isInactive = profile.status === "Inactive";
   const birthdateLimits = getBirthdateLimits();
   const roomOptions = rooms
     .filter((room) => !room.elderlyId || String(room.elderlyId) === String(profile.id))
@@ -1904,6 +1905,12 @@ function EditPanel({
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
+          {isInactive && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              This elderly profile is inactive. Only the status can be changed.
+            </div>
+          )}
+          <fieldset disabled={isInactive} className="space-y-5 disabled:opacity-60">
           <EditSection title="Personal Information">
             <EditPhotoField value={form.avatar} onChange={(v) => update("avatar", v)} />
             <EditRow2>
@@ -1958,6 +1965,7 @@ function EditPanel({
             </EditRow2>
             <EditField label="Emergency Address" value={form.emergencyAddress} error={errors.emergencyAddress} onChange={(v) => update("emergencyAddress", v)} />
           </EditSection>
+          </fieldset>
 
           <EditSection title="Status">
             <EditSelect label="Status" value={form.status} options={["Active", "Inactive"]} onChange={(v) => update("status" as any, v)} />

@@ -2305,6 +2305,25 @@ app.put("/api/elderly/:id", async (req, res) => {
     };
 
     await transaction(async (connection) => {
+      const [existingRows] = await connection.query(
+        `SELECT elderly_status FROM ${elderlyTable} WHERE elderly_id = :id FOR UPDATE`,
+        data
+      );
+
+      if (existingRows.length === 0) {
+        const error = new Error("Elderly profile not found.");
+        error.statusCode = 404;
+        throw error;
+      }
+
+      if (!isActiveElderlyStatus(existingRows[0].elderly_status)) {
+        await connection.query(
+          `UPDATE ${elderlyTable} SET elderly_status = :elderlyStatus WHERE elderly_id = :id`,
+          data
+        );
+        return;
+      }
+
       const roomErrors = await validateRoomAssignment(connection, data.roomId, Number(id), {
         required: isActiveElderlyStatus(data.elderlyStatus),
       });
@@ -2359,7 +2378,7 @@ app.put("/api/elderly/:id", async (req, res) => {
       return;
     }
 
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       error: "Failed to update elderly profile",
       details: error.message,
     });
