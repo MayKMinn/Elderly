@@ -905,7 +905,11 @@ export function Schedules({ onNavigate, onOpenNurses }: SchedulesProps) {
       if (editingSchedule) {
         setEditingSchedule(saved);
         if (saved?.recurringGroupId) {
-          setRepeatWeeks(Math.max(hydratedSavedSchedules.length, Number(saved.recurringSequence) || 1));
+          setRepeatWeeks(
+            resizingRecurringEdit
+              ? repeatCount
+              : Math.max(hydratedSavedSchedules.length, Number(saved.recurringSequence) || 1)
+          );
         }
       }
       if (!editingSchedule) {
@@ -925,6 +929,11 @@ export function Schedules({ onNavigate, onOpenNurses }: SchedulesProps) {
         const refreshedSeries = hydratedRefreshedSchedules
           .filter((schedule) => schedule.recurringGroupId === saved.recurringGroupId)
           .sort((a, b) => (a.recurringSequence || 0) - (b.recurringSequence || 0));
+        setRepeatWeeks(Math.max(1, refreshedSeries.length));
+        const refreshedEditedSchedule = refreshedSeries.find((schedule) => schedule.id === saved.id);
+        if (refreshedEditedSchedule) {
+          setEditingSchedule(refreshedEditedSchedule);
+        }
         const firstInSeries = refreshedSeries[0];
         if (firstInSeries?.visitDate) {
           const firstDate = dateFromKey(firstInSeries.visitDate) || new Date();
