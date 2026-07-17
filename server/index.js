@@ -630,6 +630,28 @@ app.get("/api/health", async (_req, res) => {
   }
 });
 
+const scheduleEventClients = new Set();
+
+function notifyScheduleChanged(scheduleId) {
+  const payload = `event: schedule-changed\ndata: ${JSON.stringify({ scheduleId })}\n\n`;
+  scheduleEventClients.forEach((client) => client.write(payload));
+}
+
+app.get("/api/schedule-events", (req, res) => {
+  res.set({
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  });
+  res.flushHeaders();
+  res.write("retry: 3000\n\n");
+  scheduleEventClients.add(res);
+
+  req.on("close", () => {
+    scheduleEventClients.delete(res);
+  });
+});
+
 app.get("/api/schedules", async (req, res) => {
   const nurseId = String(req.query.nurseId || "").trim();
 
@@ -1356,7 +1378,9 @@ app.put("/api/schedules/:id", async (req, res) => {
       return;
     }
 
-    res.json(await selectScheduleById(id));
+    const updatedSchedule = await selectScheduleById(id);
+    notifyScheduleChanged(id);
+    res.json(updatedSchedule);
   } catch (error) {
     res.status(500).json({ error: "Failed to update schedule.", details: error.message });
   }
@@ -1404,7 +1428,9 @@ app.patch("/api/schedules/:id/status", async (req, res) => {
       return;
     }
 
-    res.json(await selectScheduleById(id));
+    const updatedSchedule = await selectScheduleById(id);
+    notifyScheduleChanged(id);
+    res.json(updatedSchedule);
   } catch (error) {
     res.status(500).json({ error: "Failed to update schedule.", details: error.message });
   }

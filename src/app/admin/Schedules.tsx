@@ -574,6 +574,26 @@ export function Schedules({ onNavigate, onOpenNurses }: SchedulesProps) {
   }, []);
 
   useEffect(() => {
+    const scheduleEvents = new EventSource("/api/schedule-events");
+
+    const refreshSchedules = async () => {
+      try {
+        const scheduleResponse = await getSchedules();
+        setSchedules(scheduleResponse.schedules);
+      } catch (loadError) {
+        console.error("Failed to refresh schedules after a live update.", loadError);
+      }
+    };
+
+    scheduleEvents.addEventListener("schedule-changed", refreshSchedules);
+
+    return () => {
+      scheduleEvents.removeEventListener("schedule-changed", refreshSchedules);
+      scheduleEvents.close();
+    };
+  }, []);
+
+  useEffect(() => {
     setElder((current) => elderlyOptionsForForm.some((item) => item.id === current)
       ? current
       : elderlyOptionsForForm[0]?.id || "");
