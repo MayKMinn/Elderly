@@ -299,6 +299,10 @@ export function Schedules({ onNavigate, onOpenNurses }: SchedulesProps) {
   const [activeCalendarSlot, setActiveCalendarSlot] = useState<{ dateKey: string; hour: number } | null>(null);
   const [createSlotLock, setCreateSlotLock] = useState<{ dateKey: string; hour: number } | null>(null);
   const [pendingDeleteSchedule, setPendingDeleteSchedule] = useState<ScheduleAssignment | null>(null);
+  const [scheduleSelectionMode, setScheduleSelectionMode] = useState(false);
+  const [selectedScheduleIds, setSelectedScheduleIds] = useState<Set<number>>(() => new Set());
+  const [showBulkDeleteConfirmation, setShowBulkDeleteConfirmation] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const [actionMenuId, setActionMenuId] = useState<number | null>(null);
   const [updatingScheduleId, setUpdatingScheduleId] = useState<number | null>(null);
   const [message, setMessage] = useState("");
@@ -365,6 +369,9 @@ export function Schedules({ onNavigate, onOpenNurses }: SchedulesProps) {
     && (!scheduleStatusFilter || schedule.scheduleStatus === scheduleStatusFilter)
     && (!scheduleDayFilter || String(dateFromKey(schedule.visitDate)?.getDay() ?? "") === scheduleDayFilter)
   ));
+  const visibleScheduleIds = tableSchedules.map((schedule) => schedule.id);
+  const allVisibleSchedulesSelected = visibleScheduleIds.length > 0
+    && visibleScheduleIds.every((id) => selectedScheduleIds.has(id));
   const scheduleSearchSuggestions = useMemo(() => {
     const query = normalizeScheduleSearchValue(scheduleSearch);
     const suggestions: ScheduleSearchSuggestion[] = [
@@ -981,6 +988,17 @@ export function Schedules({ onNavigate, onOpenNurses }: SchedulesProps) {
           ? schedule.recurringGroupId !== row.recurringGroupId
           : schedule.id !== row.id
       )));
+      setSelectedScheduleIds((current) => {
+        const next = new Set(current);
+        if (deleteGroup && row.recurringGroupId) {
+          schedules
+            .filter((schedule) => schedule.recurringGroupId === row.recurringGroupId)
+            .forEach((schedule) => next.delete(schedule.id));
+        } else {
+          next.delete(row.id);
+        }
+        return next;
+      });
       setSelectedSchedule((current) => current?.id === row.id ? null : current);
       setPendingDeleteSchedule(null);
       setActionMenuId(null);
@@ -991,6 +1009,77 @@ export function Schedules({ onNavigate, onOpenNurses }: SchedulesProps) {
     } finally {
       setUpdatingScheduleId(null);
     }
+  }
+
+  function toggleScheduleSelection(scheduleId: number) {
+    setSelectedScheduleIds((current) => {
+      const next = new Set(current);
+      if (next.has(scheduleId)) {
+        next.delete(scheduleId);
+      } else {
+        next.add(scheduleId);
+      }
+      return next;
+    });
+  }
+
+  function toggleAllVisibleSchedules() {
+    setSelectedScheduleIds((current) => {
+      const next = new Set(current);
+      if (allVisibleSchedulesSelected) {
+        visibleScheduleIds.forEach((id) => next.delete(id));
+      } else {
+        visibleScheduleIds.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  }
+
+  async function confirmBulkDeleteSchedules() {
+    const idsToDelete = Array.from(selectedScheduleIds);
+    if (idsToDelete.length === 0) return;
+
+    setBulkDeleting(true);
+    setError("");
+    setMessage("");
+
+    const deletedIds: number[] = [];
+    const failedIds: number[] = [];
+
+    for (const scheduleId of idsToDelete) {
+      try {
+        await deleteSchedule(scheduleId);
+        deletedIds.push(scheduleId);
+      } catch (deleteError) {
+        console.error(`Failed to delete selected schedule ${scheduleId}.`, deleteError);
+        failedIds.push(scheduleId);
+      }
+    }
+
+    const failedCount = failedIds.length;
+    const deletedIdSet = new Set(deletedIds);
+
+    if (deletedIds.length > 0) {
+      setSchedules((current) => current.filter((schedule) => !deletedIdSet.has(schedule.id)));
+      setSelectedScheduleIds((current) => {
+        const next = new Set(current);
+        deletedIds.forEach((id) => next.delete(id));
+        return next;
+      });
+      setSelectedSchedule((current) => current && deletedIdSet.has(current.id) ? null : current);
+    }
+
+    if (failedCount > 0) {
+      setError(
+        `${deletedIds.length} schedule${deletedIds.length === 1 ? "" : "s"} deleted. `
+        + `${failedCount} schedule${failedCount === 1 ? "" : "s"} could not be deleted and remain selected.`
+      );
+    } else {
+      setMessage(`${deletedIds.length} selected schedule${deletedIds.length === 1 ? "" : "s"} deleted.`);
+      setShowBulkDeleteConfirmation(false);
+      setScheduleSelectionMode(false);
+    }
+    setBulkDeleting(false);
   }
 
   return (
@@ -1881,12 +1970,69 @@ export function Schedules({ onNavigate, onOpenNurses }: SchedulesProps) {
                     </div>
                   </label>
                 )}
+                {!scheduleSelectionMode && (
+                  <div className="ml-1 flex items-center gap-2 border-l pl-3" style={{ borderColor: "rgba(0,0,0,0.1)" }}>
+                    <button
+                      type="button"
+                      onClick={() => setScheduleSelectionMode(true)}
+                      className="rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-blue-50"
+                      style={{ borderColor: "#93c5fd", color: "#2563eb", backgroundColor: "#eff6ff" }}
+                    >
+                      Select schedules
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
+            {scheduleSelectionMode && (
+              <div
+                className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-2.5"
+                style={{ borderColor: "rgba(37,99,235,0.14)", backgroundColor: "#eff6ff" }}
+              >
+                <span className="text-xs font-medium" style={{ color: "#1d4ed8" }}>
+                  {selectedScheduleIds.size} schedule{selectedScheduleIds.size === 1 ? "" : "s"} selected
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowBulkDeleteConfirmation(true)}
+                    disabled={selectedScheduleIds.size === 0}
+                    className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-white disabled:cursor-not-allowed disabled:opacity-50"
+                    style={{ backgroundColor: "#dc2626" }}
+                  >
+                    <Trash2 size={12} /> Delete selected
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedScheduleIds(new Set());
+                      setScheduleSelectionMode(false);
+                    }}
+                    className="rounded-lg border bg-white px-3 py-1.5 text-xs hover:bg-gray-50"
+                    style={{ borderColor: "rgba(0,0,0,0.12)", color: "#6b7a99" }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr style={{ backgroundColor: "#f8fafc" }}>
+                    {scheduleSelectionMode && (
+                      <th className="w-10 px-3 py-2.5 text-left">
+                        <input
+                          type="checkbox"
+                          checked={allVisibleSchedulesSelected}
+                          onChange={toggleAllVisibleSchedules}
+                          disabled={tableSchedules.length === 0}
+                          className="h-4 w-4 cursor-pointer rounded border-gray-300 accent-blue-600 disabled:cursor-not-allowed"
+                          title="Select all visible schedules"
+                          aria-label="Select all visible schedules"
+                        />
+                      </th>
+                    )}
                     {["Caregiver", "Elderly", "Date", "Time", "Purpose", "Status", "Recurring", "Action"].map((c) => (
                       <th key={c} className="px-3 py-2.5 text-left text-xs" style={{ color: "#6b7a99", fontWeight: 600 }}>
                         {c}
@@ -1897,18 +2043,36 @@ export function Schedules({ onNavigate, onOpenNurses }: SchedulesProps) {
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan={8} className="px-3 py-8 text-center text-xs" style={{ color: "#6b7a99" }}>
+                      <td colSpan={scheduleSelectionMode ? 9 : 8} className="px-3 py-8 text-center text-xs" style={{ color: "#6b7a99" }}>
                         Loading schedules...
                       </td>
                     </tr>
                   ) : tableSchedules.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-3 py-8 text-center text-xs" style={{ color: "#6b7a99" }}>
+                      <td colSpan={scheduleSelectionMode ? 9 : 8} className="px-3 py-8 text-center text-xs" style={{ color: "#6b7a99" }}>
                         No schedules found for this filter.
                       </td>
                     </tr>
                   ) : tableSchedules.map((row) => (
-                    <tr key={row.id} className="border-t" style={{ borderColor: "rgba(0,0,0,0.05)" }}>
+                    <tr
+                      key={row.id}
+                      className="border-t"
+                      style={{
+                        borderColor: "rgba(0,0,0,0.05)",
+                        backgroundColor: selectedScheduleIds.has(row.id) ? "#eff6ff" : undefined,
+                      }}
+                    >
+                      {scheduleSelectionMode && (
+                        <td className="px-3 py-2.5">
+                          <input
+                            type="checkbox"
+                            checked={selectedScheduleIds.has(row.id)}
+                            onChange={() => toggleScheduleSelection(row.id)}
+                            className="h-4 w-4 cursor-pointer rounded border-gray-300 accent-blue-600"
+                            aria-label={`Select schedule for ${row.elderlyName} on ${toDisplayDate(row.visitDate)}`}
+                          />
+                        </td>
+                      )}
                       <td className="px-3 py-2.5">
                         <div className="flex items-center gap-1.5">
                           <img src={row.nurseAvatar} className="w-6 h-6 rounded-full" alt="" />
@@ -2128,6 +2292,63 @@ export function Schedules({ onNavigate, onOpenNurses }: SchedulesProps) {
                 <Trash2 size={12} /> {updatingScheduleId === pendingDeleteSchedule.id
                   ? "Deleting..."
                   : pendingDeleteSchedule.recurringGroupId ? "Entire series" : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showBulkDeleteConfirmation && selectedScheduleIds.size > 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4">
+          <div className="w-full max-w-sm rounded-xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b px-5 py-4" style={{ borderColor: "rgba(0,0,0,0.08)" }}>
+              <div>
+                <h3 className="text-sm" style={{ color: "#1a2b42", fontWeight: 700 }}>Delete Selected Schedules</h3>
+                <p className="text-xs" style={{ color: "#6b7a99" }}>This action cannot be undone.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowBulkDeleteConfirmation(false)}
+                disabled={bulkDeleting}
+                className="flex h-7 w-7 items-center justify-center rounded-lg hover:bg-gray-100 disabled:opacity-50"
+                aria-label="Close bulk delete confirmation"
+              >
+                <X size={15} style={{ color: "#6b7a99" }} />
+              </button>
+            </div>
+
+            <div className="px-5 py-4">
+              <div className="rounded-lg border p-3" style={{ borderColor: "rgba(220,38,38,0.18)", backgroundColor: "#fef2f2" }}>
+                <div className="mb-2 flex items-center gap-2">
+                  <AlertCircle size={16} style={{ color: "#dc2626" }} />
+                  <span className="text-xs" style={{ color: "#991b1b", fontWeight: 700 }}>Confirm bulk delete</span>
+                </div>
+                <p className="text-xs leading-relaxed" style={{ color: "#7f1d1d" }}>
+                  Delete {selectedScheduleIds.size} selected schedule{selectedScheduleIds.size === 1 ? "" : "s"}?
+                </p>
+                <p className="mt-2 text-xs leading-relaxed" style={{ color: "#991b1b" }}>
+                  For recurring schedules, only the selected visits will be deleted.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 border-t px-5 py-3" style={{ borderColor: "rgba(0,0,0,0.08)" }}>
+              <button
+                type="button"
+                onClick={() => setShowBulkDeleteConfirmation(false)}
+                disabled={bulkDeleting}
+                className="rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50 disabled:opacity-50"
+                style={{ borderColor: "rgba(0,0,0,0.12)", color: "#6b7a99" }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmBulkDeleteSchedules}
+                disabled={bulkDeleting}
+                className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-white disabled:opacity-60"
+                style={{ backgroundColor: "#dc2626" }}
+              >
+                <Trash2 size={12} /> {bulkDeleting ? "Deleting..." : "Delete selected"}
               </button>
             </div>
           </div>

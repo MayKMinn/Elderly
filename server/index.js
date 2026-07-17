@@ -637,6 +637,47 @@ function notifyScheduleChanged(scheduleId) {
   scheduleEventClients.forEach((client) => client.write(payload));
 }
 
+const MISSED_SCHEDULE_GRACE_MINUTES = 15;
+const MISSED_SCHEDULE_CHECK_INTERVAL_MS = 60 * 1000;
+let missedScheduleCheckInProgress = false;
+
+async function markOverdueSchedulesMissed() {
+  if (missedScheduleCheckInProgress) return;
+  missedScheduleCheckInProgress = true;
+
+  try {
+    const cutoff = new Date(
+      getForcedNow().getTime() - MISSED_SCHEDULE_GRACE_MINUTES * 60 * 1000
+    );
+    const missedCutoff = formatDateTimeForSql(cutoff);
+    const [overdueSchedules] = await pool.query(
+      `SELECT schedule_id AS id
+       FROM \`schedule\`
+       WHERE schedule_status = 'scheduled'
+         AND TIMESTAMP(DATE(visit_date), TIME(visit_time)) < :missedCutoff`,
+      { missedCutoff }
+    );
+
+    const scheduleIds = overdueSchedules
+      .map((schedule) => Number(schedule.id))
+      .filter((id) => Number.isInteger(id) && id > 0);
+
+    if (scheduleIds.length === 0) return;
+
+    await pool.query(
+      `UPDATE \`schedule\`
+       SET schedule_status = 'missed'
+       WHERE schedule_status = 'scheduled'
+         AND schedule_id IN (:scheduleIds)`,
+      { scheduleIds }
+    );
+
+    scheduleIds.forEach(notifyScheduleChanged);
+  } finally {
+    missedScheduleCheckInProgress = false;
+  }
+}
+
 app.get("/api/schedule-events", (req, res) => {
   res.set({
     "Content-Type": "text/event-stream",
@@ -3319,4 +3360,13 @@ app.listen(port, async () => {
     console.error(error.message);
     console.error("Verify XAMPP MySQL is running and that the root account can access the eldercare database.");
   }
+
+  markOverdueSchedulesMissed().catch((error) => {
+    console.error("Failed to mark overdue schedules as missed:", error.message);
+  });
+  setInterval(() => {
+    markOverdueSchedulesMissed().catch((error) => {
+      console.error("Failed to mark overdue schedules as missed:", error.message);
+    });
+  }, MISSED_SCHEDULE_CHECK_INTERVAL_MS);
 });
