@@ -55,29 +55,45 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
     }
 
     let ignore = false;
+    let requestInProgress = false;
     setLoading(true);
 
-    fetch(`/api/schedules?nurseId=${encodeURIComponent(nurseId)}`)
-      .then(async (response) => {
+    const loadSchedules = async (showLoading = false) => {
+      if (requestInProgress) return;
+      requestInProgress = true;
+      if (showLoading && !ignore) setLoading(true);
+
+      try {
+        const response = await fetch(`/api/schedules?nurseId=${encodeURIComponent(nurseId)}`);
         if (!response.ok) {
           throw new Error(await response.text());
         }
-        return response.json();
-      })
-      .then((data) => {
+        const data = await response.json();
         if (!ignore) {
           setSchedules(data.schedules || []);
         }
-      })
-      .catch((error) => {
+      } catch (error) {
         console.error("Failed to load nurse schedules.", error);
-      })
-      .finally(() => {
+      } finally {
+        requestInProgress = false;
         if (!ignore) setLoading(false);
-      });
+      }
+    };
+
+    const handleWindowFocus = () => {
+      void loadSchedules();
+    };
+
+    void loadSchedules(true);
+    const intervalId = window.setInterval(() => {
+      void loadSchedules();
+    }, 5000);
+    window.addEventListener("focus", handleWindowFocus);
 
     return () => {
       ignore = true;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleWindowFocus);
     };
   }, [nurseId]);
 
