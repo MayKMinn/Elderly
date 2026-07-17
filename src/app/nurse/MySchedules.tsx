@@ -101,52 +101,6 @@ export function MySchedules({ nurseName = "Nurse", nurseId, selectedScheduleId: 
     setSelectedScheduleId(selectedScheduleIdProp);
   }, [selectedScheduleIdProp]);
 
-  // Periodically check for schedules that have passed without completion
-  useEffect(() => {
-    if (!schedules || schedules.length === 0) return;
-
-    const graceMinutes = 15; // minutes after scheduled time to mark as missed
-
-    const checkMissed = async () => {
-      const now = new Date();
-      for (const sch of schedules) {
-        try {
-          if (String(sch.scheduleStatus).toLowerCase() !== "scheduled") continue;
-
-          const datePart = String(sch.visitDate || "").slice(0, 10); // YYYY-MM-DD
-          const timePart = String(sch.visitTime || "").split(" ").pop() || ""; // HH:MM or HH:MM:SS
-          const [h, m, s] = timePart.split(":").map((v) => Number(v || 0));
-          const [yyyy, mm, dd] = (datePart || "").split("-").map((v) => Number(v || 0));
-          if (!yyyy || !mm || !dd) continue;
-
-          const scheduledDate = new Date(yyyy, mm - 1, dd, Number.isFinite(h) ? h : 0, Number.isFinite(m) ? m : 0, Number.isFinite(s) ? s : 0);
-
-          const diffMinutes = (now.getTime() - scheduledDate.getTime()) / 60000;
-          if (diffMinutes > graceMinutes) {
-            // mark missed
-            try {
-              await updateScheduleStatus(sch.id, "missed");
-              setSchedules((prev) => prev.map((it) => (it.id === sch.id ? { ...it, scheduleStatus: "missed" } : it)));
-              if (selectedScheduleId === sch.id) {
-                setSelectedScheduleId((prev) => prev === sch.id ? prev : prev);
-              }
-            } catch (err) {
-              console.error("Failed to mark schedule missed", sch.id, err);
-            }
-          }
-        } catch (err) {
-          console.error("Error checking schedule", sch.id, err);
-        }
-      }
-    };
-
-    const id = setInterval(checkMissed, 60 * 1000);
-    // run once now
-    checkMissed().catch(() => {});
-
-    return () => clearInterval(id);
-  }, [schedules]);
-
   const filteredSchedules = useMemo(() => {
     const q = String(searchText || "").trim().toLowerCase();
     if (!q) return schedules;
