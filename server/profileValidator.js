@@ -176,8 +176,7 @@ function runProcess(command, args, input = "") {
 }
 
 async function ensureCobolValidator(source = cobolSource, binary = cobolBinary) {
-  if (existsSync(binary)) return true;
-  if (compileAttempted.has(binary)) return false;
+  if (compileAttempted.has(binary)) return existsSync(binary);
 
   compileAttempted.add(binary);
 
