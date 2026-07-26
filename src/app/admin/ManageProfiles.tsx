@@ -685,7 +685,19 @@ export function ManageProfiles({ activeTab, onTabChange, onNavigate, editElderly
       }
     } else {
       if (!profile.position) errors.position = "Position is required.";
-      if (!profile.hireDate.trim()) errors.hireDate = "Hire date is required.";
+      const hireDate = String(profile.hireDate || "").trim();
+      if (!hireDate) {
+        errors.hireDate = "Hire date is required.";
+      } else {
+        const parsedHireDate = new Date(`${hireDate}T00:00:00`);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const earliestHireDate = new Date(today);
+        earliestHireDate.setDate(today.getDate() - 7);
+        if (Number.isNaN(parsedHireDate.getTime())) errors.hireDate = "Enter a valid hire date.";
+        else if (parsedHireDate > today) errors.hireDate = "Hire date cannot be in the future.";
+        else if (parsedHireDate < earliestHireDate) errors.hireDate = "Hire date must be within the past 7 days.";
+      }
       if (!profile.nurseStatus) errors.nurseStatus = "Nurse status is required.";
     }
 
@@ -2046,6 +2058,16 @@ function validateNurseEditProfile(profile: NurseProfile): ValidationErrors {
       parsedDate.getDate() !== day
     ) {
       errors.hireDate = "Date must use format YYYY-MM-DD.";
+    } else {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const earliestHireDate = new Date(today);
+      earliestHireDate.setDate(today.getDate() - 7);
+      if (parsedDate > today) {
+        errors.hireDate = "Hire date cannot be in the future.";
+      } else if (parsedDate < earliestHireDate) {
+        errors.hireDate = "Hire date must be within the past 7 days.";
+      }
     }
   }
 

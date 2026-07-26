@@ -113,15 +113,25 @@ function formatDateInput(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
+function getEarliestHireDate() {
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() - 7);
+  return formatDateInput(date);
+}
+
 function validateHireDate(value: string) {
   if (!value) return "Hire date is required.";
 
   const hireDate = new Date(`${value}T00:00:00`);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  const earliestHireDate = new Date(today);
+  earliestHireDate.setDate(today.getDate() - 7);
 
   if (Number.isNaN(hireDate.getTime())) return "Enter a valid hire date.";
   if (hireDate > today) return "Hire date cannot be in the future.";
+  if (hireDate < earliestHireDate) return "Hire date must be within the past 7 days.";
 
   return undefined;
 }
@@ -562,6 +572,7 @@ export function AddProfileFormBase({ type, onBack, onSave }: AddProfileFormBaseP
                     label="Hire Date *"
                     placeholder="YYYY-MM-DD"
                     type="date"
+                    min={getEarliestHireDate()}
                     max={formatDateInput(new Date())}
                     value={form.hireDate}
                     error={errors.hireDate}
