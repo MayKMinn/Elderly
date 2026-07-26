@@ -120,11 +120,26 @@ function validateHireDate(value) {
   const hireDate = new Date(`${value}T00:00:00`);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  const earliestHireDate = new Date(today);
+  earliestHireDate.setDate(today.getDate() - 7);
 
   if (Number.isNaN(hireDate.getTime())) return "Enter a valid hire date.";
   if (hireDate > today) return "Hire date cannot be in the future.";
+  if (hireDate < earliestHireDate) return "Hire date must be within the past 7 days.";
 
   return undefined;
+}
+
+function applyNurseHireDateValidation(profile, validation) {
+  if (profile.type !== "nurse") return validation;
+
+  const errors = { ...(validation.errors || {}) };
+  const hireDateError = validateHireDate(profile.hireDate);
+
+  if (hireDateError) errors.hireDate = hireDateError;
+  else delete errors.hireDate;
+
+  return { valid: Object.keys(errors).length === 0, errors };
 }
 
 function runProcess(command, args, input = "") {
@@ -176,8 +191,7 @@ function runProcess(command, args, input = "") {
 }
 
 async function ensureCobolValidator(source = cobolSource, binary = cobolBinary) {
-  if (existsSync(binary)) return true;
-  if (compileAttempted.has(binary)) return false;
+  if (compileAttempted.has(binary)) return existsSync(binary);
 
   compileAttempted.add(binary);
 
@@ -325,7 +339,7 @@ export async function validateProfileWithCobol(profile) {
 
     try {
       const output = await runProcess(nurseCobolBinary, [], `${input}\n`);
-      return JSON.parse(output);
+      return applyNurseHireDateValidation(profile, JSON.parse(output));
     } catch (error) {
       console.warn("COBOL nurse validation failed, using JavaScript fallback:", error.message);
       return fallbackValidate(profile);
