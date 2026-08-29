@@ -1,101 +1,107 @@
 # ElderEase
 
-  ElderEase is an elderly care management app with an admin portal, nurse/caregiver profiles, MySQL-backed profile data, and login history.
+ElderEase is a web application for managing elderly care operations. It provides an admin portal, nurse/caregiver interfaces, resident profiles, medication and schedule management, and reporting. The project includes a Vite + React frontend and a Node/Express backend that uses MySQL for persistence.
 
-  ## Running the code
+## Features
+- Admin and nurse portals
+- Resident profile management (create, edit, delete)
+- Schedules, medications, and reports
+- Audit / login history
+- API-first design (easy to replace backend implementation)
 
-  Run `npm i` to install the dependencies.
+## Tech stack
+- Frontend: React (Vite), TypeScript
+- Backend: Node.js, Express
+- Database: MySQL (schema provided)
+- Build tools: pnpm / npm, Vite
 
-  To start the backend API, connect to MySQL, and run the React app:
+## Prerequisites
+- Node.js (LTS)
+- npm or pnpm
+- MySQL (for full backend + data persistence)
 
-  ```bash
-  npm run dev
-  ```
+## Quick start (development)
+1. Install dependencies:
 
-  Open the Vite localhost URL, usually `http://localhost:5173/`.
+```bash
+npm install
+# or: pnpm install
+```
 
-  For UI-only testing without MySQL:
+2. Start the development servers (API + UI):
 
-  ```bash
-  npm run dev:ui
-  ```
+```bash
+npm run dev
+```
 
-  Demo logins:
+This runs the backend API and the Vite dev server. Open the app at the Vite URL (commonly http://localhost:5173).
 
-  ```text
-  Admin: use an active admin account from MySQL
-  Nurse: patricia@elderease.com / nurse123
-  ```
+To run the UI in sample-data mode (no MySQL required):
 
-  ## Sending this project to friends
+```bash
+npm run dev:ui
+```
 
-  Send the project folder without `node_modules` and `dist` if possible. Your friend should run:
+## Environment
+The server reads configuration from a `.env` file in the project root. A minimal example:
 
-  ```bash
-  npm install
-  npm run dev
-  ```
+```env
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_USER=root
+DB_PASSWORD=
+DB_NAME=eldercare
+SERVER_PORT=3001
+VITE_USE_API=true
+```
 
-  If they want MySQL data too, they need XAMPP/MySQL running and should follow the MySQL setup below.
+Do not commit real credentials to source control.
 
-  ## MySQL setup
+## Database setup
+1. Create the database and tables using the provided schema:
 
-  This project already has a local API server that can connect to MySQL. The React app calls `/api`, Vite proxies that to `http://localhost:3001`, and the server reads database settings from `.env`.
+```bash
+# macOS XAMPP example
+/Applications/XAMPP/xamppfiles/bin/mysql -u root < database/schema.sql
+# or, if password protected:
+# /Applications/XAMPP/xamppfiles/bin/mysql -u root -p < database/schema.sql
+```
 
-  1. Start MySQL. If you use XAMPP, start MySQL from the XAMPP control panel.
-  2. Update `.env` if your MySQL user/password is different:
+2. Confirm the API is healthy:
 
-  ```env
-  DB_HOST=127.0.0.1
-  DB_PORT=3306
-  DB_USER=root
-  DB_PASSWORD=
-  DB_NAME=eldercare
-  SERVER_PORT=3001
-  VITE_USE_API=true
-  ```
+```bash
+curl http://localhost:3001/api/health
+```
 
-  3. Create the database tables and sample rows:
+## Important scripts
+- `npm run dev` — Start backend API and Vite dev server
+- `npm run dev:ui` — Start frontend with embedded sample data (no database required)
+- `npm run build` — Build the frontend for production
 
-  ```bash
-  /Applications/XAMPP/xamppfiles/bin/mysql -u root < database/schema.sql
-  ```
+## API (examples)
+- `GET /api/health` — Health check
+- `GET /api/profiles` — List resident profiles
+- `PUT /api/elderly/:id` — Update a resident
+- `DELETE /api/elderly/:id` — Remove a resident
 
-  If your root user has a password, use:
+Keep the frontend calling `/api/...`; the backend implementation can change as long as it preserves the same contract.
 
-  ```bash
-  /Applications/XAMPP/xamppfiles/bin/mysql -u root -p < database/schema.sql
-  ```
+## Demo accounts
+- Admin: use an admin account seeded in the MySQL database
+- Nurse: `patricia@elderease.com` / `nurse123` (sample account)
 
-  4. Start both the API server and React app:
+## Contributing
+Contributions are welcome. Suggested workflow:
 
-  ```bash
-  npm run dev
-  ```
+1. Fork the repo
+2. Create a feature branch
+3. Add tests where appropriate
+4. Open a PR with a clear description
 
-  Open the UI at the Vite localhost URL, usually `http://localhost:5173/`.
+Please follow existing code style and run linters/tests before submitting.
 
-  You can test the API directly at:
+## License & Contact
+This project does not include a license file. Add a `LICENSE` if you wish to open-source it.
 
-  ```bash
-  curl http://localhost:3001/api/health
-  curl http://localhost:3001/api/profiles
-  ```
-
-  Do not put MySQL credentials in React components. Keep them only in `.env` or in your backend.
-
-  Run `npm run dev:ui` to start the UI-only development server. This uses the built-in sample data.
-
-  Run `npm run dev` to start both the MySQL API server and the UI.
-
-  ## COBOL backend note
-
-  If you replace the Node/Express server with a COBOL backend later, keep the same API contract:
-
-  - `GET /api/health`
-  - `GET /api/profiles`
-  - `PUT /api/elderly/:id`
-  - `DELETE /api/elderly/:id`
-
-  The frontend should still call `/api/...`; only the backend implementation changes. The COBOL service should connect to MySQL on the server side and return the same JSON shapes that `server/index.js` returns today.
+Questions or help? Open an issue in the repository or contact the maintainer.
   
