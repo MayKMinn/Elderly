@@ -88,7 +88,7 @@ Keep the frontend calling `/api/...`; the backend implementation can change as l
 
 ## Demo accounts
 - Admin: use an admin account seeded in the MySQL database
-- Nurse: `patricia@elderease.com` / `nurse123` (sample account)
+- Nurse: `emily` / `password123` (sample account)
 
 ## Contributing
 Contributions are welcome. Suggested workflow:
@@ -100,8 +100,4 @@ Contributions are welcome. Suggested workflow:
 
 Please follow existing code style and run linters/tests before submitting.
 
-## License & Contact
-This project does not include a license file. Add a `LICENSE` if you wish to open-source it.
 
-Questions or help? Open an issue in the repository or contact the maintainer.
-  
