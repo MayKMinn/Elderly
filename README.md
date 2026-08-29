@@ -90,14 +90,6 @@ Keep the frontend calling `/api/...`; the backend implementation can change as l
 - Admin: use an admin account seeded in the MySQL database
 - Nurse: `emily` / `password123` (sample account)
 
-## Contributing
-Contributions are welcome. Suggested workflow:
 
-1. Fork the repo
-2. Create a feature branch
-3. Add tests where appropriate
-4. Open a PR with a clear description
-
-Please follow existing code style and run linters/tests before submitting.
 
 
