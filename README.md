@@ -42,20 +42,7 @@ To run the UI in sample-data mode (no MySQL required):
 npm run dev:ui
 ```
 
-## Environment
-The server reads configuration from a `.env` file in the project root. A minimal example:
 
-```env
-DB_HOST=127.0.0.1
-DB_PORT=3306
-DB_USER=root
-DB_PASSWORD=
-DB_NAME=eldercare
-SERVER_PORT=3001
-VITE_USE_API=true
-```
-
-Do not commit real credentials to source control.
 
 ## Database setup
 1. Create the database and tables using the provided schema:
